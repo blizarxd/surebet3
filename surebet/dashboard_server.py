@@ -170,6 +170,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         polybuy = polybuy_summary(conn)
     except sqlite3.OperationalError:
         polybuy = None
+    from .valuenet import summary as nets_summary
+    nets = nets_summary(conn)
     try:  # CLV de cada apuesta de valor (lo calcula clv.py contra el cierre de Polymarket)
         clv = {r[0]: r[1] for r in conn.execute("SELECT key, clv_pct FROM value_bets WHERE clv_pct IS NOT NULL")}
     except sqlite3.OperationalError:
@@ -268,6 +270,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
         "funnel": funnel,
         "polybuy": polybuy,
+        "nets": nets,
         "valor": {**_auto_account(valor_ops, float(meta.get("valor_initial", 1000)),
                                   float(meta.get("valor_started", time.time()))),
                   "groups": _value_groups(valor_ops)},

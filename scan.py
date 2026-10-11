@@ -46,6 +46,7 @@ from surebet.paper import PaperBook, PaperConfig
 from surebet.execsim import ExecSimulator
 from surebet.makersim import MakerSimulator, book_ref
 from surebet.polybuy import PolyBuyer
+from surebet.valuenet import ValueNet
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -274,6 +275,7 @@ async def main() -> None:
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
+    nets = ValueNet(buyer)  # red de seguridad de las apuestas de valor (botón 🛟 en el aviso)
     status_path = s.db_path.parent / "status.json"
     if not args.no_dashboard:
         try:
@@ -370,8 +372,13 @@ async def main() -> None:
                     st_ = v.event.anchor.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
                     if worth_value(v, hrs):  # solo el valor "oro", una vez por partido
+                        stake = min(s.bankroll * v.kelly * s.kelly_fraction, s.bankroll * 0.03)
+                        buttons = [(f"Abrir {v.quote.source}", v.quote.url)] if v.quote.url.startswith("http") else []
+                        nid = nets.offer(v, stake)
+                        if nid:
+                            buttons.append(nets.button(nid))
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_value_bet(v, s.bankroll, s.kelly_fraction))
+                                            format_value_bet(v, s.bankroll, s.kelly_fraction), buttons)
                 report_file = s.db_path.parent / "daily_report.txt"
                 today = time.strftime("%Y-%m-%d")
                 if paper and 0 <= s.daily_report_hour <= int(time.strftime("%H")):
@@ -393,9 +400,11 @@ async def main() -> None:
                         paper.consider(res.opps, res.values, resolution)
                         execsim.step(res.opps, paper.eligible_real,
                                      lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
+                        poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
                         makersim.step_value(res.values, golden_value)
-                        makersim.step(res.opps, {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes},
-                                      paper.eligible_real, res.book_quotes)
+                        makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes)
+                        await nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
+                                                                             s.telegram_chat_id, t))
                         await paper.settle(client)
                     except Exception as e:  # el papel nunca debe tumbar el escáner
                         poly.status = f"error en papel: {e!r}"[:160]

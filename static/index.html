@@ -94,6 +94,13 @@
   </section>
   <section class="card"><h2>Curva de capital (valor)</h2><div class="chart-box"><canvas id="curve-valor"></canvas></div></section>
   <section class="card">
+    <h2>🛟 Tus redes desde Telegram <span class="count" id="nets-sum"></span></h2>
+    <div class="small muted">Cuando tocas «🛟 Ya aposté» en un aviso de valor, el bot deja la orden límite en Polymarket, la vigila y la cancela
+      10 min antes del partido si no se llenó. En DEMO no envía nada (da por llenada la orden cuando el vendedor baja a tu precio).</div>
+    <div class="scroll"><table id="nets"></table></div>
+  </section>
+
+  <section class="card">
     <h2>Apuestas de la cuenta de valor <span class="count" id="valor-count"></span></h2>
     <div class="scroll"><table id="valor-ops"></table></div>
   </section>
@@ -492,6 +499,20 @@ function renderValueNet(v) {
       <td class="num ${cls(r.clv)}">${r.clv == null ? "-" : pct(r.clv, 1)}</td></tr>`).join("");
 }
 
+function renderNets(n) {
+  if (!n || !n.rows.length) { $("nets").innerHTML = `<tr><td class="empty">Todavía no llegó ningún aviso de valor con botón 🛟.</td></tr>`; return; }
+  const lab = {offered: ["open", "aviso enviado (sin tocar)"], resting: ["open", "red esperando"], locked: ["won", "ASEGURADA"],
+    partial: ["won", "asegurada en parte"], kept: ["void", "quedó como valor"], expired: ["void", "botón vencido"], rejected: ["lost", "no se puso"], error: ["lost", "error"]};
+  $("nets-sum").textContent = `(${Object.entries(n.counts).map(([k, c]) => `${(lab[k] || ["", k])[1]}: ${c}`).join(" · ")})`;
+  $("nets").innerHTML = `<tr><th>Aviso</th><th>Partido</th><th>1xBet (a mano)</th><th>Red en Polymarket</th><th>Estado</th><th class="num">Asegurado</th></tr>` +
+    n.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}${r.clicked_ts ? `<div class="muted">tocado ${when(r.clicked_ts)}</div>` : ""}</td>
+      <td>${esc(r.title)}<div class="muted small">${esc(r.market)} · EV ${pct(r.ev_pct, 1)} · ${r.mode === "real" ? "REAL" : "demo"}</div></td>
+      <td class="small">${esc(r.book_label)} @ ${Number(r.book_odds).toFixed(2)} · ${money(r.book_stake)}</td>
+      <td class="small">${Number(r.shares).toFixed(0)} shares de ${esc(r.label)} a ${(100 * r.limit_price).toFixed(0)}¢</td>
+      <td><span class="tag ${(lab[r.status] || ["open"])[0]}">${(lab[r.status] || ["", r.status])[1]}</span></td>
+      <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true) + ` (${pct(r.net_pct)})`}</td></tr>`).join("");
+}
+
 function renderFunnel(f) {
   if (!f || !f.total) { $("funnel-counts").innerHTML = `<tr><td class="empty">Todavía no hubo surebets automatizables.</td></tr>`; $("funnel-rows").innerHTML = ""; return; }
   $("funnel-sum").textContent = `(${f.total} señales)`;
@@ -567,7 +588,7 @@ async function refresh() {
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
     renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
-    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
+    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
     $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;

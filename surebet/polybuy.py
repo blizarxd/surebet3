@@ -80,6 +80,7 @@ class PolyBuyer:
         self.max_order, self.max_daily = max_order_usd, max_daily_usd
         self._offset = 0
         self._clob = None
+        self.nets = None   # ValueNet (red de seguridad de las apuestas de valor), si está activa
         self.status = "demo (no envía órdenes)" if not self.live else "REAL"
 
     # ------------------------------------------------------------------ oferta (al avisar)
@@ -146,7 +147,12 @@ class PolyBuyer:
             return  # solo tu chat
         if cq:
             data = cq.get("data", "")
-            text = await self.execute(client, int(data[3:])) if data.startswith("pb:") else "Botón desconocido."
+            if data.startswith("pb:"):
+                text = await self.execute(client, int(data[3:]))
+            elif data.startswith("vn:") and self.nets:
+                text = await self.nets.click(client, int(data[3:]))
+            else:
+                text = "Botón desconocido."
             await client.post(f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",
                               json={"callback_query_id": cq["id"], "text": text[:190]})
             await self._say(client, text)
@@ -162,7 +168,8 @@ class PolyBuyer:
                 spent = self._spent_today()
                 await self._say(client, f"Modo: {'REAL' if self.live else 'DEMO (no envía órdenes)'}\n"
                                         f"Pausado: {'sí' if self._paused() else 'no'}\n"
-                                        f"Hoy: ${spent:,.2f} de ${self.max_daily:,.0f} · máx ${self.max_order:,.0f} por orden")
+                                        f"Hoy: ${spent:,.2f} de ${self.max_daily:,.0f} · máx ${self.max_order:,.0f} por orden"
+                                        + (f"\nRedes esperando: {self.nets.resting()}" if self.nets else ""))
 
     async def _say(self, client: httpx.AsyncClient, text: str) -> None:
         try:
@@ -180,9 +187,17 @@ class PolyBuyer:
         self.conn.commit()
 
     def _spent_today(self) -> float:
+        """Lo comprometido hoy en Polymarket: compras de surebets + órdenes de red (esperando o llenadas)."""
         day0 = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
-        return self.conn.execute("SELECT COALESCE(SUM(spent),0) FROM poly_orders WHERE status IN ('filled','demo') "
-                                 "AND clicked_ts >= ?", (day0,)).fetchone()[0]
+        spent = self.conn.execute("SELECT COALESCE(SUM(spent),0) FROM poly_orders WHERE status IN ('filled','demo') "
+                                  "AND clicked_ts >= ?", (day0,)).fetchone()[0]
+        try:
+            spent += self.conn.execute(
+                "SELECT COALESCE(SUM(shares * limit_price),0) FROM value_nets WHERE status IN ('resting','locked','partial') "
+                "AND clicked_ts >= ?", (day0,)).fetchone()[0]
+        except sqlite3.OperationalError:
+            pass
+        return spent
 
     # ------------------------------------------------------------------ ejecución
     async def execute(self, client: httpx.AsyncClient, order_id: int) -> str:
@@ -245,19 +260,27 @@ class PolyBuyer:
         return done("filled", f"✅ COMPRADO {title}: {summary}", price_cap=cap, avg_price=plan["avg"],
                     spent=round(plan["spent"], 4), fee=round(plan["fee"], 4), net_pct=round(net, 3))
 
-    def _post_fok(self, token: str, price: float, size: float) -> dict:
-        """Orden límite FOK al precio tope (se llena entera ya, a los precios del libro, o se cancela)."""
+    def clob(self):
+        """Cliente oficial de Polymarket (solo en modo real). La clave sale de .env y no se guarda en ningún lado."""
         from py_clob_client.client import ClobClient          # pip install py-clob-client
-        from py_clob_client.clob_types import OrderArgs, OrderType
-        from py_clob_client.order_builder.constants import BUY
         if self._clob is None:
             kw = {"key": self._pk, "chain_id": 137}
             if self._funder:
                 kw.update(funder=self._funder, signature_type=self._sig)
             self._clob = ClobClient(CLOB, **kw)
             self._clob.set_api_creds(self._clob.create_or_derive_api_creds())
-        signed = self._clob.create_order(OrderArgs(token_id=token, price=round(price, 3), size=round(size, 2), side=BUY))
-        return self._clob.post_order(signed, OrderType.FOK)
+        return self._clob
+
+    def post_buy(self, token: str, price: float, size: float, order_type: str = "FOK") -> dict:
+        """Orden límite de compra. FOK: se llena entera ya o se cancela. GTC: queda esperando en el libro."""
+        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.order_builder.constants import BUY
+        c = self.clob()
+        signed = c.create_order(OrderArgs(token_id=token, price=round(price, 3), size=round(size, 2), side=BUY))
+        return c.post_order(signed, getattr(OrderType, order_type))
+
+    def _post_fok(self, token: str, price: float, size: float) -> dict:
+        return self.post_buy(token, price, size, "FOK")
 
 
 def summary(conn) -> dict:

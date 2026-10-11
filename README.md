@@ -268,6 +268,14 @@ Resultado: unas **60 surebets extra por día** sin apuro humano. La apuesta en 1
 Polymarket espera sola.
 
 - **En el aviso de Telegram:** cada apuesta de valor trae la línea "🛟 Red de seguridad" con shares, lado y precio límite.
+- **Botón 🛟 en Telegram** (`surebet/valuenet.py`): después de apostar en 1xBet tocas «🛟 Ya aposté → poner red
+  en Polymarket». El bot:
+  - pone la orden límite (o compra al instante si el precio ya llegó y aun con comisión queda ≥ 0,5 % seguro);
+  - la vigila y te avisa "🛟✅ ASEGURADA" cuando se llena;
+  - cancela lo pendiente 10 min antes del partido.
+
+  Hoy está en DEMO, con los mismos topes, el comando `/pausa` y la regla de solo obedecer a tu chat que el botón de surebets.
+  En la pestaña Valor ves "Tus redes desde Telegram".
 - **Simulación en vivo:** pestaña Valor, sección "Valor con red de seguridad" (`surebet/makersim.py`, modo `value_net`).
   Compara con la misma apuesta sin red.
 - **Ojo:** el modelo de llenado es optimista (la cola de órdenes en Polymarket existe). Hay que confirmarlo con la
