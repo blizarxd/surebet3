@@ -175,6 +175,19 @@
   </section>
 </main>
 <main id="tab-auto" hidden>
+  <section class="card"><h2>⚡ Automático EN VIVO (simulado) <span class="count" id="av-sum"></span></h2>
+    <div class="small muted">Surebets en juego con todas las patas por API (Polymarket, Cloudbet, SX). El bot espera el retraso real de
+      aceptación de la casa más lenta y <b>vuelve a pedir el precio de cada pata a cada casa</b>; solo cuenta como llenada si todas siguen en su
+      cuota mínima. Margen 1–5 % (más que eso suele ser cuota congelada). Cuenta propia de $1000. Nunca envía nada.</div>
+    <div class="kpis" id="kpis-autovivo" style="margin-top:10px"></div>
+    <div class="grid2" style="margin-top:10px">
+      <div><h2>Qué pasó con cada intento</h2><table id="av-reasons"></table></div>
+      <div><h2>Riesgo</h2><div class="kpis" id="risk-autovivo"></div></div>
+    </div>
+    <h2 style="margin-top:12px">Entradas activas <span class="count" id="act-autovivo-sum"></span></h2><div class="scroll"><table id="act-autovivo"></table></div>
+    <h2 style="margin-top:12px">Intentos</h2><div class="scroll" style="max-height:420px;overflow-y:auto"><table id="av-rows"></table></div>
+  </section>
+  <section class="card"><h2>Automático PREPARTIDO (simulado)</h2><div class="small muted">La cuenta de abajo es la del automático de prepartido.</div></section>
   <section class="card"><div class="small muted">Bot automático en <b>simulación</b>: Cloudbet / SX Bet + Polymarket por sus APIs oficiales.
     Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
     la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
@@ -224,6 +237,10 @@
     <div class="small muted">Condiciones medibles para pasar cada estrategia del papel a real, por fases. Se calculan solas con lo medido;
       con pocos días cualquier ganancia es ruido, por eso piden volumen y CLV, no solo ROI.</div>
     <div id="golive"></div>
+  </section>
+  <section class="card">
+    <h2>Hipótesis en prueba <span class="count">(cada cambio con su fecha: se compara antes y después con los mismos números)</span></h2>
+    <div class="scroll"><table id="experiments"></table></div>
   </section>
   <section class="kpis" id="kpis"></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-main-sum"></span></h2>
@@ -631,6 +648,35 @@ function renderGolive(g) {
     `<div style="margin-top:12px"><h2>Antes de poner plata (revisar a mano)</h2><ul class="small">${g.manual.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>`;
 }
 
+function renderExperiments(list) {
+  if (!list) return;
+  const m = (x, k, f) => x && x[k] != null ? f(x[k]) : "-";
+  const col = (x) => !x ? `<td class="muted small">(no aplica)</td>` : `<td class="small">${x.ops} ops en ${x.days} días (<b>${x.per_day}/día</b>)<br>
+      plata trabada <b>${m(x, "lock_h", (v) => v + " h")}</b> · neto <b>${m(x, "net", (v) => pct(v))}</b> · ${money(x.pnl_day, true)}/día
+      · ${x.lost} perdidas${x.fill_rate != null ? `<br>intentos ${x.tries} · llenadas <b>${x.fill_rate}%</b> · neto al ejecutar ${m(x, "exec_net", (v) => pct(v))}` : ""}</td>`;
+  $("experiments").innerHTML = `<tr><th>Cambio</th><th>Desde</th><th>Hipótesis</th><th>Antes</th><th>Después</th></tr>` +
+    list.map((e) => `<tr><td><b>${esc(e.name)}</b></td><td class="small nowrap">${when(e.ts)}</td><td class="small">${esc(e.hypothesis)}</td>
+      ${col(e.before)}${col(e.after)}</tr>`).join("");
+}
+
+function renderAutoVivo(av) {
+  if (!av) return;
+  renderKpis(av.account, "kpis-autovivo"); renderRisk("risk-autovivo", av.risk); activeTable("act-autovivo", av.ops);
+  const x = av.exec;
+  if (!x || !x.total) {
+    $("av-sum").textContent = "(todavía sin intentos)";
+    $("av-reasons").innerHTML = `<tr><td class="empty">Esperando surebets en vivo aptas.</td></tr>`; $("av-rows").innerHTML = ""; return;
+  }
+  $("av-sum").textContent = `(${x.total} intentos · ${x.filled} llenadas = ${x.fill_rate}% · neto medio ${x.avg_net == null ? "-" : pct(x.avg_net)})`;
+  $("av-reasons").innerHTML = `<tr><th>Resultado</th><th class="num">Intentos</th><th class="num">%</th></tr>` +
+    x.reasons.map((r) => `<tr><td>${esc(r.reason)}</td><td class="num">${r.n}</td><td class="num">${Math.round(100 * r.n / x.total)}%</td></tr>`).join("");
+  $("av-rows").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th>Casas</th><th class="num">Margen visto</th><th class="num">Retraso</th><th>Resultado</th><th class="num">Neto</th></tr>` +
+    x.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}<div class="muted small">${esc(r.sport)} · ${esc(r.market_name)}</div></td>
+      <td class="small">${esc(r.sources)}</td><td class="num">${pct(r.margin_pct)}</td><td class="num small">${Math.round(r.latency_s)} s</td>
+      <td><span class="tag ${r.status === "filled" ? "won" : r.status === "rejected" ? "lost" : "open"}">${{filled: "llenada", rejected: "rechazada", pending: "esperando"}[r.status]}</span>
+      <div class="muted small">${esc(r.reason || "")}</div></td><td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td></tr>`).join("");
+}
+
 function renderRisk(id, r) {
   if (!r) return;
   const streak = r.cur_streak > 0 ? `ganando ${r.cur_streak} seguidas` : r.cur_streak < 0 ? `perdiendo ${-r.cur_streak} seguidas` : "sin racha";
@@ -778,7 +824,7 @@ function renderTab(tab) {
   if (!state) return;
   const st = state.status || {};
   if (tab === "main") {
-    renderGolive(state.golive); renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real"));
+    renderGolive(state.golive); renderExperiments(state.experiments); renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real"));
     renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts(); renderMeasure(state.measure || []); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
@@ -788,7 +834,7 @@ function renderTab(tab) {
   } else if (tab === "red") {
     renderRed(state.netpaper);
   } else if (tab === "auto") {
-    renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
+    renderAutoVivo(state.autovivo); renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
     renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
   }
 }

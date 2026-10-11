@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import golive
+from . import experiments, golive
 from .liveodds import leg_ref, load as load_live_odds
 from .risk import from_paper_ops, risk_stats
 
@@ -179,6 +179,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     from .nettrack import summary as netpaper_summary
     nets = nets_summary(conn)
     netpaper = netpaper_summary(conn)
+    from .autovivo import summary as live_exec_summary
+    live_exec = live_exec_summary(conn)
     buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
     for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
                    ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
@@ -216,11 +218,12 @@ def build_state(db_path: Path, status_path: Path) -> dict:
             o = by_key.get(r["key"])
             if o and o["status"] == "open" and o["legs"]:
                 r["now_odds"], r["now_ts"] = o["legs"][0].get("now_odds"), o["legs"][0].get("now_ts")
+    autovivo_ops = [o for o in ops if o["track"] == "autovivo"]  # automático en vivo simulado: cuenta aparte
     auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
     valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
     value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]
     ops_all = ops
-    all_ops = [o for o in ops if o["track"] not in ("auto", "valor")]
+    all_ops = [o for o in ops if o["track"] not in ("auto", "valor", "autovivo")]
     measure = _measure(all_ops)
     ops = [o for o in all_ops if o["track"] == "real"]  # la cuenta de $1000 (lo demás solo se mide)
     settled = [o for o in ops if o["status"] != "open"]
@@ -299,6 +302,9 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "maker": maker,
         "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
         "funnel": funnel,
+        "autovivo": {**_auto_account(autovivo_ops, float(meta.get("autovivo_initial", 1000)),
+                                     float(meta.get("autovivo_started", time.time()))), "exec": live_exec},
+        "experiments": experiments.evaluate(ops_all, float(meta.get("started", 0) or 0), live_exec),
         "golive": golive.evaluate(float(meta.get("started", 0) or 0), [o for o in ops_all if o["track"] in ("real", "medicion")],
                                   netpaper, buttons, _is_gold),
         "polybuy": polybuy,

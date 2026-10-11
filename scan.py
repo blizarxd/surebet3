@@ -49,6 +49,7 @@ from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
 from surebet.liveodds import LiveOdds
+from surebet.autovivo import LiveAutoSimulator
 from surebet.staking import net_limit, value_stake
 from surebet.status import write_status
 from surebet.store import OpportunityLog
@@ -284,6 +285,7 @@ async def main() -> None:
             value_min_total=s.value_min_total,
         ))
     execsim = ExecSimulator(s.db_path, s.paper_arb_stake) if paper else None
+    autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper else None  # automático en vivo (simulado)
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake) if paper else None
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
@@ -429,6 +431,8 @@ async def main() -> None:
                         makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes)
                         await nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
                                                                              s.telegram_chat_id, t))
+                        autovivo.detect(res.opps, resolution)
+                        await autovivo.check(client)
                         await paper.settle(client)
                     except Exception as e:  # el papel nunca debe tumbar el escáner
                         poly.status = f"error en papel: {e!r}"[:160]
