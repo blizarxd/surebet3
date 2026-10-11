@@ -106,7 +106,7 @@ class Settings:
     # Medición: lo que la cuenta real no toma (vivo, valor) se anota igual, sin tocar el saldo
     paper_measure: bool = field(default_factory=lambda: os.getenv("PAPER_MEASURE", "1") == "1")
     paper_measure_stake: float = field(default_factory=lambda: _f("PAPER_MEASURE_STAKE", 100))
-    paper_real_max_hours: float = field(default_factory=lambda: _f("PAPER_REAL_MAX_HOURS", 6))
+    paper_real_max_hours: float = field(default_factory=lambda: _f("PAPER_REAL_MAX_HOURS", 2))
     paper_live_delay_s: float = field(default_factory=lambda: _f("PAPER_LIVE_DELAY_S", 8))
     paper_real_min_net_pct: float = field(default_factory=lambda: _f("PAPER_REAL_MIN_NET_PCT", 0.5))
     dashboard_port: int = field(default_factory=lambda: int(_f("DASHBOARD_PORT", 8765)))

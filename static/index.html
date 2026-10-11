@@ -303,7 +303,7 @@ const pct = (v, d = 2) => (v == null ? "-" : (v > 0 ? "+" : "") + Number(v).toFi
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "-";
-let state = null, filter = "real", curveChart = null, weekChart = null;
+let state = null, filter = "real", curveChart = null, weekChart = null, activeTab = "main";
 
 function kpi(label, value, sub = "", klass = "") {
   return `<div class="card kpi"><div class="label">${label}</div><div class="value ${klass}">${value}</div><div class="sub">${sub}</div></div>`;
@@ -453,6 +453,7 @@ document.querySelector(".tabs").addEventListener("click", (e) => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   ["main", "valor", "red", "auto"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
+  activeTab = b.dataset.tab; renderTab(activeTab);
 });
 try { const t = localStorage.getItem("tab"); if (t && t !== "main") document.querySelector(`.tabs button[data-tab="${t}"]`).click(); } catch (e) {}
 
@@ -772,6 +773,26 @@ function renderCharts() {
   else { weekChart.data = weekData; weekChart.update("none"); }
 }
 
+// Solo se dibuja la pestaña que se está mirando (dibujar todas cada 15 s ponía lenta la página)
+function renderTab(tab) {
+  if (!state) return;
+  const st = state.status || {};
+  if (tab === "main") {
+    renderGolive(state.golive); renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real"));
+    renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts(); renderMeasure(state.measure || []); renderPolybuy(state.polybuy);
+    groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
+    $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
+    $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;
+  } else if (tab === "valor") {
+    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
+  } else if (tab === "red") {
+    renderRed(state.netpaper);
+  } else if (tab === "auto") {
+    renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
+    renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
+  }
+}
+
 async function refresh() {
   try {
     const r = await fetch("api/state", {cache: "no-store"});
@@ -781,12 +802,7 @@ async function refresh() {
     const alive = st.ts && state.now - st.ts < 60;
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
-    renderGolive(state.golive); renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real")); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
-    renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
-    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderRed(state.netpaper); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
-    groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
-    $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
-    $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;
+    renderTab(activeTab);
   } catch (e) {
     $("updated").textContent = "sin conexión con el panel (" + e.message + ")";
   }

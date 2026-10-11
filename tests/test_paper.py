@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -254,3 +255,29 @@ def test_value_account_takes_only_golden_with_kelly(tmp_path):
     assert valor[0]["legs"][0]["fair_odds"] == pytest.approx(2.0, abs=0.01)
     assert pb.valor_balances()["in_play"] == pytest.approx(valor[0]["total"])
     assert pb.balances()["in_play"] == 0                              # no toca la cuenta de surebets
+
+
+def test_settles_early_when_winner_already_decided(tmp_path):
+    """Partido terminado pero sin resolución oficial: el ganador vale 99,8¢ → se vende y se libera la plata."""
+    import asyncio
+    import httpx
+    pb = PaperBook(tmp_path / "p.db", PaperConfig())
+    legs = [{"source": "1xbet", "covers": ["H"], "stake": 50.0, "odds": 2.1},
+            {"source": "polymarket", "covers": ["A"], "stake": 50.0, "odds": 2.05}]
+    pb.conn.execute(
+        "INSERT INTO paper_ops (key, kind, created_ts, start_ts, total_stake, legs_json, resolve_json, status, track) "
+        "VALUES ('k','arb',?,?,100,?,?, 'open','real')",
+        (time.time() - 4 * 3600, time.time() - 3 * 3600, json.dumps(legs),
+         json.dumps({"H": ["c1", "tH"], "A": ["c1", "tA"]})))
+    pb.conn.commit()
+
+    def handler(request):
+        return httpx.Response(200, json={"closed": False, "tokens": [
+            {"token_id": "tH", "price": 0.002, "winner": False}, {"token_id": "tA", "price": 0.998, "winner": False}]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await pb.settle(c, every_s=0)
+    assert asyncio.run(run()) == 1
+    status, pnl, out = pb.conn.execute("SELECT status, pnl, outcome FROM paper_ops").fetchone()
+    assert status == "won" and out == "A" and abs(pnl - (50 * 2.05 * 0.998 - 100)) < 1e-6

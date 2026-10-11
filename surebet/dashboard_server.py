@@ -7,6 +7,7 @@ que el escáner escribe en cada ciclo, así que también funciona con el escáne
 
 from __future__ import annotations
 
+import gzip
 import json
 import sqlite3
 import threading
@@ -308,8 +309,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
                   "groups": _value_groups(valor_ops)},
         "value_measure": {"groups": _value_groups(value_measured),
                           "gold": _value_groups([o for o in value_measured if _is_gold(o)]),
-                          "ops": value_measured[:600]},
-        "ops": all_ops[:300],
+                          "ops": value_measured[:200]},
+        "ops": all_ops[:200],
         "skips": [{"reason": r["reason"], "n": r["n"]} for r in skips],
         "status": status,
     }
@@ -369,6 +370,19 @@ def _measure(ops: list[dict]) -> list[dict]:
              "roi_pct": round(100 * g["pnl"] / g["staked"], 2) if g["staked"] else None} for g in rows]
 
 
+_CACHE: dict = {"ts": 0.0, "body": None}
+_CACHE_LOCK = threading.Lock()
+CACHE_S = 10   # varias pestañas o personas mirando: se arma el estado una vez cada 10 s
+
+
+def _cached_state(db_path: Path, status_path: Path) -> tuple[bytes, bytes]:
+    with _CACHE_LOCK:
+        if _CACHE["body"] is None or time.time() - _CACHE["ts"] > CACHE_S:
+            raw = json.dumps(build_state(db_path, status_path), ensure_ascii=False).encode("utf-8")
+            _CACHE["body"], _CACHE["ts"] = (raw, gzip.compress(raw, 6)), time.time()
+        return _CACHE["body"]
+
+
 class _Handler(BaseHTTPRequestHandler):
     db_path: Path
     status_path: Path
@@ -376,9 +390,11 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:  # silencioso: no ensucia la consola del escáner
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, gzip_: bool = False) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if gzip_:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -387,8 +403,11 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path.startswith("/api/state"):
             try:
-                data = build_state(self.db_path, self.status_path)
-                self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+                body = _cached_state(self.db_path, self.status_path)
+                if "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                    self._send(200, body[1], "application/json; charset=utf-8", gzip_=True)   # ~10 veces más liviano
+                else:
+                    self._send(200, body[0], "application/json; charset=utf-8")
             except Exception as e:  # el panel nunca debe tumbar al escáner
                 self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
             return

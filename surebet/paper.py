@@ -40,6 +40,11 @@ from .safety import golden_value
 from .staking import net_limit, value_stake
 
 CLOB = "https://clob.polymarket.com"
+# Partido ya decidido: 1xBet paga al final y las shares ganadoras de Polymarket se venden a ~99,9¢ minutos después,
+# sin esperar las ~3 h de la resolución oficial. Se liquida (vendiendo a ese precio) cuando el ganador vale
+# EARLY_PRICE o más y pasaron EARLY_AFTER_S desde el inicio.
+EARLY_PRICE = 0.997
+EARLY_AFTER_S = 2 * 3600
 SX_API = "https://api.sx.bet"
 
 SCHEMA = """
@@ -192,6 +197,15 @@ class PaperBook:
         now = time.time()
         return (self.cfg.min_margin_pct <= o.margin_pct < self.cfg.suspicious_margin_pct
                 and not _in_play(o.event, now) and self._soon(o.event, now)
+                and not any(w.startswith("⛔") for w in o.warnings))
+
+    def eligible_auto(self, o: Opportunity, max_hours: float = 6.0) -> bool:
+        """Como eligible_real pero con ventana propia: el bot automático tiene su capital libre y pocas señales,
+        así que no se limita a las que empiezan en 2 h."""
+        now = time.time()
+        start = o.event.anchor.start
+        return (self.cfg.min_margin_pct <= o.margin_pct < self.cfg.suspicious_margin_pct
+                and not _in_play(o.event, now) and start is not None and start.timestamp() - now <= max_hours * 3600
                 and not any(w.startswith("⛔") for w in o.warnings))
 
     def _ready(self, key: str, now: float, in_play: bool, book_ts: float) -> bool:
@@ -362,14 +376,14 @@ class PaperBook:
             return 0
         self._last_settle = now
         rows = self.conn.execute(
-            "SELECT id, legs_json, resolve_json, total_stake FROM paper_ops "
+            "SELECT id, legs_json, resolve_json, total_stake, start_ts FROM paper_ops "
             "WHERE status='open' AND start_ts IS NOT NULL AND start_ts < ? "
             "AND (last_check IS NULL OR last_check < ?) ORDER BY COALESCE(last_check, 0) LIMIT 80",
             (now - 45 * 60, now - 600)).fetchall()  # por tandas: con cientos abiertas no frena el escaneo
         # Primero todas las consultas a Polymarket y DESPUÉS las escrituras, en una sola transacción
         # corta: escribir entre consultas dejaba la base bloqueada y tumbaba al escáner ("database is locked")
         cache: dict[str, dict | None] = {}
-        for _id, _legs, resolve_json, _total in rows:
+        for _id, _legs, resolve_json, _total, _start in rows:
             for cid, _token in json.loads(resolve_json).values():
                 if cid not in cache:
                     try:
@@ -383,10 +397,11 @@ class PaperBook:
                     except (httpx.HTTPError, ValueError):
                         cache[cid] = None
         closed = 0
-        for op_id, legs_json, resolve_json, total in rows:
+        for op_id, legs_json, resolve_json, total, start_ts in rows:
             resolve = json.loads(resolve_json)
             outcome, void = None, False
             all_closed = True
+            sold_at = None   # precio de venta si se liquida antes de la resolución oficial
             for out, (cid, token) in resolve.items():
                 m = cache[cid]
                 if cid.startswith("sx:"):
@@ -397,6 +412,12 @@ class PaperBook:
                     elif str(m["outcome"]) == "0":
                         void = True  # SX anuló el mercado
                     continue
+                if m and not m.get("closed") and now - start_ts >= EARLY_AFTER_S:
+                    px = next((float(t.get("price") or 0) for t in m.get("tokens") or []
+                               if str(t.get("token_id")) == str(token)), 0.0)
+                    if px >= EARLY_PRICE:
+                        outcome, sold_at = out, px   # decidido: se vende la share ganadora a este precio
+                        continue
                 if not m or not m.get("closed"):
                     all_closed = False
                     continue
@@ -412,7 +433,8 @@ class PaperBook:
             if outcome is None:
                 payout, status = total, "void"
             else:
-                payout = sum(l["stake"] * l["odds"] for l in legs if outcome in l["covers"])
+                payout = sum(l["stake"] * l["odds"] * (sold_at if sold_at and l["source"] == POLYMARKET else 1.0)
+                             for l in legs if outcome in l["covers"])
                 status = "won" if payout > total else "lost"
             self.conn.execute(
                 "UPDATE paper_ops SET status=?, settled_ts=?, outcome=?, payout=?, pnl=? WHERE id=?",

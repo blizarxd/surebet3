@@ -421,7 +421,7 @@ async def main() -> None:
                 if paper:
                     try:
                         paper.consider(res.opps, res.values, resolution)
-                        execsim.step(res.opps, paper.eligible_real,
+                        execsim.step(res.opps, paper.eligible_auto,
                                      lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
                         poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
                         live_odds.update(res.clusters)
