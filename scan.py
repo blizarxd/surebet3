@@ -42,7 +42,7 @@ from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
 from surebet.execsim import ExecSimulator
-from surebet.makersim import MakerSimulator
+from surebet.makersim import MakerSimulator, book_ref
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -56,6 +56,7 @@ class CycleResult:
     radar: list[Opportunity] = field(default_factory=list)
     n_clusters: int = 0
     n_matched: int = 0
+    book_quotes: dict = field(default_factory=dict)  # cuota actual de cada casa (prueba de orden límite)
 
 
 def parse_args() -> argparse.Namespace:
@@ -169,6 +170,8 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     # sí los emparejados y los que tienen varias casas de otra fuente (casa vs casa).
     evaluable = matched + [c for c in clusters if len(c.feeds) == 1 and c.anchor.feed != poly.name]
     res = CycleResult(n_clusters=len(clusters), n_matched=len(matched))
+    res.book_quotes = {book_ref(q): q for c in matched for ev, _ in c.members if ev.feed in ("onexbet", "1xbet")
+                       for q in ev.quotes}
     res.opps = [o for c in evaluable for o in find_opportunities(c, cfg) if _allowed(o, s.my_books)]
     for o in res.opps:
         o.warnings += risk_flags(o)  # ⛔ = no se avisa ni entra en la cuenta real (sí se mide)
@@ -368,7 +371,7 @@ async def main() -> None:
                         execsim.step(res.opps, paper.eligible_real,
                                      lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
                         makersim.step(res.opps, {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes},
-                                      paper.eligible_real)
+                                      paper.eligible_real, res.book_quotes)
                         await paper.settle(client)
                     except Exception as e:  # el papel nunca debe tumbar el escáner
                         poly.status = f"error en papel: {e!r}"[:160]

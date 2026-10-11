@@ -96,6 +96,14 @@
   </section>
 
   <section class="card">
+    <h2>Al revés: límite en Polymarket primero, 1xBet al llenarse <span class="count" id="makerpf-sum"></span></h2>
+    <div class="small muted">Se deja la orden límite en Polymarket sin haber apostado nada. Si no se llena en 15 min se cancela (no se pierde nada).
+      Si se llena, se apuesta en 1xBet en ese momento: si la cuota se mantuvo queda <b>cubierta</b> con ganancia; si bajó, queda <b>expuesta</b>
+      y se toma lo menos malo (apostar igual o vender lo de Polymarket).</div>
+    <div class="scroll"><table id="makerpf"></table></div>
+  </section>
+
+  <section class="card">
     <h2>Operaciones del bot <span class="count" id="auto-count"></span></h2>
     <div class="scroll"><table id="ops-auto"></table></div>
   </section>
@@ -330,6 +338,19 @@ function renderMaker(m) {
       <td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td><td class="num">${pct(r.taker_net_pct)}</td></tr>`).join("");
 }
 
+function renderMakerPF(m) {
+  if (!m || !m.rows.length) { $("makerpf").innerHTML = `<tr><td class="empty">Todavía no hubo surebets 1xBet + Polymarket aptas para probar.</td></tr>`; return; }
+  $("makerpf-sum").textContent = `(${m.total} cerradas · ${m.filled} cubiertas con ganancia · ${m.exposed} expuestas · ${m.cancelled} canceladas sin llenarse · resultado ${m.pnl >= 0 ? "+" : ""}$${m.pnl.toFixed(2)})`;
+  const lab = {covered: ["won", "cubierta (1xBet se mantuvo)"], exposed: ["lost", "expuesta (1xBet bajó)"], cancelled: ["void", "cancelada (no se llenó)"], waiting: ["open", "esperando"]};
+  $("makerpf").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th class="num">Límite</th><th class="num">Cuota 1xBet antes → al llenarse</th><th>Resultado</th><th class="num">Neto</th><th class="num">$</th></tr>` +
+    m.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}<div class="muted small">${esc(r.market)}</div></td>
+      <td class="num">${(100 * r.limit_price).toFixed(0)}¢</td>
+      <td class="num">${r.book_odds ? r.book_odds.toFixed(2) : "-"} → ${r.book_odds_fill ? r.book_odds_fill.toFixed(2) : "-"}</td>
+      <td><span class="tag ${(lab[r.status] || ["open"])[0]}">${(lab[r.status] || ["", r.status])[1]}</span></td>
+      <td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td>
+      <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : r.pnl.toFixed(2)}</td></tr>`).join("");
+}
+
 function renderExec(x) {
   if (!x || !x.total) { $("exec").innerHTML = `<tr><td class="empty">Todavía no hubo surebets automatizables (Cloudbet/SX + Polymarket) aptas para la cuenta real.</td></tr>`; return; }
   $("exec-sum").textContent = `(${x.total} intentos · ${x.filled} llenadas = ${x.fill_rate}% · neto medio ${x.avg_net == null ? "-" : pct(x.avg_net)})`;
@@ -379,7 +400,7 @@ async function refresh() {
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
     renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
-    renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker);
+    renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
     $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;
