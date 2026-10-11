@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>surebet3 · Panel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #171b21; --panel2: #1d222a; --line: #2a313b; --text: #e6e9ee;
+    --muted: #8b95a3; --green: #3ecf8e; --red: #f0616d; --amber: #f5b14c; --blue: #5aa9ff; --violet: #a58bff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f4f6f9; --panel: #ffffff; --panel2: #f0f2f6; --line: #dde2ea; --text: #1a1f27;
+            --muted: #667085; --green: #12915b; --red: #d23b49; --amber: #b7791f; --blue: #2b6fd6; --violet: #6d4fd8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line);
+           position: sticky; top: 0; background: var(--bg); z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.on { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 25%, transparent); }
+  .muted { color: var(--muted); }
+  main { padding: 18px 20px 40px; max-width: 1500px; margin: 0 auto; display: grid; gap: 18px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .kpi .value { font-size: 24px; font-weight: 650; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .pos { color: var(--green); } .neg { color: var(--red); } .warn { color: var(--amber); }
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
+  @media (max-width: 980px) { .grid2 { grid-template-columns: 1fr; } }
+  h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  h2 .count { color: var(--muted); font-weight: 500; }
+  .chart-box { position: relative; height: 240px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+  .tabs { display: flex; gap: 8px; padding: 10px 16px 0; max-width: 1400px; margin: 0 auto; }
+  .tabs button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+                 padding: 8px 14px; font-weight: 600; cursor: pointer; }
+  .tabs button.active { border-color: var(--blue); color: var(--blue); }
+  main[hidden] { display: none !important; }
+  .btn { background: var(--blue); color: #fff; border: 0; border-radius: 7px; padding: 6px 10px; margin: 4px 6px 0 0;
+         font-size: 12px; font-weight: 600; cursor: pointer; }
+  .btn:active { transform: scale(.97); }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel2); color: var(--text);
+           border: 1px solid var(--line); padding: 8px 14px; border-radius: 8px; display: none; z-index: 9; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 600;
+         background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
+  .tag.arb { color: var(--blue); } .tag.value { color: var(--violet); }
+  .tag.live { color: var(--red); } .tag.won { color: var(--green); } .tag.lost { color: var(--red); }
+  .tag.open { color: var(--amber); } .tag.void { color: var(--muted); }
+  .leg { padding: 2px 0; } .leg + .leg { border-top: 1px dashed var(--line); }
+  .leg b { font-weight: 600; } .small { font-size: 12px; } .nowrap { white-space: nowrap; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .filters button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+                    padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .filters button.active { border-color: var(--blue); color: var(--blue); }
+  .sources div { padding: 3px 0; font-size: 12px; } .sources b { font-weight: 600; }
+  a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
+  .empty { color: var(--muted); padding: 16px 4px; }
+  footer { color: var(--muted); font-size: 12px; max-width: 1500px; margin: 0 auto; padding: 0 20px 30px; }
+</style>
+</head>
+<body>
+<header>
+  <span id="alive" class="dot"></span>
+  <h1>surebet3 · Cuenta en papel</h1>
+  <span class="muted" id="updated">cargando…</span>
+</header>
+<nav class="tabs">
+  <button data-tab="main" class="active">Principal (manual)</button>
+  <button data-tab="auto">Automático (simulado)</button>
+</nav>
+<main id="tab-auto" hidden>
+  <section class="card"><div class="small muted">Bot automático en <b>simulación</b>: Cloudbet / SX Bet + Polymarket por sus APIs oficiales.
+    Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
+    la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
+  <section class="kpis" id="kpis-auto"></section>
+  <section class="card"><h2>Curva de capital (automático)</h2><div class="chart-box"><canvas id="curve-auto"></canvas></div></section>
+  <section class="card">
+    <h2>Simulación de ejecución automática <span class="count" id="exec-sum">(Cloudbet / SX + Polymarket por API · no se envía nada)</span></h2>
+    <div class="scroll"><table id="exec"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Prueba 1xBet + Polymarket con orden límite <span class="count" id="maker-sum"></span></h2>
+    <div class="small muted">Se apuesta en 1xBet y en Polymarket se deja una orden límite (sin comisión) 1¢ sobre el mejor comprador,
+      sin pasar del precio que asegura ganancia. Si no se llena en 15 min (o 10 min antes del inicio) se compra al precio publicado.</div>
+    <div class="scroll"><table id="maker"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Operaciones del bot <span class="count" id="auto-count"></span></h2>
+    <div class="scroll"><table id="ops-auto"></table></div>
+  </section>
+</main>
+<main id="tab-main">
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid2">
+    <div class="card"><h2>Curva de capital</h2><div class="chart-box"><canvas id="curve"></canvas></div></div>
+    <div class="card"><h2>Ganancia por día (7 días)</h2><div class="chart-box"><canvas id="week"></canvas></div></div>
+  </section>
+
+  <section class="card">
+    <h2>Esta semana</h2>
+    <div class="scroll"><table id="weekly"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Señales ahora <span class="count" id="sig-count"></span></h2>
+    <div class="scroll"><table id="signals"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Más cerca de surebet <span class="count">(todavía no rentables; si alguna pasa de 0,5 % entra sola)</span></h2>
+    <div class="scroll"><table id="near"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>¿Dónde está la ventaja? <span class="count">(cada jugada con $100 fijos · solo la primera fila toca el capital)</span></h2>
+    <div class="scroll"><table id="measure"></table></div>
+  </section>
+
+  <section class="card">
+    <h2>Operaciones en papel <span class="count" id="ops-count"></span>
+      <span class="filters" id="filters">
+        <button data-f="real" class="active">Cuenta real</button><button data-f="medicion">Medición</button>
+        <button data-f="all">Todas</button><button data-f="open">Abiertas</button>
+        <button data-f="closed">Cerradas</button><button data-f="arb">Arbitraje</button><button data-f="value">Valor</button>
+      </span>
+    </h2>
+    <div class="scroll"><table id="ops"></table></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card"><h2>Por mercado</h2><div class="scroll"><table id="by-market"></table></div></div>
+    <div class="card"><h2>Por casa</h2><div class="scroll"><table id="by-source"></table></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Por deporte</h2><div class="scroll"><table id="by-sport"></table></div></div>
+    <div class="card">
+      <h2>Fuentes de datos</h2><div class="sources" id="sources"></div>
+      <h2 style="margin-top:14px">Señales no tomadas (7 días)</h2><div class="scroll"><table id="skips"></table></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<footer>
+  Papel: el capital solo toma surebets de prepartido que empiezan en menos de 6 h (el dinero rota); el resto, las de en vivo y las apuestas de valor se anotan aparte ("solo medida") con el mismo monto y no tocan el saldo.
+  En vivo se simula la demora de la casa: la señal solo cuenta si sigue en pie con cuotas pedidas 8 s después, y se entra a esas cuotas.
+  Cada surebet usa el monto fijo configurado (PAPER_ARB_STAKE) repartido entre los lados; Polymarket se llena contra el order book real al monto exacto, con comisión taker descontada y mínimo de
+  5 shares; 1xBet a la cuota mostrada. No simula rechazos ni cambios de cuota al confirmar, límites de cuenta ni el
+  retraso de órdenes en vivo. Se liquida con el resultado oficial de Polymarket.
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (v, sign = false) => (v == null ? "-" : (sign && v > 0 ? "+" : "") + "$" + Number(v).toLocaleString("es", {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+const pct = (v, d = 2) => (v == null ? "-" : (v > 0 ? "+" : "") + Number(v).toFixed(d) + "%");
+const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}) : "-";
+let state = null, filter = "real", curveChart = null, weekChart = null;
+
+function kpi(label, value, sub = "", klass = "") {
+  return `<div class="card kpi"><div class="label">${label}</div><div class="value ${klass}">${value}</div><div class="sub">${sub}</div></div>`;
+}
+
+function renderKpis(a, id = "kpis") {
+  $(id).innerHTML = [
+    kpi("Capital", money(a.equity), `inicial ${money(a.initial)} · ${pct(a.growth_pct)}`, cls(a.growth_pct)),
+    kpi("Disponible", money(a.cash), a.arb_stake ? `${Math.floor(a.cash / a.arb_stake)} surebets de ${money(a.arb_stake)} posibles` : "para nuevas entradas"),
+    kpi("En juego", money(a.in_play), `${a.open} operaciones abiertas`),
+    kpi("Ganancia real", money(a.pnl, true), `ROI ${pct(a.roi_pct)} sobre lo liquidado`, cls(a.pnl)),
+    kpi("Esperado (abiertas)", money(a.expected_open, true), "si salen como se calculó", cls(a.expected_open)),
+    kpi("Resultado", `${a.won} / ${a.lost}`, `ganadas / perdidas · ${a.void} anuladas`),
+    kpi("Comisiones", money(a.fees), "Polymarket (taker)"),
+  ].join("");
+}
+
+function legHtml(l, total) {
+  const extra = l.shares ? `<div class="muted small">${l.shares} shares a ${l.avg_price} promedio · comisión ${money(l.fee)} · ${l.levels} nivel(es) del libro</div>` : "";
+  const name = l.url ? `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.source)}</a>` : esc(l.source);
+  const share = total ? ` <b>(${Math.round(100 * l.stake / total)}%)</b>` : "";
+  return `<div class="leg"><b>${name}</b> · ${esc(l.label)} @ <b>${Number(l.odds).toFixed(3)}</b> → apuestas <b>${money(l.stake)}</b>${share}
+    <span class="muted small">· si sale, cobras ${money(l.stake * l.odds)}</span>${extra}</div>`;
+}
+
+function splitLine(legs, kind) {
+  const total = legs.reduce((a, l) => a + l.stake, 0);
+  const pays = legs.map((l) => l.stake * l.odds);
+  if (kind === "value" || legs.length < 2) {
+    return `<div class="small muted">Un solo lado: si acierta cobras ${money(pays[0])}, si falla pierdes ${money(total)}.</div>`;
+  }
+  const min = Math.min(...pays), gain = min - total;
+  return `<div class="small ${cls(gain)}">Pones ${money(total)} entre los ${legs.length} lados → cobras mínimo ${money(min)} salga lo que salga
+    (${money(gain, true)}, ${pct(100 * gain / total)})</div>`;
+}
+
+function renderOps() {
+  let ops = state.ops;
+  if (filter === "open") ops = ops.filter((o) => o.status === "open");
+  if (filter === "closed") ops = ops.filter((o) => o.status !== "open");
+  if (filter === "arb" || filter === "value") ops = ops.filter((o) => o.kind === filter);
+  if (filter === "real" || filter === "medicion") ops = ops.filter((o) => o.track === filter);
+  $("ops-count").textContent = `(${ops.length})`;
+  if (!ops.length) { $("ops").innerHTML = `<tr><td class="empty">Todavía no hay operaciones con este filtro.</td></tr>`; return; }
+  $("ops").innerHTML = `<tr><th>Entrada</th><th>Partido</th><th>Tipo</th><th>Apuestas (cada lado)</th>
+    <th class="num">Total</th><th class="num">Ventaja</th><th class="num">Esperado</th><th>Estado</th><th class="num">Ganancia</th></tr>` +
+    ops.map((o) => `<tr>
+      <td class="nowrap small">${when(o.created_ts)}</td>
+      <td>${esc(o.title)}${o.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(o.sport)} · ${esc(o.market_name)} · empieza ${when(o.start_ts)}</div></td>
+      <td><span class="tag ${o.kind}">${o.kind === "arb" ? "Arbitraje" : "Valor"}</span>${o.track === "medicion" ? '<div class="muted small">solo medida</div>' : ""}</td>
+      <td>${o.legs.map((l) => legHtml(l, o.total_stake)).join("")}${splitLine(o.legs, o.kind)}</td>
+      <td class="num">${money(o.total_stake)}</td>
+      <td class="num">${pct(o.edge_pct)}</td>
+      <td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}<div class="muted small">${o.kind === "arb" ? "asegurado" : "promedio"}</div></td>
+      <td><span class="tag ${o.status}">${{open: "abierta", won: "ganada", lost: "perdida", void: "anulada"}[o.status] || o.status}</span>${o.outcome ? `<div class="muted small">salió ${esc(o.outcome)}</div>` : ""}</td>
+      <td class="num ${cls(o.pnl)}">${o.pnl == null ? "-" : money(o.pnl, true)}</td></tr>`).join("");
+}
+
+function renderWeekly(w) {
+  $("weekly").innerHTML = `<tr><th>Día</th><th class="num">Entradas</th><th class="num">Arbitraje / Valor</th>
+    <th class="num">Apostado</th><th class="num">Esperado</th><th class="num">Comisiones</th><th class="num">Ganancia real</th></tr>` +
+    w.map((d) => `<tr><td>${esc(d.label)}</td><td class="num">${d.entries}</td><td class="num">${d.arbs} / ${d.values}</td>
+      <td class="num">${money(d.staked)}</td><td class="num ${cls(d.expected)}">${money(d.expected, true)}</td>
+      <td class="num">${money(d.fees)}</td><td class="num ${cls(d.pnl)}">${money(d.pnl, true)}</td></tr>`).join("") +
+    (() => { const t = w.reduce((a, d) => ({e: a.e + d.entries, s: a.s + d.staked, x: a.x + d.expected, f: a.f + d.fees, p: a.p + d.pnl}), {e: 0, s: 0, x: 0, f: 0, p: 0});
+      return `<tr><th>Semana</th><th class="num">${t.e}</th><th></th><th class="num">${money(t.s)}</th><th class="num ${cls(t.x)}">${money(t.x, true)}</th><th class="num">${money(t.f)}</th><th class="num ${cls(t.p)}">${money(t.p, true)}</th></tr>`; })();
+}
+
+function renderMeasure(rows) {
+  if (!rows.length) { $("measure").innerHTML = `<tr><td class="empty">Todavía no hay nada anotado.</td></tr>`; return; }
+  $("measure").innerHTML = `<tr><th>Tipo de jugada</th><th class="num">Anotadas</th><th class="num">Abiertas</th>
+    <th class="num">Ganadas / perdidas</th><th class="num">Apostado (cerradas)</th><th class="num">Ganancia</th><th class="num">ROI</th>
+    <th class="num">Esperado</th></tr>` +
+    rows.map((g) => `<tr><td>${esc(g.name)}${g.real ? ' <span class="tag won">capital</span>' : ' <span class="muted small">solo medida</span>'}</td>
+      <td class="num">${g.ops}</td><td class="num">${g.open}</td><td class="num">${g.won} / ${g.lost}${g.void ? ` · ${g.void} anul.` : ""}</td>
+      <td class="num">${money(g.staked)}</td><td class="num ${cls(g.pnl)}">${money(g.pnl, true)}</td>
+      <td class="num ${cls(g.roi_pct)}">${g.roi_pct == null ? "-" : pct(g.roi_pct)}</td>
+      <td class="num ${cls(g.expected)}">${money(g.expected, true)}</td></tr>`).join("");
+}
+
+function groupTable(id, rows) {
+  if (!rows.length) { $(id).innerHTML = `<tr><td class="empty">Sin datos todavía.</td></tr>`; return; }
+  $(id).innerHTML = `<tr><th>Nombre</th><th class="num">Ops</th><th class="num">Abiertas</th><th class="num">Apostado</th><th class="num">Esperado</th><th class="num">Ganancia</th></tr>` +
+    rows.map((g) => `<tr><td>${esc(g.name)}</td><td class="num">${g.ops}</td><td class="num">${g.open}</td><td class="num">${money(g.staked)}</td>
+      <td class="num ${cls(g.expected)}">${money(g.expected, true)}</td><td class="num ${cls(g.pnl)}">${money(g.pnl, true)}</td></tr>`).join("");
+}
+
+function renderSignals(st) {
+  const arbs = (st.opps || []), vals = (st.values || []);
+  $("sig-count").textContent = st.ts ? `(${arbs.length} arbitrajes · ${vals.length} valor · ${Math.round(state.now - st.ts)} s atrás)` : "(escáner apagado)";
+  if (!arbs.length && !vals.length) { $("signals").innerHTML = `<tr><td class="empty">No hay señales buenas en este momento.</td></tr>`; return; }
+  $("signals").innerHTML = `<tr><th>Tipo</th><th>Partido</th><th>Apuestas</th><th class="num">Ventaja</th><th class="num">Máx $</th><th>Avisos</th></tr>` +
+    arbs.map((o) => `<tr><td><span class="tag arb">Arbitraje</span></td>
+      <td>${esc(o.title)}${o.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(o.sport)} · ${esc(o.market)}</div></td>
+      <td>${o.legs.map((l) => legHtml(l, o.total)).join("")}${splitLine(o.legs, "arb")}${fastHtml(o)}</td><td class="num pos">${pct(o.margin)}</td>
+      <td class="num">${o.max_total ? money(o.max_total) : "-"}</td><td class="small warn">${o.warnings.map(esc).join("<br>")}</td></tr>`).join("") +
+    vals.map((v) => `<tr><td><span class="tag value">Valor</span></td>
+      <td>${esc(v.title)}${v.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(v.sport)} · ${esc(v.market)}</div></td>
+      <td>${legHtml({source: v.source, label: v.label, odds: v.odds, stake: v.stake, url: v.url})}<div class="muted small">cuota justa ${Number(v.fair_odds).toFixed(2)}</div></td>
+      <td class="num pos">${pct(v.ev, 1)}</td><td class="num">-</td><td></td></tr>`).join("");
+}
+
+// Apuesta rápida: abre la casa en el partido y copia el monto (el clic final de apostar lo haces tú)
+function fastHtml(o) {
+  if (o.blocked) return `<div class="small warn">⛔ Bloqueada por seguridad: no apostar</div>`;
+  if (o.live) return `<div class="small muted">En vivo: solo se mide, no se apuesta</div>`;
+  return `<div>` + (o.fast_legs || []).map((l, i) => `<button class="btn" data-url="${esc(l.url)}" data-stake="${l.stake}">
+      ${i + 1}. Abrir ${esc(l.house)} y copiar ${money(l.stake)}</button><span class="muted small">${esc(l.label)} @ <b>${l.gross}</b>${l.gross !== l.net ? ` (con comisión: ${l.net})` : ""} ·
+      ${l.max_price != null ? `precio máx ${(100 * l.max_price).toFixed(1)}¢` : l.min_odds ? `cuota mín ${l.min_odds}` : ""}</span>`).join("<br>") + `</div>`;
+}
+function copyText(t) {
+  const a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select();
+  try { document.execCommand("copy"); } catch (e) {} a.remove();
+}
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = "none", 2500); }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button.btn[data-stake]"); if (!b) return;
+  const stake = Number(b.dataset.stake).toFixed(2);
+  copyText(stake); toast(`Copiado ${stake} — pégalo en el cupón`);
+  if (b.dataset.url && b.dataset.url.startsWith("http")) window.open(b.dataset.url, "_blank", "noopener");
+});
+
+let autoChart = null;
+function renderAuto(au) {
+  if (!au) return;
+  renderKpis(au.account, "kpis-auto");
+  $("auto-count").textContent = `(${au.ops.length})`;
+  $("ops-auto").innerHTML = au.ops.length ? `<tr><th>Entrada</th><th>Partido</th><th>Apuestas (cada lado)</th><th class="num">Total</th>
+      <th class="num">Asegurado</th><th>Estado</th><th class="num">Ganancia</th></tr>` + au.ops.map((o) => `<tr>
+      <td class="nowrap small">${when(o.created_ts)}</td>
+      <td>${esc(o.title)}<div class="muted small">${esc(o.sport)} · ${esc(o.market_name)} · empieza ${when(o.start_ts)}</div></td>
+      <td>${o.legs.map((l) => legHtml(l, o.total_stake)).join("")}${splitLine(o.legs, "arb")}</td>
+      <td class="num">${money(o.total_stake)}</td><td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}</td>
+      <td><span class="tag ${o.status}">${{open: "abierta", won: "ganada", lost: "perdida", void: "anulada"}[o.status] || o.status}</span></td>
+      <td class="num ${cls(o.pnl)}">${o.pnl == null ? "-" : money(o.pnl, true)}</td></tr>`).join("")
+    : `<tr><td class="empty">El bot todavía no habría ejecutado ninguna surebet.</td></tr>`;
+  if (typeof Chart === "undefined") return;
+  const css = getComputedStyle(document.documentElement);
+  const pts = au.curve.map(([t, v]) => ({x: t, y: v}));
+  const data = {labels: pts.map((p) => new Date(p.x).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})),
+    datasets: [{data: pts.map((p) => p.y), borderColor: css.getPropertyValue("--blue").trim(), backgroundColor: "transparent", tension: 0.2, pointRadius: 2}]};
+  if (!autoChart) autoChart = new Chart($("curve-auto"), {type: "line", data, options: {maintainAspectRatio: false, plugins: {legend: {display: false}}}});
+  else { autoChart.data = data; autoChart.update("none"); }
+}
+document.querySelector(".tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]"); if (!b) return;
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+  $("tab-main").hidden = b.dataset.tab !== "main"; $("tab-auto").hidden = b.dataset.tab !== "auto";
+  try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
+});
+try { if (localStorage.getItem("tab") === "auto") document.querySelector('.tabs button[data-tab="auto"]').click(); } catch (e) {}
+
+function renderMaker(m) {
+  if (!m || !m.rows.length) { $("maker").innerHTML = `<tr><td class="empty">Todavía no hubo surebets 1xBet + Polymarket aptas para probar.</td></tr>`; return; }
+  $("maker-sum").textContent = `(${m.total} cerradas · ${m.filled} llenadas como límite · ${m.hedged} cubiertas al precio publicado · neto medio ${m.avg_net == null ? "-" : pct(m.avg_net)} vs ${m.avg_taker == null ? "-" : pct(m.avg_taker)} comprando al instante)`;
+  $("maker").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th class="num">Precio límite</th><th>Resultado</th><th class="num">Neto</th><th class="num">Comprando al instante</th></tr>` +
+    m.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}<div class="muted small">${esc(r.market)}</div></td>
+      <td class="num">${(100 * r.limit_price).toFixed(0)}¢</td>
+      <td><span class="tag ${r.status === "filled" ? "won" : r.status === "hedged" ? "lost" : "open"}">${{filled: "llenada (límite)", hedged: "cubierta al precio publicado", waiting: "esperando"}[r.status]}</span></td>
+      <td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td><td class="num">${pct(r.taker_net_pct)}</td></tr>`).join("");
+}
+
+function renderExec(x) {
+  if (!x || !x.total) { $("exec").innerHTML = `<tr><td class="empty">Todavía no hubo surebets automatizables (Cloudbet/SX + Polymarket) aptas para la cuenta real.</td></tr>`; return; }
+  $("exec-sum").textContent = `(${x.total} intentos · ${x.filled} llenadas = ${x.fill_rate}% · neto medio ${x.avg_net == null ? "-" : pct(x.avg_net)})`;
+  $("exec").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th>Casas</th><th class="num">Margen visto</th><th>Resultado</th><th class="num">Neto al ejecutar</th></tr>` +
+    x.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}<div class="muted small">${esc(r.market)}</div></td>
+      <td class="small">${esc(r.sources)}</td><td class="num">${pct(r.margin_pct)}</td>
+      <td><span class="tag ${r.status === "filled" ? "won" : r.status === "rejected" ? "lost" : "open"}">${{filled: "llenada", rejected: "rechazada", pending: "esperando"}[r.status]}</span>
+      <div class="muted small">${esc(r.reason || "")}</div></td><td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td></tr>`).join("");
+}
+
+function renderNear(st) {
+  const near = st.near || [];
+  if (!near.length) { $("near").innerHTML = `<tr><td class="empty">Sin partidos emparejados con tus casas en este momento.</td></tr>`; return; }
+  $("near").innerHTML = `<tr><th>Partido</th><th>Combinación</th><th class="num">Margen</th><th class="num">Con $100</th></tr>` +
+    near.map((o) => `<tr><td>${esc(o.title)}${o.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(o.sport)} · ${esc(o.market)}</div></td>
+      <td>${o.legs.map((l) => legHtml(l, o.total)).join("")}${splitLine(o.legs, "arb")}</td><td class="num ${cls(o.margin)}">${pct(o.margin)}</td>
+      <td class="num ${cls(o.profit)}">${money(o.profit, true)}</td></tr>`).join("");
+}
+
+function renderCharts() {
+  const css = getComputedStyle(document.documentElement);
+  const c = (n) => css.getPropertyValue(n).trim();
+  if (typeof Chart === "undefined") return;
+  Chart.defaults.color = c("--muted"); Chart.defaults.borderColor = c("--line");
+  const pts = state.curve.map(([t, v]) => ({x: t, y: v}));
+  const labels = pts.map((p) => new Date(p.x).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}));
+  const curveData = {labels, datasets: [{data: pts.map((p) => p.y), borderColor: c("--green"), backgroundColor: "transparent", tension: 0.2, pointRadius: 2}]};
+  if (!curveChart) curveChart = new Chart($("curve"), {type: "line", data: curveData,
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}}, scales: {y: {ticks: {callback: (v) => "$" + v}}}}});
+  else { curveChart.data = curveData; curveChart.update("none"); }
+  const w = state.weekly;
+  const weekData = {labels: w.map((d) => d.label), datasets: [
+    {label: "Ganancia real", data: w.map((d) => d.pnl), backgroundColor: w.map((d) => d.pnl >= 0 ? c("--green") : c("--red"))},
+    {label: "Esperado", data: w.map((d) => d.expected), backgroundColor: c("--violet")}]};
+  if (!weekChart) weekChart = new Chart($("week"), {type: "bar", data: weekData,
+    options: {maintainAspectRatio: false, scales: {y: {ticks: {callback: (v) => "$" + v}}}}});
+  else { weekChart.data = weekData; weekChart.update("none"); }
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("api/state", {cache: "no-store"});
+    state = await r.json();
+    if (state.error) throw new Error(state.error);
+    const st = state.status || {};
+    const alive = st.ts && state.now - st.ts < 60;
+    $("alive").className = "dot" + (alive ? " on" : "");
+    $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
+    renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
+    renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker);
+    groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
+    $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
+    $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;
+  } catch (e) {
+    $("updated").textContent = "sin conexión con el panel (" + e.message + ")";
+  }
+}
+$("filters").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  filter = b.dataset.f; document.querySelectorAll("#filters button").forEach((x) => x.classList.toggle("active", x === b));
+  if (state) renderOps();
+});
+refresh(); setInterval(refresh, 15000);
+</script>
+</body>
+</html>

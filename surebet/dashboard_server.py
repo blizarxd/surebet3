@@ -1,0 +1,255 @@
+"""
+Panel web local (http://localhost:8765): cuenta en papel, semana, operaciones y señales en vivo.
+
+Servidor de la librería estándar (sin dependencias). Lee la base SQLite y el archivo de estado
+que el escáner escribe en cada ciclo, así que también funciona con el escáner apagado.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+import time
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+STATIC = Path(__file__).resolve().parent.parent / "static"
+DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _auto_account(ops: list[dict], initial: float, started: float) -> dict:
+    """Misma medición que la cuenta principal, para lo que el bot automático habría ejecutado."""
+    settled = sorted((o for o in ops if o["status"] != "open"), key=lambda o: o["settled_ts"] or 0)
+    open_ = [o for o in ops if o["status"] == "open"]
+    pnl = sum(o["pnl"] or 0 for o in settled)
+    staked = sum(o["total_stake"] for o in settled)
+    in_play = sum(o["total_stake"] for o in open_)
+    eq, curve = initial, [[started * 1000, initial]]
+    for o in settled:
+        eq += o["pnl"] or 0
+        curve.append([(o["settled_ts"] or 0) * 1000, round(eq, 2)])
+    return {"account": {"initial": initial, "equity": round(initial + pnl, 2), "cash": round(initial + pnl - in_play, 2),
+                        "in_play": round(in_play, 2), "pnl": round(pnl, 2),
+                        "roi_pct": round(100 * pnl / staked, 2) if staked else 0.0,
+                        "growth_pct": round(100 * pnl / initial, 2) if initial else 0.0,
+                        "ops": len(ops), "open": len(open_),
+                        "won": sum(o["status"] == "won" for o in settled),
+                        "lost": sum(o["status"] == "lost" for o in settled),
+                        "void": sum(o["status"] == "void" for o in settled),
+                        "fees": round(sum(o["fees"] or 0 for o in ops), 2),
+                        "expected_open": round(sum(o["expected_profit"] or 0 for o in open_), 2)},
+            "curve": curve, "ops": ops[:200]}
+
+
+def _execsim(conn) -> dict:
+    """Simulación de ejecución automática: cuántas se habrían llenado y por qué fallan las otras."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT created_ts, title, market, sources, margin_pct, status, reason, net_pct FROM exec_sim "
+        "ORDER BY created_ts DESC LIMIT 40")]
+    total, filled, avg = conn.execute(
+        "SELECT COUNT(*), SUM(status='filled'), AVG(CASE WHEN status='filled' THEN net_pct END) FROM exec_sim "
+        "WHERE status!='pending'").fetchone()
+    return {"total": total or 0, "filled": filled or 0,
+            "fill_rate": round(100 * (filled or 0) / total, 1) if total else 0.0,
+            "avg_net": round(avg, 3) if avg is not None else None, "rows": rows}
+
+
+def build_state(db_path: Path, status_path: Path) -> dict:
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        meta = {r["k"]: r["v"] for r in conn.execute("SELECT k, v FROM paper_meta")}
+        ops = [dict(r) for r in conn.execute("SELECT * FROM paper_ops ORDER BY created_ts DESC")]
+        skips = conn.execute(
+            "SELECT reason, COUNT(*) n FROM paper_skips WHERE ts > ? GROUP BY reason ORDER BY n DESC",
+            (time.time() - 7 * 86400,)).fetchall()
+    except sqlite3.OperationalError:  # aún no hay tablas (el escáner nunca corrió con papel)
+        meta, ops, skips = {}, [], []
+    try:
+        execsim = _execsim(conn)
+    except sqlite3.OperationalError:  # todavía no existe la tabla de simulación
+        execsim = None
+    try:
+        from .makersim import summary as maker_summary
+        maker = maker_summary(conn)
+    except sqlite3.OperationalError:
+        maker = None
+    finally:
+        conn.close()
+
+    initial = float(meta.get("initial", 100))
+    for o in ops:
+        o["legs"] = json.loads(o.pop("legs_json") or "[]")
+        o.pop("resolve_json", None)
+        o["track"] = o.get("track") or "real"
+    auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
+    all_ops = [o for o in ops if o["track"] != "auto"]
+    measure = _measure(all_ops)
+    ops = [o for o in all_ops if o["track"] == "real"]  # la cuenta de $1000 (lo demás solo se mide)
+    settled = [o for o in ops if o["status"] != "open"]
+    open_ = [o for o in ops if o["status"] == "open"]
+    pnl_total = sum(o["pnl"] or 0 for o in settled)
+    in_play = sum(o["total_stake"] for o in open_)
+    staked_settled = sum(o["total_stake"] for o in settled)
+    won = sum(1 for o in settled if o["status"] == "won")
+    lost = sum(1 for o in settled if o["status"] == "lost")
+
+    # Curva de capital: arranca en el saldo inicial y suma cada liquidación en orden
+    eq, curve = initial, [[float(meta.get("started", time.time())) * 1000, initial]]
+    for o in sorted(settled, key=lambda o: o["settled_ts"] or 0):
+        eq += o["pnl"] or 0
+        curve.append([(o["settled_ts"] or 0) * 1000, round(eq, 2)])
+
+    # Semana: por día de entrada (hora local)
+    today = datetime.now().date()
+    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    weekly = []
+    for d in days:
+        day_ops = [o for o in ops if datetime.fromtimestamp(o["created_ts"]).date() == d]
+        day_settled = [o for o in settled if o["settled_ts"] and datetime.fromtimestamp(o["settled_ts"]).date() == d]
+        weekly.append({
+            "day": d.isoformat(), "label": f"{DIAS[d.weekday()]} {d.day:02d}",
+            "entries": len(day_ops), "arbs": sum(1 for o in day_ops if o["kind"] == "arb"),
+            "values": sum(1 for o in day_ops if o["kind"] == "value"),
+            "staked": round(sum(o["total_stake"] for o in day_ops), 2),
+            "expected": round(sum(o["expected_profit"] or 0 for o in day_ops), 2),
+            "pnl": round(sum(o["pnl"] or 0 for o in day_settled), 2),
+            "fees": round(sum(o["fees"] or 0 for o in day_ops), 2),
+        })
+
+    def group(key) -> list[dict]:
+        out: dict[str, dict] = {}
+        for o in ops:
+            k = key(o)
+            g = out.setdefault(k, {"name": k, "ops": 0, "staked": 0.0, "pnl": 0.0, "open": 0, "expected": 0.0})
+            g["ops"] += 1
+            g["staked"] += o["total_stake"]
+            g["pnl"] += o["pnl"] or 0
+            g["expected"] += o["expected_profit"] or 0
+            g["open"] += o["status"] == "open"
+        return sorted(({**g, "staked": round(g["staked"], 2), "pnl": round(g["pnl"], 2),
+                        "expected": round(g["expected"], 2)} for g in out.values()),
+                      key=lambda g: -g["ops"])
+
+    status = {}
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+
+    return {
+        "now": time.time(),
+        "account": {
+            "initial": initial, "arb_stake": float(meta.get("arb_stake", 100)),
+            "equity": round(initial + pnl_total, 2), "in_play": round(in_play, 2),
+            "cash": round(initial + pnl_total - in_play, 2), "pnl": round(pnl_total, 2),
+            "roi_pct": round(100 * pnl_total / staked_settled, 2) if staked_settled else 0.0,
+            "growth_pct": round(100 * pnl_total / initial, 2) if initial else 0.0,
+            "ops": len(ops), "open": len(open_), "won": won, "lost": lost,
+            "void": sum(1 for o in settled if o["status"] == "void"),
+            "fees": round(sum(o["fees"] or 0 for o in ops), 2),
+            "expected_open": round(sum(o["expected_profit"] or 0 for o in open_), 2),
+        },
+        "curve": curve,
+        "weekly": weekly,
+        "by_kind": group(lambda o: "Arbitraje" if o["kind"] == "arb" else "Valor"),
+        "by_market": group(lambda o: o["market_name"] or o["market"]),
+        "by_sport": group(lambda o: o["sport"]),
+        "by_source": group(lambda o: " + ".join(sorted({l["source"] for l in o["legs"]}))),
+        "measure": measure,
+        "execsim": execsim,
+        "maker": maker,
+        "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
+        "ops": all_ops[:300],
+        "skips": [{"reason": r["reason"], "n": r["n"]} for r in skips],
+        "status": status,
+    }
+
+
+def _category(o: dict) -> str:
+    if o["kind"] == "arb":
+        if o["live"]:
+            return "Surebet en vivo"
+        if o["track"] == "real":
+            return "Surebet prepartido"
+        return "Surebet prepartido (lejana o sin saldo, solo medida)"
+    return "Valor en vivo" if o["live"] else "Valor prepartido"
+
+
+def _measure(ops: list[dict]) -> list[dict]:
+    """Rendimiento por tipo de jugada, real y medida: para saber dónde está la ventaja."""
+    out: dict[str, dict] = {}
+    for o in ops:
+        g = out.setdefault(_category(o), {"name": _category(o), "real": o["track"] == "real", "ops": 0, "open": 0,
+                                          "won": 0, "lost": 0, "void": 0, "staked": 0.0, "pnl": 0.0, "expected": 0.0})
+        g["ops"] += 1
+        g["expected"] += o["expected_profit"] or 0
+        if o["status"] == "open":
+            g["open"] += 1
+            continue
+        g[o["status"]] = g.get(o["status"], 0) + 1
+        g["staked"] += o["total_stake"]
+        g["pnl"] += o["pnl"] or 0
+    # Subconjunto: el valor que pasa el filtro de "oro" (ver surebet/safety.py:golden_value)
+    from .safety import golden_value
+    gold = [o for o in ops if o["kind"] == "value" and o["start_ts"] and o["legs"] and golden_value(
+        bool(o["live"]) or o["created_ts"] >= o["start_ts"], o["edge_pct"], o["legs"][0]["odds"],
+        (o["start_ts"] - o["created_ts"]) / 3600)]
+    if gold:
+        g = {"name": "Valor prepartido FILTRADO (oro)", "real": False, "ops": len(gold), "open": 0, "won": 0,
+             "lost": 0, "void": 0, "staked": 0.0, "pnl": 0.0, "expected": sum(o["expected_profit"] or 0 for o in gold)}
+        for o in gold:
+            if o["status"] == "open":
+                g["open"] += 1
+            else:
+                g[o["status"]] += 1
+                g["staked"] += o["total_stake"]
+                g["pnl"] += o["pnl"] or 0
+        out[g["name"]] = g
+    order = ["Surebet prepartido", "Surebet prepartido (lejana o sin saldo, solo medida)", "Surebet en vivo",
+             "Valor prepartido", "Valor prepartido FILTRADO (oro)", "Valor en vivo"]
+    rows = sorted(out.values(), key=lambda g: order.index(g["name"]) if g["name"] in order else 99)
+    return [{**g, "staked": round(g["staked"], 2), "pnl": round(g["pnl"], 2), "expected": round(g["expected"], 2),
+             "roi_pct": round(100 * g["pnl"] / g["staked"], 2) if g["staked"] else None} for g in rows]
+
+
+class _Handler(BaseHTTPRequestHandler):
+    db_path: Path
+    status_path: Path
+
+    def log_message(self, *args) -> None:  # silencioso: no ensucia la consola del escáner
+        pass
+
+    def _send(self, code: int, body: bytes, ctype: str) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self.path.startswith("/api/state"):
+            try:
+                data = build_state(self.db_path, self.status_path)
+                self._send(200, json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+            except Exception as e:  # el panel nunca debe tumbar al escáner
+                self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+            return
+        page = STATIC / "index.html"
+        if self.path in ("/", "/index.html") and page.exists():
+            self._send(200, page.read_bytes(), "text/html; charset=utf-8")
+        else:
+            self._send(404, b"no encontrado", "text/plain")
+
+
+def serve(db_path: Path, status_path: Path, port: int = 8765, background: bool = True) -> ThreadingHTTPServer:
+    handler = type("Handler", (_Handler,), {"db_path": db_path, "status_path": status_path})
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    if background:
+        threading.Thread(target=server.serve_forever, daemon=True, name="dashboard").start()
+    else:
+        server.serve_forever()
+    return server

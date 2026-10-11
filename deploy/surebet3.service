@@ -1,0 +1,19 @@
+[Unit]
+Description=surebet3 - surebets Polymarket vs 1xBet (solo papel y avisos por Telegram, no apuesta)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/apps/surebet3
+ExecStart=/opt/apps/surebet3/.venv/bin/python scan.py --headless
+Environment=PYTHONUTF8=1 PYTHONUNBUFFERED=1 MALLOC_ARENA_MAX=2 TZ=America/Caracas
+Restart=always
+RestartSec=30
+# Comparte el VPS con los otros bots: prioridad baja y techo de memoria/CPU
+Nice=10
+MemoryHigh=400M
+MemoryMax=550M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

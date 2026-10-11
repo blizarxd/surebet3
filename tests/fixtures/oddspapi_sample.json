@@ -1,0 +1,171 @@
+{
+ "markets": [
+  {
+   "marketId": 101,
+   "marketLength": 3,
+   "marketName": "Full Time Result",
+   "playerProp": false,
+   "sportId": 10,
+   "handicap": 0.0,
+   "period": "fulltime",
+   "marketType": "1x2",
+   "outcomes": [
+    {
+     "outcomeId": 102,
+     "outcomeName": "X"
+    },
+    {
+     "outcomeId": 101,
+     "outcomeName": "1"
+    },
+    {
+     "outcomeId": 103,
+     "outcomeName": "2"
+    }
+   ]
+  },
+  {
+   "marketId": 111,
+   "marketLength": 2,
+   "marketName": "Winner (incl. overtime)",
+   "playerProp": false,
+   "sportId": 11,
+   "handicap": 0.0,
+   "period": "result",
+   "marketType": "moneyline",
+   "outcomes": [
+    {
+     "outcomeId": 111,
+     "outcomeName": "1"
+    },
+    {
+     "outcomeId": 112,
+     "outcomeName": "2"
+    }
+   ]
+  },
+  {
+   "marketId": 121,
+   "marketLength": 2,
+   "marketName": "Winner",
+   "playerProp": false,
+   "sportId": 12,
+   "handicap": 0.0,
+   "period": "result",
+   "marketType": "moneyline",
+   "outcomes": [
+    {
+     "outcomeId": 122,
+     "outcomeName": "2"
+    },
+    {
+     "outcomeId": 121,
+     "outcomeName": "1"
+    }
+   ]
+  },
+  {
+   "marketId": 151,
+   "marketLength": 2,
+   "marketName": "Winner (incl. overtime and penalties)",
+   "playerProp": false,
+   "sportId": 15,
+   "handicap": 0.0,
+   "period": "result",
+   "marketType": "moneyline",
+   "outcomes": [
+    {
+     "outcomeId": 151,
+     "outcomeName": "1"
+    },
+    {
+     "outcomeId": 152,
+     "outcomeName": "2"
+    }
+   ]
+  }
+ ],
+ "fixture": {
+  "fixtureId": "id1000003572513220",
+  "participant1Name": "Borussia Dortmund",
+  "participant2Name": "Werder Bremen",
+  "sportId": 10,
+  "tournamentId": 35,
+  "startTime": "2026-10-09T18:30:00.000Z",
+  "statusId": 0,
+  "hasOdds": true
+ },
+ "row": {
+  "fixtureId": "id1000003572513220",
+  "bookmakerOdds": {
+   "stake": {
+    "bookmakerIsActive": true,
+    "bookmakerFixtureId": "46856893-borussia-dortmund-werder-bremen",
+    "fixturePath": "https://stake.com/sports/e/e/e-e/46856893-borussia-dortmund-werder-bremen",
+    "suspended": false,
+    "markets": {
+     "101": {
+      "bookmakerMarketId": "057c0967-67f3-405d-b064-4fb80db0b7ca",
+      "marketActive": true,
+      "outcomes": {
+       "102": {
+        "players": {
+         "0": {
+          "active": true,
+          "betslip": null,
+          "bookmakerOutcomeId": "2f5b50cc-c4a1-4877-886b-b07bd55b3575",
+          "bookmakerChangedAt": "2026-10-09T18:11:55.041Z",
+          "changedAt": "2026-10-09T18:12:11.010Z",
+          "limit": null,
+          "playerName": null,
+          "price": 5.6,
+          "priceAmerican": "460",
+          "priceFractional": "23/5",
+          "mainLine": true,
+          "exchangeMeta": null
+         }
+        }
+       },
+       "101": {
+        "players": {
+         "0": {
+          "active": true,
+          "betslip": null,
+          "bookmakerOutcomeId": "87166ff1-4cc3-4f12-9505-a2b4b8c14bba",
+          "bookmakerChangedAt": "2026-10-09T17:47:31.597Z",
+          "changedAt": "2026-10-09T17:47:38.487Z",
+          "limit": null,
+          "playerName": null,
+          "price": 1.36,
+          "priceAmerican": "-278",
+          "priceFractional": "9/25",
+          "mainLine": true,
+          "exchangeMeta": null
+         }
+        }
+       },
+       "103": {
+        "players": {
+         "0": {
+          "active": true,
+          "betslip": null,
+          "bookmakerOutcomeId": "2fb838e6-4ebb-4270-9c0c-943b8d04d9df",
+          "bookmakerChangedAt": "2026-10-09T18:06:58.720Z",
+          "changedAt": "2026-10-09T18:07:22.608Z",
+          "limit": null,
+          "playerName": null,
+          "price": 7.8,
+          "priceAmerican": "680",
+          "priceFractional": "34/5",
+          "mainLine": true,
+          "exchangeMeta": null
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}
