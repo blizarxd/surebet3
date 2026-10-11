@@ -219,6 +219,12 @@
   </section>
 </main>
 <main id="tab-main">
+  <section class="card">
+    <h2>¿Listos para dinero real? <span class="count" id="gl-sum"></span></h2>
+    <div class="small muted">Condiciones medibles para pasar cada estrategia del papel a real, por fases. Se calculan solas con lo medido;
+      con pocos días cualquier ganancia es ruido, por eso piden volumen y CLV, no solo ROI.</div>
+    <div id="golive"></div>
+  </section>
   <section class="kpis" id="kpis"></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-main-sum"></span></h2>
     <div class="small muted">Lo que está en juego ahora en la cuenta de surebets: cuánto hay en cada casa, la cuota con la que entró y la de <b>ahora</b>.</div>
@@ -588,7 +594,7 @@ function activeTable(id, ops) {
       <td class="num"><b>${money(o.total_stake)}</b></td><td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}</td></tr>`).join("");
 }
 function activeRed(n) {
-  const open = n.rows.filter((r) => r.result === "pendiente").sort((a, b) => (a.start_ts || 0) - (b.start_ts || 0));
+  const open = n.rows.filter((r) => r.result === "pendiente" && !r.skipped).sort((a, b) => (a.start_ts || 0) - (b.start_ts || 0));
   const tot = open.reduce((a, r) => a + r.stake + r.stake * r.odds * r.limit_price, 0);
   $("act-red-sum").textContent = open.length ? `(${open.length} abiertos · ${money(tot)} entre 1xBet y Polymarket)` : "";
   if (!open.length) { $("act-red").innerHTML = `<tr><td class="empty">No hay picks abiertos ahora.</td></tr>`; return; }
@@ -608,6 +614,20 @@ function activeRed(n) {
           : r.status === "quedó como valor" ? `<span class="tag void">red cancelada</span><div class="small muted">no se llenó: queda solo 1xBet</div>`
           : `<span class="tag open">red esperando</span><div class="small muted">${r.gap_now == null ? "" : `falta ${Math.max(0, r.gap_now).toFixed(1)}¢`}</div>`}</td></tr>`;
     }).join("");
+}
+
+function renderGolive(g) {
+  if (!g) return;
+  $("gl-sum").textContent = `(${g.days} días medidos)`;
+  const bar = (p, ok) => `<div style="background:var(--panel2);border-radius:4px;height:6px;width:120px;display:inline-block;vertical-align:middle">
+    <div style="width:${Math.round(100 * p)}%;height:6px;border-radius:4px;background:var(${ok ? "--green" : "--amber"})"></div></div>`;
+  $("golive").innerHTML = g.phases.map((ph) => `<div style="margin-top:12px">
+      <h2>${ph.ok ? "🟢" : ph.checks.length ? "🟡" : "⚪"} ${esc(ph.name)}</h2>
+      <div class="small">${esc(ph.plan)}</div>${ph.note ? `<div class="small warn">${esc(ph.note)}</div>` : ""}
+      ${ph.checks.length ? `<table style="margin-top:6px">${ph.checks.map((c) => `<tr><td>${c.ok ? "✅" : "⏳"} ${esc(c.name)}</td>
+        <td class="num"><b>${esc(c.value)}</b></td><td class="num muted">meta ${esc(c.target)}</td><td>${bar(c.progress, c.ok)}</td></tr>`).join("")}</table>` : ""}
+    </div>`).join("") +
+    `<div style="margin-top:12px"><h2>Antes de poner plata (revisar a mano)</h2><ul class="small">${g.manual.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>`;
 }
 
 function renderRisk(id, r) {
@@ -635,7 +655,8 @@ function renderRed(n) {
     kpi("Mismas sin red", money(a.pnl_no_net, true), `ROI ${a.roi_no_net == null ? "-" : pct(a.roi_no_net)} (con red: ${money(a.pnl_same, true)})`, cls(a.pnl_no_net)),
   ].join("");
   renderRisk("risk-red", n.risk); renderRisk("risk-nonet", n.risk_no_net); activeRed(n);
-  $("lvl-sum").textContent = n.no_data ? `(${n.no_data} picks sin historial en Polymarket, no cuentan)` : "";
+  $("lvl-sum").textContent = [n.no_data ? `${n.no_data} picks sin historial en Polymarket` : "",
+    n.skipped ? `${n.skipped} no entraron por el tope de ${money(n.max_in_play)} en juego` : ""].filter(Boolean).join(" · ").replace(/^(.+)$/, "($1, no cuentan)");
   $("red-levels").innerHTML = `<tr><th>Red</th><th class="num">Picks</th><th class="num">Se llena</th><th class="num">Asegura (medio)</th>
     <th class="num">Esperado</th><th class="num">ROI esperado</th><th class="num">Real</th><th class="num">ROI real</th></tr>` +
     (n.by_level || []).map((l) => `<tr><td>${esc(l.name)}</td><td class="num">${l.picks}</td>
@@ -662,7 +683,8 @@ function renderRed(n) {
       if (r.status === "asegurada") story = `<span class="tag won">🔒 asegurada</span><div class="small">${when(r.lock_ts)} · ${dur(r.lock_ts - r.created_ts)} después de entrar</div>`;
       else if (r.status === "valor") story = `<span class="tag open">red esperando</span><div class="small muted">${r.gap_now == null ? "sin precio todavía" : `falta ${Math.max(0, r.gap_now).toFixed(1)}¢`}${r.best_gap != null ? ` · lo más cerca: ${Math.max(0, r.best_gap).toFixed(1)}¢` : ""}</div>`;
       else story = `<span class="tag void">quedó como valor</span><div class="small muted">red cancelada${r.best_gap != null ? ` · se quedó a ${r.best_gap.toFixed(1)}¢` : ""}</div>`;
-      return `<tr><td class="small nowrap">${when(r.created_ts)}<div><span class="tag ${r.source === "vivo" ? "open" : "void"}">${r.source}</span></div></td>
+      const capNote = r.skipped ? `<div><span class="tag lost">no entró: tope de ${money(n.max_in_play)} en juego</span></div>` : "";
+      return `<tr style="${r.skipped ? "opacity:.55" : ""}"><td class="small nowrap">${when(r.created_ts)}<div><span class="tag ${r.source === "vivo" ? "open" : "void"}">${r.source}</span></div>${capNote}</td>
         <td>${esc(r.title)}<div class="muted small">${esc(r.sport)} · ${esc(r.market)} · empieza ${when(r.start_ts)}</div></td>
         <td class="small">${esc(r.house)}: <b>${money(r.stake)}</b> a <b>${esc(r.selection)}</b> @ <b>${Number(r.odds).toFixed(2)}</b><div class="muted">EV ${pct(r.ev_pct, 1)}</div></td>
         <td class="small">${esc(r.net_label)}<div class="muted">${Number(r.stake * r.odds).toFixed(0)} shares a ${(100 * r.limit_price).toFixed(0)}¢ = <b>${money(r.stake * r.odds * r.limit_price)}</b></div>
@@ -759,7 +781,7 @@ async function refresh() {
     const alive = st.ts && state.now - st.ts < 60;
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
-    renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real")); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
+    renderGolive(state.golive); renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real")); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
     renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderRed(state.netpaper); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);

@@ -51,3 +51,16 @@ def test_pause_switch(tmp_path):
     b = PolyBuyer(tmp_path / "b.db", "tok", "1")
     b._set_paused(True)
     assert "pausadas" in run(b, b.offer(opps[0], 100), [(0.50, 10000)])
+
+
+def test_reject_feedback_and_in_play(tmp_path):
+    opps, p, _ = setup()
+    b = PolyBuyer(tmp_path / "b.db", "tok", "1")
+    oid = b.offer(opps[0], 100)
+    assert b.reject_button("pb", oid)[1] == f"cb:nx:pb:{oid}"
+    assert "no entró" in b._feedback("pb", oid)
+    assert b.conn.execute("SELECT status FROM poly_orders").fetchone()[0] == "rejected"
+    assert b.conn.execute("SELECT COUNT(*) FROM manual_feedback").fetchone()[0] == 1
+    oid2 = b.offer(opps[0], 100)
+    run(b, oid2, [(0.50, 10000)])                          # demo: cuenta como en juego
+    assert b.in_play() > 90

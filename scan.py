@@ -204,6 +204,14 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     return res
 
 
+def cap_warning(in_play: float, needed: float, cap: float) -> str:
+    """Aviso si, según tus botones, esta entrada te pasaría del tope de dinero en juego."""
+    if cap and in_play + needed > cap:
+        return (f"\n\n⚠ Según tus botones ya tienes ${in_play:,.0f} en juego (tope ${cap:,.0f}). "
+                "Si la tomas te pasas: mejor sáltala o espera a que se resuelvan otras.")
+    return ""
+
+
 async def update_value_clv(s, paper) -> None:
     """CLV (cuota vs. precio de cierre de Polymarket) de las apuestas de la cuenta de valor ya empezadas."""
     keys = []
@@ -349,7 +357,8 @@ async def main() -> None:
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
             if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
                 net_task = asyncio.create_task(  # noqa: F841
-                    NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total).run())
+                    NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total,
+                               max_in_play=s.value_max_in_play).run())
         last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
@@ -374,9 +383,11 @@ async def main() -> None:
                         buttons = leg_buttons(o, s.rotate_books)
                         oid = buyer.offer(o, s.paper_arb_stake)
                         if oid:
-                            buttons.append(buyer.button(oid))
+                            buttons += [buyer.button(oid), buyer.reject_button("pb", oid)]
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_ready(o, s.paper_arb_stake, s.rotate_books), buttons)
+                                            format_ready(o, s.paper_arb_stake, s.rotate_books)
+                                            + cap_warning(buyer.in_play(), min(s.paper_arb_stake, o.max_total_stake or s.paper_arb_stake),
+                                                          s.value_max_in_play), buttons)
                 for v in fresh_values:
                     st_ = v.event.anchor.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
@@ -386,9 +397,11 @@ async def main() -> None:
                         buttons = [(f"Abrir {v.quote.source}", v.quote.url)] if v.quote.url.startswith("http") else []
                         nid = nets.offer(v, stake)
                         if nid:
-                            buttons.append(nets.button(nid))
+                            buttons += [nets.button(nid), buyer.reject_button("vn", nid)]
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_value_bet(v, s.bankroll, s.kelly_fraction, stake), buttons)
+                                            format_value_bet(v, s.bankroll, s.kelly_fraction, stake)
+                                            + cap_warning(buyer.in_play(), s.value_min_total, s.value_max_in_play),
+                                            buttons)
                 report_file = s.db_path.parent / "daily_report.txt"
                 today = time.strftime("%Y-%m-%d")
                 if paper and 0 <= s.daily_report_hour <= int(time.strftime("%H")):

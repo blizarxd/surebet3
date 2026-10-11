@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import golive
 from .liveodds import leg_ref, load as load_live_odds
 from .risk import from_paper_ops, risk_stats
 
@@ -177,6 +178,14 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     from .nettrack import summary as netpaper_summary
     nets = nets_summary(conn)
     netpaper = netpaper_summary(conn)
+    buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
+    for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
+                   ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
+                   ("SELECT COUNT(*) FROM manual_feedback", "rejected")):
+        try:
+            buttons[k] += conn.execute(sql).fetchone()[0]
+        except sqlite3.OperationalError:
+            pass
     try:  # CLV de cada apuesta de valor (lo calcula clv.py contra el cierre de Polymarket)
         clv = {r[0]: r[1] for r in conn.execute("SELECT key, clv_pct FROM value_bets WHERE clv_pct IS NOT NULL")}
     except sqlite3.OperationalError:
@@ -209,6 +218,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
     valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
     value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]
+    ops_all = ops
     all_ops = [o for o in ops if o["track"] not in ("auto", "valor")]
     measure = _measure(all_ops)
     ops = [o for o in all_ops if o["track"] == "real"]  # la cuenta de $1000 (lo demás solo se mide)
@@ -288,6 +298,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "maker": maker,
         "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
         "funnel": funnel,
+        "golive": golive.evaluate(float(meta.get("started", 0) or 0), [o for o in ops_all if o["track"] in ("real", "medicion")],
+                                  netpaper, buttons, _is_gold),
         "polybuy": polybuy,
         "nets": nets,
         "netpaper": netpaper,

@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS poly_orders (
     mode TEXT, reason TEXT
 );
 CREATE TABLE IF NOT EXISTS poly_meta (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS manual_feedback (   -- lo que el papel no puede saber: 1xBet rechazó o cambió la cuota
+    ts REAL, kind TEXT, ref_id INTEGER, title TEXT, what TEXT
+);
 """
 
 
@@ -115,6 +118,41 @@ class PolyBuyer:
         return cur.lastrowid
 
     @staticmethod
+    def reject_button(kind: str, ref_id: int) -> tuple[str, str]:
+        """kind: 'pb' (surebet) | 'vn' (valor). Mide cuántas veces 1xBet no acepta o cambia la cuota."""
+        return ("❌ 1xBet no aceptó / cambió la cuota", f"cb:nx:{kind}:{ref_id}")
+
+    def in_play(self) -> float:
+        """Dinero en juego según tus botones: 1xBet + Polymarket de lo que marcaste como apostado."""
+        now = time.time()
+        total = self.conn.execute(
+            "SELECT COALESCE(SUM(book_stake + COALESCE(spent,0)),0) FROM poly_orders WHERE status IN ('filled','demo') "
+            "AND COALESCE(start_ts, clicked_ts) + 7200 > ?", (now,)).fetchone()[0]
+        try:
+            total += self.conn.execute(
+                "SELECT COALESCE(SUM(book_stake + CASE WHEN status IN ('locked','partial') OR start_ts - 600 > ? "
+                "THEN COALESCE(cost, shares * limit_price) ELSE 0 END),0) FROM value_nets "
+                "WHERE status IN ('resting','locked','partial','kept') AND COALESCE(start_ts, clicked_ts) + 7200 > ?",
+                (now, now)).fetchone()[0]
+        except sqlite3.OperationalError:
+            pass
+        return total
+
+    def _feedback(self, kind: str, ref_id: int) -> str:
+        table = "poly_orders" if kind == "pb" else "value_nets"
+        row = self.conn.execute(f"SELECT title, status FROM {table} WHERE id=?", (ref_id,)).fetchone()
+        if not row:
+            return "No encontré ese aviso."
+        title, status = row
+        self.conn.execute("INSERT INTO manual_feedback VALUES (?,?,?,?,?)",
+                          (time.time(), kind, ref_id, title, "1xBet no aceptó / cambió la cuota"))
+        if status == "offered":
+            self.conn.execute(f"UPDATE {table} SET status='rejected', reason=? WHERE id=?",
+                              ("1xBet no aceptó / cambió la cuota (avisado por ti)", ref_id))
+        self.conn.commit()
+        return f"Anotado: {title} no entró en 1xBet. No pongas la otra pata. (Esto mide cuántas se pierden de verdad.)"
+
+    @staticmethod
     def button(order_id: int) -> tuple[str, str]:
         return ("✅ Ya aposté en 1xBet → comprar en Polymarket", f"cb:pb:{order_id}")
 
@@ -151,6 +189,9 @@ class PolyBuyer:
                 text = await self.execute(client, int(data[3:]))
             elif data.startswith("vn:") and self.nets:
                 text = await self.nets.click(client, int(data[3:]))
+            elif data.startswith("nx:"):
+                _, kind, ref_id = data.split(":")
+                text = self._feedback(kind, int(ref_id))
             else:
                 text = "Botón desconocido."
             await client.post(f"https://api.telegram.org/bot{self.token}/answerCallbackQuery",

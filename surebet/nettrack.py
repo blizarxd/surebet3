@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS net_picks (
 );
 CREATE TABLE IF NOT EXISTS net_meta (k TEXT PRIMARY KEY, v TEXT);
 """
-MIGRATIONS = {"p_entry": "REAL", "p_close": "REAL", "levels": "TEXT", "tries": "INTEGER DEFAULT 0"}
+MIGRATIONS = {"p_entry": "REAL", "p_close": "REAL", "levels": "TEXT", "tries": "INTEGER DEFAULT 0",
+              "skipped": "INTEGER DEFAULT 0"}   # 1 = no entró: ya había MAX_IN_PLAY en juego
 
 
 def limit_for(odds: float, lock_pct: float = LOCK_PCT) -> float:
@@ -86,7 +87,7 @@ def kelly_stake(odds: float, ev_pct: float, bankroll: float, fraction: float = 0
 
 class NetTracker:
     def __init__(self, db_path: Path, bankroll: float = 1000.0, lock_pct: float = LOCK_PCT,
-                 min_total: float = 0.0) -> None:
+                 min_total: float = 0.0, max_in_play: float = 0.0) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(net_picks)")}
@@ -94,6 +95,7 @@ class NetTracker:
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE net_picks ADD COLUMN {col} {decl}")
         self.bankroll, self.lock_pct, self.min_total = bankroll, lock_pct, min_total
+        self.max_in_play = max_in_play
         self.conn.execute("INSERT OR IGNORE INTO net_meta VALUES ('activated', ?)", (str(time.time()),))
         self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('bankroll', ?)", (str(bankroll),))
         self.conn.commit()
@@ -107,7 +109,31 @@ class NetTracker:
                                   (self._stake(odds, ev, lim), key))
             self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('min_total', ?)", (str(min_total),))
             self.conn.commit()
+        self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('max_in_play', ?)", (str(max_in_play),))
+        self._apply_cap()
+        self.conn.commit()
         self.status = "iniciando"
+
+    def _apply_cap(self) -> None:
+        """Tope de dinero en juego: en orden de llegada, un pick no entra si con él se pasaría de max_in_play
+        (1xBet desde la entrada hasta ~2 h después del inicio + la orden de Polymarket mientras espera o, si se
+        llenó, hasta el final). Se recalcula entero: así el backtest también respeta el tope."""
+        rows = self.conn.execute("SELECT key, created_ts, start_ts, stake, odds, limit_price, status FROM net_picks "
+                                 "WHERE status!='sin datos' ORDER BY created_ts").fetchall()
+        held: list[tuple[float, float]] = []  # (hasta cuándo, cuánto)
+        flags = []
+        for key, created, start, stake, odds, lim, status in rows:
+            held = [h for h in held if h[0] > created]
+            reserve = stake * odds * lim
+            need = stake + reserve
+            if self.max_in_play and sum(h[1] for h in held) + need > self.max_in_play + 1e-9:
+                flags.append((1, key))
+                continue
+            flags.append((0, key))
+            end = (start or created) + 2 * 3600
+            held.append((end, stake))
+            held.append((end if status == "asegurada" else (start or created) - CANCEL_BEFORE_S, reserve))
+        self.conn.executemany("UPDATE net_picks SET skipped=? WHERE key=?", flags)
 
     def _stake(self, odds: float, ev: float, limit: float) -> float:
         return value_stake(odds, ev, self.bankroll, min_total=self.min_total, limit=limit)
@@ -191,6 +217,7 @@ class NetTracker:
         self.conn.executemany("UPDATE net_picks SET last_check=?, tries=COALESCE(tries,0)+1 WHERE key=?", retries)
         self.conn.executemany("UPDATE net_picks SET status='sin datos', result='sin datos', pnl=NULL, last_check=? "
                               "WHERE key=?", gone)
+        self._apply_cap()
         self._settle()
         self.conn.commit()
         return len(rows)
@@ -298,13 +325,15 @@ def summary(conn) -> dict | None:
         meta = dict(conn.execute("SELECT k, v FROM net_meta").fetchall())
         cols = ("key", "source", "created_ts", "start_ts", "title", "sport", "market", "selection", "house", "odds",
                 "ev_pct", "stake", "net_label", "limit_price", "status", "lock_ts", "best_gap", "gap_now", "result",
-                "pnl", "pnl_no_net", "p_entry", "p_close", "levels")
+                "pnl", "pnl_no_net", "p_entry", "p_close", "levels", "skipped")
         rows = [dict(zip(cols, r)) for r in conn.execute(
             f"SELECT {', '.join(cols)} FROM net_picks WHERE status!='sin datos' ORDER BY created_ts DESC")]
         no_data = conn.execute("SELECT COUNT(*) FROM net_picks WHERE status='sin datos'").fetchone()[0]
     except sqlite3.OperationalError:
         return None
     bankroll = float(meta.get("bankroll", 1000))
+    shown, rows = rows, [r for r in rows if not r["skipped"]]   # los que no entraron por el tope no cuentan
+    skipped = len(shown) - len(rows)
 
     def block(rs) -> dict:
         done = [r for r in rs if r["result"] != "pendiente" and r["pnl"] is not None]
@@ -331,7 +360,7 @@ def summary(conn) -> dict | None:
                     key=lambda r: r["start_ts"] or 0):
         eq += r["pnl"]
         curve.append([(r["start_ts"] or 0) * 1000, round(eq, 2)])
-    for r in rows:
+    for r in shown:
         r["levels"] = json.loads(r["levels"]) if r["levels"] else None
     # Riesgo con y sin red. El partido se da por liquidado ~2 h después del inicio. Con red, el dinero de la
     # orden en Polymarket también queda inmovilizado: hasta 10 min antes del partido si no se llenó, o hasta
@@ -351,9 +380,10 @@ def summary(conn) -> dict | None:
         no_net.append({"open_ts": r["created_ts"], "close_ts": end if nn is not None else None, "capital": r["stake"],
                        "pnl": nn, "outcome": None if nn is None else ("won" if nn > 0 else "lost" if nn < 0 else "void")})
     return {"activated": float(meta.get("activated", 0)), "bankroll": bankroll, "no_data": no_data,
+            "skipped": skipped, "max_in_play": float(meta.get("max_in_play", 0) or 0),
             "by_level": by_level(rows),
             "risk": risk_stats(with_net, bankroll), "risk_no_net": risk_stats(no_net, bankroll),
             "equity": round(bankroll + all_["pnl"], 2), "all": all_,
             "backtest": block([r for r in rows if r["source"] == "backtest"]),
             "live": block([r for r in rows if r["source"] == "vivo"]),
-            "curve": curve, "rows": rows[:400]}
+            "curve": curve, "rows": shown[:400]}

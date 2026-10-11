@@ -299,6 +299,20 @@ racha mala pierde mucho menos. Sirve para apostar montos más grandes con el mis
 - **Tablas por franja de EV, cuota, casa y deporte**, con ROI, CLV medio y porcentaje de CLV positivo.
 - **Medición de todas las señales de valor** ($100 fijos), filtrable entre "solo oro" y "todas", para ver qué filtro funciona.
 
+## Pasar a dinero real: fases y condiciones
+
+En la pestaña Principal, el panel **"¿Listos para dinero real?"** (`surebet/golive.py`) calcula solo cada condición:
+
+| Fase | Qué | Condiciones medibles |
+|---|---|---|
+| 1 | Surebets prepartido 1xBet + Polymarket, $50–100 por operación, tope $500 en juego | ≥ 7 días, ≥ 200 surebets liquidadas, **0 perdidas**, neto ≥ 1 %, ≥ 30 toques de botones en demo |
+| 2 | Valor oro con $30 (y red si conviene), tope $1000 en juego | ≥ 14 días, ≥ 200 oro con CLV, CLV medio ≥ +1,5 %, ≥ 60 % con CLV a favor, ≥ 50 picks de valor + red en vivo, caída ≤ 15 %, rechazos de 1xBet ≤ 15 % |
+| 3 | Automático Cloudbet / SX | Simulación ≥ 70 % llenada con neto positivo durante semanas |
+
+El botón **❌ "1xBet no aceptó / cambió la cuota"** de los avisos mide lo único que el papel no ve.
+`VALUE_MAX_IN_PLAY` (1000) limita el dinero en juego a la vez: en papel no entra lo que lo supere, y el aviso de
+Telegram advierte si, según tus botones, ya estás en el tope.
+
 ## Alertas de Telegram y apuesta rápida
 
 - **"Lista para apostar"**: casa, cuota exacta (y neta), monto de cada lado, cuota mínima aceptable y
