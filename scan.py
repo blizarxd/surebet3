@@ -49,6 +49,7 @@ from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
 from surebet.liveodds import LiveOdds
+from surebet.staking import net_limit, value_stake
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -272,6 +273,7 @@ async def main() -> None:
             take_value=s.paper_take_value, measure=s.paper_measure, measure_stake=s.paper_measure_stake,
             real_max_hours=s.paper_real_max_hours, live_accept_delay_s=s.paper_live_delay_s,
             real_min_net_pct=s.paper_real_min_net_pct, value_bankroll=s.value_bankroll,
+            value_min_total=s.value_min_total,
         ))
     execsim = ExecSimulator(s.db_path, s.paper_arb_stake) if paper else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake) if paper else None
@@ -346,7 +348,8 @@ async def main() -> None:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
             if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
-                net_task = asyncio.create_task(NetTracker(s.db_path, s.value_bankroll).run())  # noqa: F841
+                net_task = asyncio.create_task(  # noqa: F841
+                    NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total).run())
         last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
@@ -378,13 +381,14 @@ async def main() -> None:
                     st_ = v.event.anchor.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
                     if worth_value(v, hrs):  # solo el valor "oro", una vez por partido
-                        stake = min(s.bankroll * v.kelly * s.kelly_fraction, s.bankroll * 0.03)
+                        stake = value_stake(v.quote.odds, v.ev_pct, s.bankroll, s.kelly_fraction, 0.03,
+                                            s.value_min_total, net_limit(v.quote.odds))
                         buttons = [(f"Abrir {v.quote.source}", v.quote.url)] if v.quote.url.startswith("http") else []
                         nid = nets.offer(v, stake)
                         if nid:
                             buttons.append(nets.button(nid))
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_value_bet(v, s.bankroll, s.kelly_fraction), buttons)
+                                            format_value_bet(v, s.bankroll, s.kelly_fraction, stake), buttons)
                 report_file = s.db_path.parent / "daily_report.txt"
                 today = time.strftime("%Y-%m-%d")
                 if paper and 0 <= s.daily_report_hour <= int(time.strftime("%H")):

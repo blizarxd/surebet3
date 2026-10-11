@@ -108,13 +108,14 @@ def format_opportunity(o: Opportunity) -> str:
     return "\n".join(lines)
 
 
-def format_value_bet(v: ValueBet, bankroll: float, kelly_fraction: float) -> str:
+def format_value_bet(v: ValueBet, bankroll: float, kelly_fraction: float, stake: float | None = None) -> str:
     ev = v.event.anchor
-    stake = min(bankroll * v.kelly * kelly_fraction, bankroll * 0.03)
+    if stake is None:
+        stake = min(bankroll * v.kelly * kelly_fraction, bankroll * 0.03)
     lines = [
         f"VALOR {v.ev_pct:+.1f}% | {ev.title} [{ev.sport}]",
         f"  {v.quote.source}: {v.quote.label} @ {v.quote.odds:.2f} (justa {1 / v.fair_prob:.2f} según Polymarket)",
-        f"  monto sugerido ${stake:,.2f} (Kelly x{kelly_fraction:g}, banca ${bankroll:,.0f})",
+        f"  monto sugerido ${stake:,.2f} en {v.quote.source} (Kelly x{kelly_fraction:g} con mínimo, banca ${bankroll:,.0f})",
     ]
     if v.quote.url:
         lines.append(f"  {v.quote.url}")

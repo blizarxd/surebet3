@@ -37,6 +37,7 @@ from .arb import POLYMARKET, ValueBet, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
 from .safety import golden_value
+from .staking import net_limit, value_stake
 
 CLOB = "https://clob.polymarket.com"
 SX_API = "https://api.sx.bet"
@@ -104,6 +105,7 @@ class PaperConfig:
     # Cuenta aparte solo de apuestas de valor "oro" (track 'valor'): Kelly/4 con tope de value_max_pct
     value_account: bool = True
     value_bankroll: float = 1000.0
+    value_min_total: float = 0.0     # mínimo entre casa + red (ver surebet/staking.py)
 
 
 class PaperBook:
@@ -325,8 +327,9 @@ class PaperBook:
             return None
         if track in ("real", "valor"):
             bal = self.balances() if track == "real" else self.valor_balances()
-            stake = bal["equity"] * v.kelly * self.cfg.kelly_fraction
-            stake = min(max(stake, self.cfg.min_stake), bal["equity"] * self.cfg.value_max_pct, bal["cash"])
+            stake = value_stake(v.quote.odds, v.ev_pct, bal["equity"], self.cfg.kelly_fraction, self.cfg.value_max_pct,
+                                self.cfg.value_min_total if track == "valor" else 0.0, net_limit(v.quote.odds))
+            stake = min(max(stake, self.cfg.min_stake), bal["cash"])
             if stake < self.cfg.min_stake:
                 self._skip("value", "saldo insuficiente", title, market, v.ev_pct)
                 return None

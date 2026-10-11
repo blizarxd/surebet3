@@ -31,6 +31,7 @@ import httpx
 
 from .risk import risk_stats
 from .safety import golden_value
+from .staking import value_stake
 
 CLOB = "https://clob.polymarket.com"
 LOCK_PCT = 1.0
@@ -84,19 +85,32 @@ def kelly_stake(odds: float, ev_pct: float, bankroll: float, fraction: float = 0
 
 
 class NetTracker:
-    def __init__(self, db_path: Path, bankroll: float = 1000.0, lock_pct: float = LOCK_PCT) -> None:
+    def __init__(self, db_path: Path, bankroll: float = 1000.0, lock_pct: float = LOCK_PCT,
+                 min_total: float = 0.0) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(net_picks)")}
         for col, decl in MIGRATIONS.items():
             if col not in cols:
                 self.conn.execute(f"ALTER TABLE net_picks ADD COLUMN {col} {decl}")
-        self.bankroll, self.lock_pct = bankroll, lock_pct
+        self.bankroll, self.lock_pct, self.min_total = bankroll, lock_pct, min_total
         self.conn.execute("INSERT OR IGNORE INTO net_meta VALUES ('activated', ?)", (str(time.time()),))
         self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('bankroll', ?)", (str(bankroll),))
         self.conn.commit()
         self.activated = float(self.conn.execute("SELECT v FROM net_meta WHERE k='activated'").fetchone()[0])
+        # Si cambió la regla de montos, se recalculan TODOS los picks (también el backtest) con la nueva
+        prev = self.conn.execute("SELECT v FROM net_meta WHERE k='min_total'").fetchone()
+        if prev is None or float(prev[0]) != min_total:
+            for key, odds, ev, lim in self.conn.execute("SELECT key, odds, ev_pct, limit_price FROM net_picks").fetchall():
+                self.conn.execute("UPDATE net_picks SET stake=?, pnl=NULL, pnl_no_net=NULL, "
+                                  "result=CASE WHEN result='sin datos' THEN result ELSE 'pendiente' END WHERE key=?",
+                                  (self._stake(odds, ev, lim), key))
+            self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('min_total', ?)", (str(min_total),))
+            self.conn.commit()
         self.status = "iniciando"
+
+    def _stake(self, odds: float, ev: float, limit: float) -> float:
+        return value_stake(odds, ev, self.bankroll, min_total=self.min_total, limit=limit)
 
     async def run(self) -> None:
         """Segundo plano: incorpora picks nuevos, revisa redes y cierra resultados. Nunca tumba al escáner."""
@@ -133,7 +147,7 @@ class NetTracker:
                 "odds, ev_pct, stake, net_label, limit_price, tokens, covers, status, result) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'valor', 'pendiente')",
                 (key, "backtest" if created < self.activated else "vivo", created, start, title, sport, mname or market,
-                 leg.get("label"), leg.get("source"), odds, ev, kelly_stake(odds, ev, self.bankroll),
+                 leg.get("label"), leg.get("source"), odds, ev, self._stake(odds, ev, lim),
                  net_label(market, covers, leg.get("label", ""), title), lim, json.dumps(tokens), json.dumps(covers)))
         self.conn.commit()
 

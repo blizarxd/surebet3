@@ -85,3 +85,12 @@ def test_no_history_is_retried_not_counted(tmp_path):
     run(tr, {"tH": [], "tA": []})
     st, tries = tr.conn.execute("SELECT status, tries FROM net_picks").fetchone()
     assert st == "valor" and tries == 1                       # no se asume "quedó como valor"
+
+
+def test_min_total_30_between_both_sides():
+    from surebet.staking import net_limit, value_stake
+    lim = net_limit(2.02)
+    stake = value_stake(2.02, 3.0, 1000, min_total=30, limit=lim)
+    poly = stake * 2.02 * lim
+    assert abs(stake + poly - 30) < 0.05 and stake > 10           # ~$15 en 1xBet + ~$15 en la red
+    assert value_stake(2.02, 3.0, 1000) < 10                      # sin mínimo: Kelly/4 chico

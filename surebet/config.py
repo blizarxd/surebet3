@@ -129,6 +129,8 @@ class Settings:
     poly_max_daily_usd: float = field(default_factory=lambda: _f("POLY_MAX_DAILY_USD", 600))
     # Cuenta en papel solo de apuestas de valor "oro" (Kelly/4, tope 3 %)
     value_bankroll: float = field(default_factory=lambda: _f("VALUE_BANKROLL", 1000))
+    # Mínimo entre los dos lados de una apuesta de valor (casa + red en Polymarket)
+    value_min_total: float = field(default_factory=lambda: _f("VALUE_MIN_TOTAL", 30))
     alert_min_margin_pct: float = field(default_factory=lambda: _f("ALERT_MIN_MARGIN_PCT", 1.0))
     # Telegram solo con lo que importa: prepartido, pronto, neto de comisiones y sin repetir
     alert_min_net_pct: float = field(default_factory=lambda: _f("ALERT_MIN_NET_PCT", 1.0))
