@@ -76,6 +76,7 @@
 <nav class="tabs">
   <button data-tab="main" class="active">Principal (manual)</button>
   <button data-tab="valor">Valor (apuestas simples)</button>
+  <button data-tab="red">🛟 Valor + red (papel)</button>
   <button data-tab="auto">Automático (simulado)</button>
 </nav>
 <main id="tab-valor" hidden>
@@ -126,6 +127,28 @@
     </div>
     <h2 style="margin-top:14px">Cada señal medida <span class="count" id="vm-count"></span></h2>
     <div class="scroll"><table id="vm-ops"></table></div>
+  </section>
+</main>
+<main id="tab-red" hidden>
+  <section class="card"><div class="small muted">Cuenta en papel de la estrategia <b>valor + red de seguridad</b>, pick por pick.
+    Cada apuesta de valor oro se apuesta en 1xBet (Kelly/4, tope 3 % de $1000) y se deja una <b>orden límite</b> del lado contrario en Polymarket
+    al precio que asegura +1 % (sin comisión). Con el precio de Polymarket minuto a minuto se ve si el mercado vino a la red:
+    <b>asegurada</b> = se volvió surebet, gana fijo salga lo que salga; si no llegó antes de 10 min del partido, la red se cancela y
+    <b>queda como valor</b> con su resultado real. Los picks <span class="tag void">backtest</span> ya estaban anotados antes de activar esto
+    (desde ayer); los <span class="tag open">vivo</span> se siguen desde hoy con el mismo método. Ojo: no modela la fila de órdenes (es optimista).</div></section>
+  <section class="kpis" id="kpis-red"></section>
+  <section class="grid2">
+    <div class="card"><h2>Curva de capital (con red)</h2><div class="chart-box"><canvas id="curve-red"></canvas></div></div>
+    <div class="card"><h2>Backtest vs. desde hoy</h2><div class="scroll"><table id="red-compare"></table></div></div>
+  </section>
+  <section class="card">
+    <h2>Pick por pick <span class="count" id="red-count"></span>
+      <span class="filters" id="red-filters">
+        <button data-f="all" class="active">Todos</button><button data-f="valor">En valor (red esperando)</button>
+        <button data-f="asegurada">Aseguradas</button><button data-f="kept">Quedaron como valor</button>
+        <button data-f="backtest">Backtest</button><button data-f="vivo">Desde hoy</button>
+      </span></h2>
+    <div class="scroll"><table id="red-picks"></table></div>
   </section>
 </main>
 <main id="tab-auto" hidden>
@@ -392,7 +415,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "auto"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
 });
 try { const t = localStorage.getItem("tab"); if (t && t !== "main") document.querySelector(`.tabs button[data-tab="${t}"]`).click(); } catch (e) {}
@@ -513,6 +536,61 @@ function renderNets(n) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true) + ` (${pct(r.net_pct)})`}</td></tr>`).join("");
 }
 
+let redChart = null, redFilter = "all";
+const dur = (s) => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.round(s / 60)} min`;
+function renderRed(n) {
+  if (!n) return;
+  const a = n.all;
+  $("kpis-red").innerHTML = [
+    kpi("Capital", money(n.equity), `inicial ${money(n.bankroll)} · ${money(a.in_play)} en juego`, cls(n.equity - n.bankroll)),
+    kpi("Picks", a.picks, `${a.decided} decididas · ${a.in_value} con la red esperando`),
+    kpi("Aseguradas", a.lock_rate == null ? "-" : a.lock_rate + "%", `${a.locked} se volvieron surebet · ${money(a.locked_pnl, true)} fijo`, "pos"),
+    kpi("Resultado con red", money(a.pnl, true), `ROI ${a.roi == null ? "-" : pct(a.roi)} · ${a.settled} cerradas`, cls(a.pnl)),
+    kpi("Mismas sin red", money(a.pnl_no_net, true), `ROI ${a.roi_no_net == null ? "-" : pct(a.roi_no_net)} (con red: ${money(a.pnl_same, true)})`, cls(a.pnl_no_net)),
+  ].join("");
+  const row = (name, b) => `<tr><td>${name}</td><td class="num">${b.picks}</td><td class="num">${b.lock_rate == null ? "-" : b.lock_rate + "%"}</td>
+    <td class="num">${b.won} / ${b.lost}</td><td class="num ${cls(b.pnl)}">${money(b.pnl, true)}</td><td class="num ${cls(b.roi)}">${b.roi == null ? "-" : pct(b.roi)}</td>
+    <td class="num ${cls(b.pnl_no_net)}">${money(b.pnl_no_net, true)}</td></tr>`;
+  $("red-compare").innerHTML = `<tr><th></th><th class="num">Picks</th><th class="num">Aseguradas</th><th class="num">Valor gan./perd.</th>
+    <th class="num">Con red</th><th class="num">ROI</th><th class="num">Sin red</th></tr>` +
+    row("Backtest (antes de activar)", n.backtest) + row("Desde hoy (vivo)", n.live) + row("<b>Total</b>", a);
+  let rows = n.rows;
+  if (redFilter === "valor") rows = rows.filter((r) => r.status === "valor");
+  if (redFilter === "asegurada") rows = rows.filter((r) => r.status === "asegurada");
+  if (redFilter === "kept") rows = rows.filter((r) => r.status === "quedó como valor");
+  if (redFilter === "backtest" || redFilter === "vivo") rows = rows.filter((r) => r.source === redFilter);
+  $("red-count").textContent = `(${rows.length})`;
+  const resTag = {pendiente: "open", asegurada: "won", ganada: "won", perdida: "lost", anulada: "void"};
+  $("red-picks").innerHTML = rows.length ? `<tr><th>Entrada</th><th>Partido</th><th>Apuesta en 1xBet</th><th>Red en Polymarket</th>
+    <th>Qué pasó con la red</th><th>Resultado</th><th class="num">Con red</th><th class="num">Sin red</th></tr>` +
+    rows.map((r) => {
+      let story;
+      if (r.status === "asegurada") story = `<span class="tag won">🛟 asegurada</span><div class="small">${when(r.lock_ts)} · ${dur(r.lock_ts - r.created_ts)} después de entrar</div>`;
+      else if (r.status === "valor") story = `<span class="tag open">red esperando</span><div class="small muted">${r.gap_now == null ? "sin precio todavía" : `falta ${Math.max(0, r.gap_now).toFixed(1)}¢`}${r.best_gap != null ? ` · lo más cerca: ${Math.max(0, r.best_gap).toFixed(1)}¢` : ""}</div>`;
+      else story = `<span class="tag void">quedó como valor</span><div class="small muted">red cancelada${r.best_gap != null ? ` · se quedó a ${r.best_gap.toFixed(1)}¢` : ""}</div>`;
+      return `<tr><td class="small nowrap">${when(r.created_ts)}<div><span class="tag ${r.source === "vivo" ? "open" : "void"}">${r.source}</span></div></td>
+        <td>${esc(r.title)}<div class="muted small">${esc(r.sport)} · ${esc(r.market)} · empieza ${when(r.start_ts)}</div></td>
+        <td class="small">${esc(r.house)}: <b>${esc(r.selection)}</b> @ <b>${Number(r.odds).toFixed(2)}</b><div class="muted">EV ${pct(r.ev_pct, 1)} · ${money(r.stake)}</div></td>
+        <td class="small">${esc(r.net_label)}<div class="muted">límite ${(100 * r.limit_price).toFixed(0)}¢ · ${Number(r.stake * r.odds).toFixed(0)} shares</div></td>
+        <td>${story}</td>
+        <td><span class="tag ${resTag[r.result] || "open"}">${esc(r.result)}</span></td>
+        <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td>
+        <td class="num ${cls(r.pnl_no_net)}">${r.pnl_no_net == null ? "-" : money(r.pnl_no_net, true)}</td></tr>`;
+    }).join("") : `<tr><td class="empty">Sin picks con este filtro.</td></tr>`;
+  if (typeof Chart === "undefined") return;
+  const css = getComputedStyle(document.documentElement);
+  const pts = [[n.activated * 1000, n.bankroll], ...n.curve];
+  const data = {labels: pts.map(([t]) => new Date(t).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})),
+    datasets: [{data: pts.map(([, y]) => y), borderColor: css.getPropertyValue("--green").trim(), backgroundColor: "transparent", tension: 0.2, pointRadius: 2}]};
+  if (!redChart) redChart = new Chart($("curve-red"), {type: "line", data, options: {maintainAspectRatio: false, plugins: {legend: {display: false}}}});
+  else { redChart.data = data; redChart.update("none"); }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#red-filters button"); if (!b) return;
+  redFilter = b.dataset.f; document.querySelectorAll("#red-filters button").forEach((x) => x.classList.toggle("active", x === b));
+  if (state) renderRed(state.netpaper);
+});
+
 function renderFunnel(f) {
   if (!f || !f.total) { $("funnel-counts").innerHTML = `<tr><td class="empty">Todavía no hubo surebets automatizables.</td></tr>`; $("funnel-rows").innerHTML = ""; return; }
   $("funnel-sum").textContent = `(${f.total} señales)`;
@@ -588,7 +666,7 @@ async function refresh() {
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
     renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
-    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
+    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderRed(state.netpaper); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
     $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;

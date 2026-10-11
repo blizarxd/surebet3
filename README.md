@@ -264,8 +264,19 @@ Estudio con 81 apuestas oro reales, con el historial de Polymarket minuto a minu
 | **Orden límite esperando (maker, sin comisión)** | **~60 %** (con +1,5 %: ~47 %) |
 
 Las que no se llenan se cancelan antes del partido y quedan como apuesta de valor, que también tiene ventaja positiva.
-Resultado: unas **60 surebets extra por día** sin apuro humano. La apuesta en 1xBet dura minutos, y la orden de
-Polymarket espera sola.
+
+**Backtest** con las apuestas oro anotadas desde el 09/10 (pestaña "🛟 Valor + red (papel)", `surebet/nettrack.py`):
+
+| | Sin red | Red +1 % |
+|---|---|---|
+| Picks que se vuelven surebet | 0 % | ~37–50 % |
+| Ganancia esperada sin suerte (precio de cierre) | +2,64 % | **+2,47 %** |
+| Resultado real de esos días | +31 % (mucha suerte) | +6 % |
+
+**Conclusión honesta:** la red **no suma ganancia**. Es un **seguro casi gratis**: deja la ganancia esperada casi igual
+y elimina el riesgo en ~la mitad de las apuestas. Las que se aseguran son justo las que iban ganando (el precio viene
+hacia ti cuando tu resultado se vuelve más probable), así que en una racha con suerte la red gana menos y en una
+racha mala pierde mucho menos. Sirve para apostar montos más grandes con el mismo riesgo y aguantar rachas malas.
 
 - **En el aviso de Telegram:** cada apuesta de valor trae la línea "🛟 Red de seguridad" con shares, lado y precio límite.
 - **Botón 🛟 en Telegram** (`surebet/valuenet.py`): después de apostar en 1xBet tocas «🛟 Ya aposté → poner red

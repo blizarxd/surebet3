@@ -47,6 +47,7 @@ from surebet.execsim import ExecSimulator
 from surebet.makersim import MakerSimulator, book_ref
 from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
+from surebet.nettrack import NetTracker
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -341,6 +342,8 @@ async def main() -> None:
         if not args.once and not args.cycles:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
+            if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
+                net_task = asyncio.create_task(NetTracker(s.db_path, s.value_bankroll).run())  # noqa: F841
         last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
