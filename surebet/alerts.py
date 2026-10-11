@@ -11,7 +11,8 @@ from .models import Opportunity, market_label
 from .pricing import fill_detail, poly_cost_per_share
 
 BOOK_NAMES = {"1xbet": "1xBet", "onexbet": "1xBet", "polymarket": "Polymarket", "sxbet": "SX Bet",
-              "stake": "Stake", "rollbit": "Rollbit", "cloudbet": "Cloudbet"}
+              "stake": "Stake", "rollbit": "Rollbit", "cloudbet": "Cloudbet",
+              "rushbet.co": "Rushbet (CO)", "betplay": "BetPlay (CO)"}
 EXCHANGES = {POLYMARKET, "sxbet"}   # libro visible: se apuestan DESPUÉS de la casa
 SX_FEE = 0.01
 

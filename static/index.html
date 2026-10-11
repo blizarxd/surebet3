@@ -78,6 +78,8 @@
   <button data-tab="valor">Valor (apuestas simples)</button>
   <button data-tab="red">🔒 Valor + red (papel)</button>
   <button data-tab="auto">Automático (simulado)</button>
+  <button data-tab="lp">💰 Recompensas Polymarket</button>
+  <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
 <main id="tab-valor" hidden>
   <section class="card"><div class="small muted">Cuenta en papel <b>solo de apuestas de valor "oro"</b>: las mismas que te llegan por Telegram
@@ -173,6 +175,28 @@
       </span></h2>
     <div class="scroll"><table id="red-picks"></table></div>
   </section>
+</main>
+<main id="tab-lp" hidden>
+  <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
+    Polymarket que todavía no empiezan, para cobrar las <b>recompensas de liquidez</b> que Polymarket reparte cada día. Cada minuto calcula qué parte
+    de la recompensa le toca según la competencia real del libro, y si alguien le "llena" una orden. Si se llenan las dos patas, la ganancia queda
+    fija; si se llena una sola, al cerrar (2 min antes del partido) vende lo que tenga y ahí se ve la pérdida. <b>Ganancia = recompensas − pérdidas
+    por llenadas.</b> Nunca envía nada. Capital simulado: LP_CAPITAL (por defecto $2000), hasta LP_PER_MARKET por mercado.</div></section>
+  <section class="kpis" id="kpis-lp"></section>
+  <section class="grid2">
+    <div class="card"><h2>Ganancia por día</h2><div class="chart-box"><canvas id="lp-chart"></canvas></div></div>
+    <div class="card"><h2>Día por día</h2><div class="scroll"><table id="lp-daily"></table></div></div>
+  </section>
+  <section class="card"><h2>Mercados con órdenes ahora <span class="count" id="lp-act-sum"></span></h2><div class="scroll"><table id="lp-active"></table></div></section>
+  <section class="card"><h2>Mercados cerrados</h2><div class="scroll"><table id="lp-closed"></table></div></section>
+</main>
+<main id="tab-co" hidden>
+  <section class="card"><div class="small muted">Casas con <b>licencia en Colombia</b> (Rushbet y BetPlay) contra Polymarket. Sus cuotas llegan por OddsPapi
+    (plan gratis: pocas lecturas al día, solo prepartido), así que cada surebet es una <b>foto</b>: confirma la cuota en la casa antes de apostar.
+    Sirve para ver si dan buenas surebets sin depender de 1xBet.</div></section>
+  <section class="kpis" id="kpis-co"></section>
+  <section class="card"><h2>Surebets con casas colombianas (7 días) <span class="count" id="co-opps-sum"></span></h2><div class="scroll"><table id="co-opps"></table></div></section>
+  <section class="card"><h2>Apuestas de valor en casas colombianas <span class="count" id="co-vb-sum"></span></h2><div class="scroll"><table id="co-vb"></table></div></section>
 </main>
 <main id="tab-auto" hidden>
   <section class="card"><h2>⚡ Automático EN VIVO (simulado) <span class="count" id="av-sum"></span></h2>
@@ -475,7 +499,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -697,6 +721,61 @@ function renderAutoVivo(av) {
       <div class="muted small">${esc(r.reason || "")}</div></td><td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td></tr>`).join("");
 }
 
+let lpChart = null;
+function renderLp(lp) {
+  if (!lp) { $("kpis-lp").innerHTML = `<div class="card empty">La simulación todavía no arrancó.</div>`; return; }
+  $("kpis-lp").innerHTML = [
+    kpi("Ganancia neta", money(lp.net, true), `en ${lp.days} días · ${money(lp.per_day, true)}/día`, cls(lp.net)),
+    kpi("Recompensas", money(lp.reward, true), "lo que paga Polymarket por la liquidez", "pos"),
+    kpi("Pérdidas por llenadas", money(lp.inv_pnl, true), `${lp.fills} llenadas · ${lp.pairs} con las dos patas (ganancia fija)`, cls(lp.inv_pnl)),
+    kpi("Capital en órdenes", money(lp.in_use), `de ${money(lp.capital)} · ${lp.active.length} mercados ahora`),
+    kpi("Rendimiento diario", lp.capital ? pct(100 * lp.per_day / lp.capital) : "-", "ganancia por día sobre el capital", cls(lp.per_day)),
+  ].join("");
+  $("lp-daily").innerHTML = lp.daily.length ? `<tr><th>Día</th><th class="num">Recompensas</th><th class="num">Llenadas</th><th class="num">Pérdida por llenadas</th><th class="num">Neto</th></tr>` +
+    lp.daily.slice().reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="num pos">${money(d.reward, true)}</td><td class="num">${d.fills}</td>
+      <td class="num ${cls(d.inv_pnl)}">${money(d.inv_pnl, true)}</td><td class="num ${cls(d.net)}"><b>${money(d.net, true)}</b></td></tr>`).join("")
+    : `<tr><td class="empty">Todavía sin días completos.</td></tr>`;
+  const mrow = (m, act) => `<tr><td>${esc(m.question)}${m.category && m.category !== "partido" ? ` <span class="tag void">${esc(m.category)}</span>` : ""}<div class="muted small">empieza ${when(m.start_ts)} · recompensa del mercado ${money(m.rate)}/día · spread máx ${m.max_spread}¢</div></td>
+    <td class="small">${m.size} shares: compra SÍ a ${(100 * m.yes_px).toFixed(1)}¢${m.yes_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}<br>compra NO a ${(100 * m.no_px).toFixed(1)}¢${m.no_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}</td>
+    <td class="num">${m.last_share != null ? (100 * m.last_share).toFixed(2) + "%" : "-"}<div class="muted small">${m.minutes} min</div></td>
+    <td class="num pos">${money(m.reward_usd, true)}</td>
+    ${act ? "" : `<td class="num ${cls(m.inv_pnl_usd)}">${money(m.inv_pnl_usd, true)}</td><td class="num ${cls((m.reward_usd || 0) + (m.inv_pnl_usd || 0))}"><b>${money((m.reward_usd || 0) + (m.inv_pnl_usd || 0), true)}</b><div class="muted small">${esc(m.close_reason || "")}</div></td>`}</tr>`;
+  $("lp-act-sum").textContent = `(${lp.active.length})`;
+  $("lp-active").innerHTML = lp.active.length ? `<tr><th>Mercado</th><th>Nuestras órdenes</th><th class="num">Parte de la recompensa</th><th class="num">Ganado</th></tr>` + lp.active.map((m) => mrow(m, true)).join("")
+    : `<tr><td class="empty">Buscando mercados con buena recompensa por dólar…</td></tr>`;
+  $("lp-closed").innerHTML = lp.closed.length ? `<tr><th>Mercado</th><th>Órdenes</th><th class="num">Parte</th><th class="num">Recompensa</th><th class="num">Llenadas</th><th class="num">Neto</th></tr>` + lp.closed.map((m) => mrow(m, false)).join("")
+    : `<tr><td class="empty">Todavía ninguno cerrado.</td></tr>`;
+  if (typeof Chart === "undefined") return;
+  const css = getComputedStyle(document.documentElement);
+  const data = {labels: lp.daily.map((d) => d.day.slice(5)), datasets: [{data: lp.daily.map((d) => d.net),
+    backgroundColor: lp.daily.map((d) => d.net >= 0 ? css.getPropertyValue("--green").trim() : css.getPropertyValue("--red").trim())}]};
+  if (!lpChart) lpChart = new Chart($("lp-chart"), {type: "bar", data, options: {maintainAspectRatio: false, plugins: {legend: {display: false}}}});
+  else { lpChart.data = data; lpChart.update("none"); }
+}
+
+function renderCo(c, st) {
+  if (!c) return;
+  const src = (st.sources || []).find((s) => s.name === "oddspapi");
+  $("kpis-co").innerHTML = [
+    kpi("Surebets prepartido ≥ 0,5 %", c.arbs_ok, `7 días · ${c.big} de 5 % o más`, c.arbs_ok ? "pos" : ""),
+    kpi("En papel", `${c.paper.won} / ${c.paper.lost}`, `ganadas / perdidas · ${money(c.paper.pnl, true)} · ROI ${c.paper.roi == null ? "-" : pct(c.paper.roi)}`, cls(c.paper.pnl)),
+    kpi("Apuestas de valor", c.values.length, `CLV medio ${c.clv == null ? "-" : pct(c.clv)} (${c.clv_n} con CLV)`, cls(c.clv)),
+    kpi("Fuente (OddsPapi)", src ? "activa" : "-", src ? esc(src.status).slice(0, 90) : "sin datos todavía"),
+  ].join("");
+  $("co-opps-sum").textContent = `(${c.opps.length})`;
+  $("co-opps").innerHTML = c.opps.length ? `<tr><th>Visto</th><th>Partido</th><th>Combinación</th><th class="num">Margen</th><th class="num">Máx $</th></tr>` +
+    c.opps.map((o) => `<tr><td class="small nowrap">${when(o.ts)}</td><td>${esc(o.title)}${o.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(o.sport)}</div></td>
+      <td class="small">${o.legs.map((l) => `${esc(l.source)}: ${esc(l.label)} @ <b>${Number(l.odds).toFixed(2)}</b>`).join("<br>")}</td>
+      <td class="num ${o.margin >= 5 ? "warn" : "pos"}">${pct(o.margin)}</td><td class="num">${o.max ? money(o.max) : "-"}</td></tr>`).join("")
+    : `<tr><td class="empty">Todavía no hubo surebets con Rushbet o BetPlay (las cuotas llegan pocas veces al día).</td></tr>`;
+  $("co-vb-sum").textContent = `(${c.values.length})`;
+  $("co-vb").innerHTML = c.values.length ? `<tr><th>Visto</th><th>Partido</th><th>Casa</th><th class="num">Cuota</th><th class="num">Justa</th><th class="num">EV</th><th class="num">CLV</th></tr>` +
+    c.values.map((v) => `<tr><td class="small nowrap">${when(v.first_seen)}</td><td>${esc(v.title)}<div class="muted small">${esc(v.sport)} · empieza ${when(v.start_ts)}</div></td>
+      <td class="small">${esc(v.source)}: ${esc(v.label)}</td><td class="num"><b>${Number(v.odds).toFixed(2)}</b></td><td class="num">${v.fair_prob ? (1 / v.fair_prob).toFixed(2) : "-"}</td>
+      <td class="num pos">${pct(v.ev_pct, 1)}</td><td class="num ${cls(v.clv_pct)}">${v.clv_pct == null ? "-" : pct(v.clv_pct, 1)}</td></tr>`).join("")
+    : `<tr><td class="empty">Todavía sin apuestas de valor en casas colombianas.</td></tr>`;
+}
+
 function renderRisk(id, r) {
   if (!r) return;
   const streak = r.cur_streak > 0 ? `ganando ${r.cur_streak} seguidas` : r.cur_streak < 0 ? `perdiendo ${-r.cur_streak} seguidas` : "sin racha";
@@ -853,6 +932,10 @@ function renderTab(tab) {
     renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
   } else if (tab === "red") {
     renderRed(state.netpaper);
+  } else if (tab === "lp") {
+    renderLp(state.lp);
+  } else if (tab === "co") {
+    renderCo(state.colombia, st);
   } else if (tab === "auto") {
     renderAutoVivo(state.autovivo); renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
     renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);

@@ -102,6 +102,36 @@ def _auto_funnel(conn) -> dict:
             "counts": sorted(({"stage": k, "n": v} for k, v in counts.items()), key=lambda x: -x["n"]), "rows": rows}
 
 
+COLOMBIA_BOOKS = ("rushbet.co", "betplay")
+
+
+def _colombia(conn) -> dict:
+    """Surebets y valor de casas con licencia en Colombia (vía OddsPapi) contra Polymarket, 7 días."""
+    since = time.time() - 7 * 86400
+    like = " OR ".join(f"legs_json LIKE '%\"{b}\"%'" for b in COLOMBIA_BOOKS)
+    opps = []
+    for r in conn.execute(f"SELECT key, first_seen, last_seen, title, sport, live, best_margin_pct, max_total_stake, legs_json "
+                          f"FROM opportunities WHERE first_seen > ? AND ({like}) ORDER BY first_seen DESC LIMIT 150", (since,)):
+        legs = json.loads(r["legs_json"] or "[]")
+        opps.append({"ts": r["first_seen"], "dur": round(r["last_seen"] - r["first_seen"]), "title": r["title"],
+                     "sport": r["sport"], "live": r["live"], "margin": r["best_margin_pct"], "max": r["max_total_stake"],
+                     "legs": [{"source": l.get("source"), "label": l.get("label"), "odds": l.get("odds")} for l in legs]})
+    vb = [dict(r) for r in conn.execute(
+        "SELECT first_seen, title, sport, source, label, odds, fair_prob, ev_pct, clv_pct, start_ts FROM value_bets "
+        f"WHERE first_seen > ? AND source IN ({','.join('?' * len(COLOMBIA_BOOKS))}) ORDER BY first_seen DESC LIMIT 150",
+        (since, *COLOMBIA_BOOKS))]
+    paper = conn.execute(
+        f"SELECT COUNT(*), SUM(status='won'), SUM(status='lost'), SUM(CASE WHEN status!='open' THEN pnl END), "
+        f"SUM(CASE WHEN status!='open' THEN total_stake END) FROM paper_ops WHERE kind='arb' AND ({like})").fetchone()
+    clvs = [v["clv_pct"] for v in vb if v["clv_pct"] is not None]
+    return {"books": list(COLOMBIA_BOOKS), "opps": opps, "values": vb,
+            "arbs_ok": sum(o["margin"] >= 0.5 and not o["live"] for o in opps),
+            "big": sum(o["margin"] >= 5 and not o["live"] for o in opps),
+            "paper": {"ops": paper[0] or 0, "won": paper[1] or 0, "lost": paper[2] or 0, "pnl": round(paper[3] or 0, 2),
+                      "roi": round(100 * (paper[3] or 0) / paper[4], 2) if paper[4] else None},
+            "clv": round(sum(clvs) / len(clvs), 2) if clvs else None, "clv_n": len(clvs)}
+
+
 def _bucket(v: float, edges: list[float], fmt: str) -> str:
     for lo, hi in zip(edges, edges[1:]):
         if lo <= v < hi:
@@ -180,7 +210,13 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     nets = nets_summary(conn)
     netpaper = netpaper_summary(conn)
     from .autovivo import summary as live_exec_summary
+    from .lprewards import summary as lp_summary
     live_exec = live_exec_summary(conn)
+    lp = lp_summary(conn)
+    try:
+        colombia = _colombia(conn)
+    except sqlite3.OperationalError:
+        colombia = None
     buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
     for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
                    ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
@@ -302,6 +338,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "maker": maker,
         "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
         "funnel": funnel,
+        "lp": lp,
+        "colombia": colombia,
         "autovivo": {**_auto_account(autovivo_ops, float(meta.get("autovivo_initial", 1000)),
                                      float(meta.get("autovivo_started", time.time()))), "exec": live_exec},
         "experiments": experiments.evaluate(ops_all, float(meta.get("started", 0) or 0), live_exec),

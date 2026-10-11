@@ -50,6 +50,7 @@ from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
 from surebet.liveodds import LiveOdds
 from surebet.autovivo import LiveAutoSimulator
+from surebet.lprewards import RewardsSimulator
 from surebet.staking import net_limit, value_stake
 from surebet.status import write_status
 from surebet.store import OpportunityLog
@@ -358,6 +359,7 @@ async def main() -> None:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
             if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
+                lp_task = asyncio.create_task(RewardsSimulator(s.db_path).run())  # recompensas Polymarket  # noqa: F841
                 net_task = asyncio.create_task(  # noqa: F841
                     NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total,
                                max_in_play=s.value_max_in_play).run())
