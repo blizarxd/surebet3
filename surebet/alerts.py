@@ -118,6 +118,14 @@ def format_value_bet(v: ValueBet, bankroll: float, kelly_fraction: float) -> str
     ]
     if v.quote.url:
         lines.append(f"  {v.quote.url}")
+    from .makersim import VALUE_LOCK_PCT, value_hedge
+    h = value_hedge(v, stake) if stake > 0 else None
+    if h:
+        lines += ["",
+                  f"🛟 Red de seguridad (opcional, en Polymarket): orden LÍMITE de compra de {h['shares']:,.0f} shares de "
+                  f"«{h['label']}» a {100 * h['limit']:.0f}¢ o menos. Déjala esperando.",
+                  f"   Si se llena, ganas +{VALUE_LOCK_PCT:g}% pase lo que pase (sin comisión: es orden límite).",
+                  "   Si no se llena antes del partido, cancélala y te quedas con la apuesta de valor."]
     lines.append("  No es apuesta segura: verifica la cuota en la casa antes de apostar.")
     return "\n".join(lines)
 

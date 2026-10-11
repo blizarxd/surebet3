@@ -84,6 +84,14 @@
     Cada apuesta muestra la cuota tomada, la cuota justa de Polymarket al entrar, el <b>CLV</b> (si la cuota que tomaste era mejor que el precio de cierre:
     es la mejor señal de ventaja real) y el resultado. Puede perder apuestas sueltas: se gana a largo plazo si el CLV es positivo.</div></section>
   <section class="kpis" id="kpis-valor"></section>
+  <section class="card">
+    <h2>🛟 Valor con red de seguridad (simulado) <span class="count" id="vn-sum"></span></h2>
+    <div class="small muted">Cada apuesta oro en 1xBet + una orden <b>límite</b> esperando en Polymarket del lado contrario, al precio que asegura +1 %
+      (sin comisión). Como el CLV es positivo, el precio suele venir hacia la orden: si se llena, la apuesta queda <b>asegurada</b> (surebet);
+      si no se llena antes del partido, se cancela y queda como apuesta de valor. Se compara con la misma apuesta sin red.</div>
+    <div class="kpis" id="vn-kpis" style="margin-top:10px"></div>
+    <div class="scroll" style="margin-top:10px"><table id="vn-rows"></table></div>
+  </section>
   <section class="card"><h2>Curva de capital (valor)</h2><div class="chart-box"><canvas id="curve-valor"></canvas></div></section>
   <section class="card">
     <h2>Apuestas de la cuenta de valor <span class="count" id="valor-count"></span></h2>
@@ -460,8 +468,29 @@ function isGold(o) {  // mismo filtro que surebet/safety.py:golden_value
 document.addEventListener("click", (e) => {
   const b = e.target.closest("#vm-filters button"); if (!b) return;
   vmFilter = b.dataset.f; document.querySelectorAll("#vm-filters button").forEach((x) => x.classList.toggle("active", x === b));
-  if (state) renderValor(state.valor, state.value_measure);
+  if (state) renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net);
 });
+
+function renderValueNet(v) {
+  if (!v) return;
+  $("vn-sum").textContent = `(${v.total} cerradas · ${v.waiting} esperando)`;
+  $("vn-kpis").innerHTML = [
+    kpi("Aseguradas", v.fill_rate == null ? "-" : v.fill_rate + "%", `${v.locked} de ${v.total} · +${v.avg_lock ?? "-"}% medio fijo`, "pos"),
+    kpi("Quedaron como valor", v.kept, `CLV medio ${v.kept_clv == null ? "-" : pct(v.kept_clv)}`),
+    kpi("Resultado con red", money(v.pnl, true), `ROI ${v.roi == null ? "-" : pct(v.roi)}`, cls(v.pnl)),
+    kpi("Mismas sin red", v.pure_roi == null ? "-" : pct(v.pure_roi), "ROI de la apuesta de valor sola"),
+  ].join("");
+  if (!v.rows.length) { $("vn-rows").innerHTML = `<tr><td class="empty">Todavía no hubo apuestas oro con red disponible.</td></tr>`; return; }
+  const lab = {locked: ["won", "asegurada"], kept: ["void", "quedó como valor"], waiting: ["open", "orden esperando"]};
+  $("vn-rows").innerHTML = `<tr><th>Entrada</th><th>Partido / apuesta → red</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">Límite</th>
+    <th>Estado</th><th class="num">Asegurado</th><th class="num">Sin red</th><th class="num">CLV</th></tr>` +
+    v.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}<div class="muted small">${esc(r.market)}</div></td>
+      <td class="num">${Number(r.odds).toFixed(2)}</td><td class="num">${pct(r.ev, 1)}</td><td class="num">${(100 * r.limit_price).toFixed(0)}¢</td>
+      <td><span class="tag ${(lab[r.status] || ["open"])[0]}">${(lab[r.status] || ["", r.status])[1]}</span></td>
+      <td class="num ${cls(r.pnl)}">${r.status === "locked" ? money(r.pnl, true) : "-"}</td>
+      <td class="num ${cls(r.value_pnl)}">${r.value_pnl == null ? "-" : money(r.value_pnl, true)}</td>
+      <td class="num ${cls(r.clv)}">${r.clv == null ? "-" : pct(r.clv, 1)}</td></tr>`).join("");
+}
 
 function renderFunnel(f) {
   if (!f || !f.total) { $("funnel-counts").innerHTML = `<tr><td class="empty">Todavía no hubo surebets automatizables.</td></tr>`; $("funnel-rows").innerHTML = ""; return; }
@@ -538,7 +567,7 @@ async function refresh() {
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
     renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
-    renderValor(state.valor, state.value_measure); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
+    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
     $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;

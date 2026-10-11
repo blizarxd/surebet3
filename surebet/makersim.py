@@ -22,24 +22,35 @@ B) poly_first: primero la límite en Polymarket, y 1xBet solo si se llenó.
   Mide justo el riesgo de esta forma: cuando alguien te vende barato en Polymarket suele ser porque
   el partido se movió, y entonces la cuota de 1xBet del otro lado también suele haber bajado.
 
+C) value_net: "valor con red de seguridad".
+  1. aparece una apuesta de valor "oro" en 1xBet (se apuesta a mano, sin apuro: dura minutos);
+  2. en Polymarket se deja ESPERANDO una orden límite (maker, sin comisión) del lado contrario, al precio que
+     asegura VALUE_LOCK_PCT de ganancia pase lo que pase;
+  3. como el CLV de estas apuestas es positivo, el precio del lado contrario tiende a bajar hacia nuestra orden:
+     si se llena, la apuesta de valor se convirtió en surebet ("asegurada");
+  4. si no se llena antes del partido, se cancela y queda la apuesta de valor sola ("se queda como valor").
+  Estudio con 81 apuestas oro (oct-2026): con +1 % se llenó ~60 %; comprando al instante (con comisión) solo ~25 %.
+
 Resultado: ganancia neta de cada intento comparada con la de haber comprado al instante.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import time
 from pathlib import Path
 
 from .arb import POLYMARKET, size_legs
-from .models import Opportunity, market_label
+from .models import Opportunity, market_label, market_outcomes
 from .pricing import fill_detail, poly_cost_per_share, poly_fee_per_share
 
 MAX_WAIT_S = 15 * 60
 TICK = 0.01
 MAX_BOOK_AGE_S = 180   # cuota de 1xBet más vieja que esto no sirve para apostar "ya"
-BOOK_FIRST, POLY_FIRST = "book_first", "poly_first"
+BOOK_FIRST, POLY_FIRST, VALUE_NET = "book_first", "poly_first", "value_net"
+VALUE_LOCK_PCT = 1.0   # ganancia segura que se busca con la orden límite de la red de seguridad
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS maker_sim (
@@ -63,7 +74,26 @@ MIGRATIONS = {
     "book_odds": "REAL",  # cuota de 1xBet al aparecer la surebet
     "book_odds_fill": "REAL",   # cuota de 1xBet cuando se llenó la límite
     "pnl": "REAL",              # ganancia/pérdida en $ (expuestas: la pérdida real)
+    "value_key": "TEXT",        # value_net: señal en value_bets (para su CLV)
 }
+
+
+def value_hedge(v, stake: float, lock_pct: float = VALUE_LOCK_PCT) -> dict | None:
+    """Red de seguridad de una apuesta de valor: qué comprar en Polymarket, cuántas shares y a qué precio máximo."""
+    comp = frozenset(market_outcomes(v.market)) - v.quote.covers
+    cands = [q for q in v.event.quotes_for(v.market) if q.source == POLYMARKET and q.covers == comp and q.token_id]
+    if not cands:
+        return None
+    q = max(cands, key=lambda q: q.odds)
+    odds = v.quote.odds
+    shares = stake * odds                               # mismo cobro que la apuesta de la casa
+    limit = math.floor((1 / (1 + lock_pct / 100) - 1 / odds) * 100 + 1e-9) / 100
+    ask = q.asks[0].price if q.asks else None
+    if ask is not None:
+        limit = min(limit, round(ask - TICK, 2))        # una orden límite que espera nunca cruza el libro
+    if limit < TICK:
+        return None
+    return {"quote": q, "token": q.token_id, "label": q.label, "shares": shares, "limit": limit, "ask": ask}
 
 
 def book_ref(q) -> str:
@@ -96,6 +126,30 @@ class MakerSimulator:
                 if not self.conn.execute("SELECT 1 FROM maker_sim WHERE key=?", (key,)).fetchone():
                     self._open(o, key, mode, now)
         self._advance(poly_quotes, book_quotes or {}, now)
+        self.conn.commit()
+
+    def step_value(self, values, golden) -> None:
+        """Abre la prueba "valor con red de seguridad" para cada apuesta oro nueva (el avance va en step)."""
+        now = time.time()
+        for v in values:
+            st = v.event.anchor.start
+            hrs = (st.timestamp() - now) / 3600 if st else None
+            if v.event.live or not golden(False, v.ev_pct, v.quote.odds, hrs):
+                continue
+            key = "vn#" + v.key
+            if self.conn.execute("SELECT 1 FROM maker_sim WHERE key=?", (key,)).fetchone():
+                continue
+            h = value_hedge(v, self.stake)
+            if not h:
+                continue
+            paper_key = f"value#{v.event.key}#{v.market}#{''.join(sorted(v.quote.covers))}"
+            self.conn.execute(
+                "INSERT INTO maker_sim (key, created_ts, title, market, start_ts, book_payout, book_stake, token, shares, "
+                "limit_price, status, taker_net_pct, mode, book_ref, book_odds, value_key) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?)",
+                (key, now, v.event.anchor.title, f"{market_label(v.market)} · {v.quote.label} → red: {h['label']}",
+                 st.timestamp(), round(h["shares"], 4), self.stake, h["token"], round(h["shares"], 4), h["limit"],
+                 round(v.ev_pct, 3), VALUE_NET, paper_key, v.quote.odds, v.key))
         self.conn.commit()
 
     def _open(self, o: Opportunity, key: str, mode: str, now: float) -> None:
@@ -134,6 +188,16 @@ class MakerSimulator:
             q = poly_quotes.get(token)
             deadline = min(created + MAX_WAIT_S, (start or created + MAX_WAIT_S) - 600)
             filled = bool(q and q.asks and q.asks[0].price <= limit + 1e-9)
+            if mode == VALUE_NET:
+                if filled:  # el lado contrario bajó hasta nuestra orden: la apuesta de valor quedó asegurada
+                    cost = shares * limit
+                    gain = min(payout, shares) - (bstake + cost)
+                    self.conn.execute("UPDATE maker_sim SET status='locked', done_ts=?, poly_cost=?, net_pct=?, pnl=? "
+                                      "WHERE id=?", (now, round(cost, 4), round(100 * gain / (bstake + cost), 3),
+                                                     round(gain, 2), op_id))
+                elif start and now >= start - 600:  # el partido empieza: se cancela y queda la apuesta de valor
+                    self.conn.execute("UPDATE maker_sim SET status='kept', done_ts=? WHERE id=?", (now, op_id))
+                continue
             if mode == POLY_FIRST:
                 self._advance_poly_first(op_id, q, filled, now >= deadline, shares, limit, book_quotes.get(ref), now)
                 continue
@@ -196,5 +260,41 @@ def summary(conn) -> dict:
                      "cancelled": cancelled or 0, "pnl": round(pnl or 0, 2),
                      "avg_net": round(net, 3) if net is not None else None,
                      "avg_taker": round(taker, 3) if taker is not None else None, "rows": rows}
+    out[VALUE_NET] = _value_net_summary(conn)
     # compatibilidad: el panel viejo lee las claves de book_first en la raíz
     return {**out[BOOK_FIRST], **out}
+
+
+def _value_net_summary(conn) -> dict:
+    """Valor con red: aseguradas (ganancia fija) + las que quedaron como valor (resultado real y CLV)."""
+    rows = []
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    joined = {"paper_ops", "value_bets"} <= tables
+    sql = ("SELECT m.created_ts, m.title, m.market, m.status, m.limit_price, m.book_odds, m.taker_net_pct, m.net_pct, "
+           "m.pnl, m.book_stake, " + ("p.status, p.pnl, p.total_stake, vb.clv_pct FROM maker_sim m "
+                                       "LEFT JOIN paper_ops p ON p.key = m.book_ref "
+                                       "LEFT JOIN value_bets vb ON vb.key = m.value_key " if joined else
+                                       "NULL, NULL, NULL, NULL FROM maker_sim m ") +
+           "WHERE m.mode='value_net' ORDER BY m.created_ts DESC")
+    for r in conn.execute(sql):
+        (ts, title, market, status, limit, odds, ev, net, pnl, stake, v_status, v_pnl, v_stake, clv) = r
+        value_pnl = v_pnl * stake / v_stake if v_pnl is not None and v_stake else None  # escalado al mismo monto
+        rows.append({"created_ts": ts, "title": title, "market": market, "status": status, "limit_price": limit,
+                     "odds": odds, "ev": ev, "net_pct": net, "pnl": pnl, "stake": stake, "clv": clv,
+                     "value_status": v_status, "value_pnl": None if value_pnl is None else round(value_pnl, 2)})
+    locked = [r for r in rows if r["status"] == "locked"]
+    kept = [r for r in rows if r["status"] == "kept"]
+    done = locked + kept
+    settled = locked + [r for r in kept if r["value_status"] in ("won", "lost", "void")]
+    pnl = sum(r["pnl"] for r in locked) + sum(r["value_pnl"] or 0 for r in kept)
+    staked = sum(r["stake"] for r in settled)
+    pure = [r for r in done if r["value_status"] in ("won", "lost", "void")]  # mismo set sin red, para comparar
+    pure_pnl = sum(r["value_pnl"] or 0 for r in pure)
+    clvs = [r["clv"] for r in kept if r["clv"] is not None]
+    return {"total": len(done), "locked": len(locked), "kept": len(kept), "waiting": len(rows) - len(done),
+            "fill_rate": round(100 * len(locked) / len(done), 1) if done else None,
+            "avg_lock": round(sum(r["net_pct"] for r in locked) / len(locked), 2) if locked else None,
+            "kept_clv": round(sum(clvs) / len(clvs), 2) if clvs else None,
+            "pnl": round(pnl, 2), "roi": round(100 * pnl / staked, 2) if staked else None,
+            "pure_roi": round(100 * pure_pnl / sum(r["stake"] for r in pure), 2) if pure else None,
+            "rows": rows[:60]}

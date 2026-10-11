@@ -249,6 +249,30 @@ Para pasar a real:
 
 Todo queda en la tabla del panel (pestaña Principal).
 
+## 🛟 Valor con red de seguridad (la idea más prometedora)
+
+Las apuestas de valor "oro" tienen **CLV positivo**: después de que apuestas, el precio de Polymarket tiende a moverse
+a tu favor. Eso significa que el **lado contrario se abarata**. Si dejas una **orden límite esperando** en Polymarket
+(maker, sin comisión) al precio que asegura +1 %, el mercado suele venir a llenarla. En ese momento la apuesta de valor
+**se convierte en surebet**.
+
+Estudio con 81 apuestas oro reales, con el historial de Polymarket minuto a minuto hasta 10 min antes del partido:
+
+| Cómo se cubre | Se logra asegurar ≥ 1 % |
+|---|---|
+| Comprando al precio publicado (taker: comisión + spread) | ~25 % de las apuestas |
+| **Orden límite esperando (maker, sin comisión)** | **~60 %** (con +1,5 %: ~47 %) |
+
+Las que no se llenan se cancelan antes del partido y quedan como apuesta de valor, que también tiene ventaja positiva.
+Resultado: unas **60 surebets extra por día** sin apuro humano. La apuesta en 1xBet dura minutos, y la orden de
+Polymarket espera sola.
+
+- **En el aviso de Telegram:** cada apuesta de valor trae la línea "🛟 Red de seguridad" con shares, lado y precio límite.
+- **Simulación en vivo:** pestaña Valor, sección "Valor con red de seguridad" (`surebet/makersim.py`, modo `value_net`).
+  Compara con la misma apuesta sin red.
+- **Ojo:** el modelo de llenado es optimista (la cola de órdenes en Polymarket existe). Hay que confirmarlo con la
+  simulación en vivo durante varios días.
+
 ## Pestaña "Valor" del panel
 
 - **Cuenta en papel propia** de apuestas de valor "oro" ($1000, Kelly/4 con tope de 3 %): curva y cada apuesta con

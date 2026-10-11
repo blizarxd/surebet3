@@ -1,5 +1,6 @@
 """Prueba con orden límite en Polymarket: se llena si el vendedor baja a nuestro precio; si no, se cubre."""
 
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -76,3 +77,40 @@ def test_poly_first_cancelled_without_fill(tmp_path):
     sim.step([], {"tok": p}, lambda o: True, {book_ref(x): x})
     assert pf(sim)[0] == "cancelled"
     assert summary(sim.conn)["poly_first"]["cancelled"] == 1
+
+
+def value_setup():
+    from surebet.arb import find_value_bets
+    from surebet.models import DRAW
+    from test_paper import make_event, poly_q
+    poly = [poly_q({o}, p, f"t_{o.lower()}") for o, p in ((HOME, 0.50), (DRAW, 0.28), (AWAY, 0.22))]
+    # el "NO" del local (cubre empate o visitante): la red de seguridad de una apuesta al local
+    poly.append(replace(poly_q({DRAW, AWAY}, 0.52, "t_no_h"), bid=0.49))
+    ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=2.08,
+                                 label="Arsenal", market="1x2")])
+    return [v for v in find_value_bets(ev, ArbConfig(), min_ev_pct=2.0) if v.quote.source == "1xbet"]
+
+
+def test_value_net_locks_when_price_comes_to_us(tmp_path):
+    from surebet.makersim import value_hedge
+    from surebet.safety import golden_value
+    vals = value_setup()
+    h = value_hedge(vals[0], 100)
+    assert h and h["token"] == "t_no_h" and h["limit"] == 0.50       # 1/1.01 − 1/2.08 = 0.509 → 50¢
+    sim = MakerSimulator(tmp_path / "m.db")
+    sim.step_value(vals, golden_value)
+    no_h = next(q for q in vals[0].event.quotes_for("1x2") if q.token_id == "t_no_h")
+    sim.step([], {"t_no_h": replace(no_h, asks=(BookLevel(0.50, 500),))}, lambda o: True)
+    status, net = sim.conn.execute("SELECT status, net_pct FROM maker_sim WHERE mode='value_net'").fetchone()
+    assert status == "locked" and net >= 1.0
+    assert summary(sim.conn)["value_net"]["locked"] == 1
+
+
+def test_value_net_kept_as_value_at_kickoff(tmp_path):
+    from surebet.safety import golden_value
+    vals = value_setup()
+    sim = MakerSimulator(tmp_path / "m.db")
+    sim.step_value(vals, golden_value)
+    sim.conn.execute("UPDATE maker_sim SET start_ts = ?", (time.time() + 60,))
+    sim.step([], {}, lambda o: True)
+    assert sim.conn.execute("SELECT status FROM maker_sim").fetchone()[0] == "kept"

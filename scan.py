@@ -393,6 +393,7 @@ async def main() -> None:
                         paper.consider(res.opps, res.values, resolution)
                         execsim.step(res.opps, paper.eligible_real,
                                      lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
+                        makersim.step_value(res.values, golden_value)
                         makersim.step(res.opps, {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes},
                                       paper.eligible_real, res.book_quotes)
                         await paper.settle(client)
