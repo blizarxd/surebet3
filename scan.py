@@ -383,12 +383,12 @@ async def main() -> None:
                         if s.beep:
                             beep()
                         buttons = leg_buttons(o, s.rotate_books)
-                        oid = buyer.offer(o, s.paper_arb_stake)
+                        oid = buyer.offer(o, s.alert_arb_stake)
                         if oid:
                             buttons += [buyer.button(oid), buyer.reject_button("pb", oid)]
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_ready(o, s.paper_arb_stake, s.rotate_books)
-                                            + cap_warning(buyer.in_play(), min(s.paper_arb_stake, o.max_total_stake or s.paper_arb_stake),
+                                            format_ready(o, s.alert_arb_stake, s.rotate_books)
+                                            + cap_warning(buyer.in_play(), min(s.alert_arb_stake, o.max_total_stake or s.alert_arb_stake),
                                                           s.value_max_in_play), buttons)
                 for v in fresh_values:
                     st_ = v.event.anchor.start

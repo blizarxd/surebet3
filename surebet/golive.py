@@ -68,7 +68,7 @@ def evaluate(started: float, ops: list[dict], netpaper: dict | None, buttons: di
         "days": round(days, 1),
         "phases": [
             {"name": "Fase 1 · Surebets prepartido 1xBet + Polymarket con dinero real",
-             "plan": "$50–100 por surebet, tope $500 en juego, 2 semanas. Primero 1xBet, después Polymarket "
+             "plan": "$50 por surebet (ALERT_ARB_STAKE=50), tope $500 en juego, 2 semanas. Primero 1xBet, después Polymarket "
                      "(a mano o con el botón ✅ en REAL). Marca ❌ cada vez que 1xBet no acepte.",
              "checks": phase1, "ok": p1_ok},
             {"name": "Fase 2 · Apuestas de valor oro con $30 (y red si conviene)",

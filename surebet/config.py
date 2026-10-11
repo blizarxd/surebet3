@@ -131,6 +131,8 @@ class Settings:
     value_bankroll: float = field(default_factory=lambda: _f("VALUE_BANKROLL", 1000))
     # Mínimo entre los dos lados de una apuesta de valor (casa + red en Polymarket)
     value_min_total: float = field(default_factory=lambda: _f("VALUE_MIN_TOTAL", 30))
+    # Monto por surebet en los avisos de Telegram y el botón ✅ (fase en real); el papel sigue con PAPER_ARB_STAKE
+    alert_arb_stake: float = field(default_factory=lambda: _f("ALERT_ARB_STAKE", _f("PAPER_ARB_STAKE", 100)))
     # Tope de dinero en juego a la vez en valor + red (1xBet + órdenes de Polymarket) mientras se resuelven
     value_max_in_play: float = field(default_factory=lambda: _f("VALUE_MAX_IN_PLAY", 1000))
     alert_min_margin_pct: float = field(default_factory=lambda: _f("ALERT_MIN_MARGIN_PCT", 1.0))
