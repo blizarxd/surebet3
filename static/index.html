@@ -233,6 +233,13 @@
 </main>
 <main id="tab-main">
   <section class="card">
+    <h2>Plan hacia $30 por día <span class="count" id="plan-sum"></span></h2>
+    <div class="small muted">Etapas del plan y en cuál vamos (se cambia con PLAN_STAGE en el .env del VPS). La proyección usa lo medido:
+      surebets de prepartido por día (tope 25: lo que una persona alcanza) × monto × neto (como mucho 1,3 %, por rechazos y cuotas que cambian).</div>
+    <div class="scroll"><table id="plan"></table></div>
+    <div class="kpis" id="plan-proj" style="margin-top:10px"></div>
+  </section>
+  <section class="card">
     <h2>¿Listos para dinero real? <span class="count" id="gl-sum"></span></h2>
     <div class="small muted">Condiciones medibles para pasar cada estrategia del papel a real, por fases. Se calculan solas con lo medido;
       con pocos días cualquier ganancia es ruido, por eso piden volumen y CLV, no solo ROI.</div>
@@ -634,8 +641,21 @@ function activeRed(n) {
     }).join("");
 }
 
+function renderPlan(p) {
+  if (!p) return;
+  const order = p.stages.map((s) => s.id), cur = order.indexOf(p.stage);
+  $("plan-sum").textContent = `(etapa actual: ${esc(p.stages[Math.max(cur, 0)].name)})`;
+  $("plan").innerHTML = `<tr><th>Etapa</th><th>Cuándo</th><th>Monto por surebet</th><th>Banco</th><th>Meta</th><th>Para pasar a la siguiente</th></tr>` +
+    p.stages.map((s, i) => { const st = i < cur ? "✅" : i === cur ? "👉" : "⏳";
+      return `<tr style="${i === cur ? "background:var(--panel2)" : ""}"><td>${st} <b>${esc(s.id)} · ${esc(s.name)}</b>${s.progress != null && i === cur ? `<div class="small muted">avance ${Math.round(100 * s.progress)} %</div>` : ""}</td>
+        <td class="small">${esc(s.when)}</td><td>${esc(s.stake)}</td><td class="small">${esc(s.bank)}</td><td><b>${esc(s.target)}</b></td><td class="small">${esc(s.gate)}</td></tr>`; }).join("");
+  $("plan-proj").innerHTML = p.projection.map((x) => kpi(`Proyección a $${x.stake} por surebet`, money(x.usd_day, true) + "/día",
+    `${x.per_day} surebets/día × $${x.stake} × ${p.net_used}% · ≈ ${money(x.usd_day * 30, true)}/mes`, x.usd_day >= 30 ? "pos" : "")).join("");
+}
+
 function renderGolive(g) {
   if (!g) return;
+  renderPlan(g.plan);
   $("gl-sum").textContent = `(${g.days} días medidos)`;
   const bar = (p, ok) => `<div style="background:var(--panel2);border-radius:4px;height:6px;width:120px;display:inline-block;vertical-align:middle">
     <div style="width:${Math.round(100 * p)}%;height:6px;border-radius:4px;background:var(${ok ? "--green" : "--amber"})"></div></div>`;

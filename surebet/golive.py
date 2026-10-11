@@ -8,6 +8,7 @@ que decide es el CLV y que las surebets de prepartido no pierdan.
 
 from __future__ import annotations
 
+import os
 import time
 
 MIN_DAYS_PHASE1, MIN_DAYS_PHASE2 = 7, 14
@@ -64,8 +65,32 @@ def evaluate(started: float, ops: list[dict], netpaper: dict | None, buttons: di
     if no_net is not None and best_net is not None:
         net_note = (f"Red: la mejor versión espera {best_net:+.2f} % vs {no_net:+.2f} % sin red. "
                     + ("Usar red." if best_net >= no_net else "Por ahora conviene sin red (o red solo para bajar riesgo)."))
+    # Plan hacia $30/día (etapa actual: PLAN_STAGE en .env) y proyección con lo medido
+    stage = os.getenv("PLAN_STAGE", "0")
+    per_day = len(arbs) / days if days > 0 else 0.0
+    feasible = min(25.0, per_day)                      # lo que una persona alcanza a hacer en el día
+    net_used = min(arb_net, 1.3) if arb_net else 1.3   # conservador: rechazos y cuotas que cambian
+    stake_now = float(os.getenv("ALERT_ARB_STAKE", "50"))
+    stages = [
+        {"id": "0", "name": "Práctica en demo", "when": "ahora · 1 semana", "stake": "$50 (demo)", "bank": "—",
+         "target": "—", "gate": "Semáforo de la Fase 1 en verde (7 días, 30 toques de botones)",
+         "progress": round(sum(c["progress"] for c in phase1) / len(phase1), 2)},
+        {"id": "1", "name": "Real chico", "when": "semanas 2–3", "stake": "$50", "bank": "$1.000 ($500 1xBet / $500 Polymarket)",
+         "target": "$10–13/día", "gate": "Neto real ≥ 1 %, rechazos de 1xBet ≤ 15 %, sin límites de monto"},
+        {"id": "2", "name": "Subir el monto", "when": "semanas 4–6", "stake": "$100–120", "bank": "$2.000",
+         "target": "$26–33/día ✔ meta $30", "gate": "Lo mismo y que 1xBet siga aceptando ~$50–60 por apuesta"},
+        {"id": "2b", "name": "Sumar valor oro", "when": "con la Fase 2 en verde", "stake": "mínimo $30 (con red)",
+         "bank": "+ $1.000", "target": "+ $4–8/día (con vaivén)", "gate": "CLV ≥ 1,5 % y 50 picks de valor + red en vivo"},
+        {"id": "3", "name": "Escalar", "when": "si 1xBet no limita", "stake": "$200–300", "bank": "~$5.000",
+         "target": "$60–100/día mientras duren las cuentas", "gate": "Monto máximo aceptado estable; rotar clones"},
+    ]
+    projection = [{"stake": st, "per_day": round(feasible, 1), "usd_day": round(feasible * st * net_used / 100, 2)}
+                  for st in sorted({stake_now, 100.0, 300.0})]
+    plan = {"stage": stage, "stages": stages, "projection": projection, "net_used": round(net_used, 2),
+            "measured_per_day": round(per_day, 1)}
     return {
         "days": round(days, 1),
+        "plan": plan,
         "phases": [
             {"name": "Fase 1 · Surebets prepartido 1xBet + Polymarket con dinero real",
              "plan": "$50 por surebet (ALERT_ARB_STAKE=50), tope $500 en juego, 2 semanas. Primero 1xBet, después Polymarket "
