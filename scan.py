@@ -280,6 +280,37 @@ async def main() -> None:
                     return res
         return {}
 
+    alerted: dict[str, tuple[float, float]] = {}  # partido#mercado -> (cuándo, neto) para no repetir avisos
+
+    def worth_alert(o) -> bool:
+        """Solo prepartido que empieza pronto, neto real de comisiones, con capacidad y sin repetir."""
+        now = time.time()
+        st_ = o.event.anchor.start
+        if o.event.live or st_ is None or not (0 < st_.timestamp() - now <= s.alert_max_hours * 3600):
+            return False
+        if blocked(o) or not (s.alert_min_margin_pct <= o.margin_pct < cfg.suspicious_margin_pct):
+            return False
+        if o.max_total_stake and o.max_total_stake < s.alert_min_stake:
+            return False
+        net = paper._net_pct(o) if paper else o.margin_pct
+        if net < s.alert_min_net_pct:
+            return False
+        k = f"{o.event.key}#{o.market}"
+        last = alerted.get(k)
+        if last and now - last[0] < s.alert_repeat_min * 60 and net < last[1] + 0.5:
+            return False  # ya avisado hace poco y no mejoró de verdad
+        alerted[k] = (now, net)
+        return True
+
+    def worth_value(v, hrs) -> bool:
+        if not golden_value(v.event.live, v.ev_pct, v.quote.odds, hrs):
+            return False
+        k = f"v#{v.event.key}#{v.market}"
+        if k in alerted and time.time() - alerted[k][0] < 3 * 3600:
+            return False
+        alerted[k] = (time.time(), v.ev_pct)
+        return True
+
     headers = {"User-Agent": "surebet3/0.2", "Accept": "application/json"}
     cycles = 0
     papi = next((src for src in others if isinstance(src, OddsPapiSource)), None)
@@ -303,8 +334,7 @@ async def main() -> None:
                     poly.status = f"base ocupada: {e}"[:160]
                     fresh_opps, fresh_values = [], []
                 for o in fresh_opps:
-                    # Márgenes "demasiado buenos" casi siempre son datos malos: se muestran, no se alertan
-                    if s.alert_min_margin_pct <= o.margin_pct < cfg.suspicious_margin_pct and not blocked(o):
+                    if worth_alert(o):
                         if s.beep:
                             beep()
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
@@ -313,7 +343,7 @@ async def main() -> None:
                 for v in fresh_values:
                     st_ = v.event.anchor.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
-                    if golden_value(v.event.live, v.ev_pct, v.quote.odds, hrs):  # solo el valor filtrado se avisa
+                    if worth_value(v, hrs):  # solo el valor "oro", una vez por partido
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
                                             format_value_bet(v, s.bankroll, s.kelly_fraction))
                 report_file = s.db_path.parent / "daily_report.txt"
@@ -326,6 +356,9 @@ async def main() -> None:
                     if sent != today:
                         report_file.write_text(today, encoding="utf-8")
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id, daily_summary(s, status_path))
+                if len(alerted) > 5000:
+                    cut = time.time() - 6 * 3600
+                    alerted = {k: v for k, v in alerted.items() if v[0] > cut}
                 for src in others:
                     while getattr(src, "notices", None):
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id, src.notices.pop(0))

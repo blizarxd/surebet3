@@ -121,6 +121,11 @@ class Settings:
     telegram_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
     alert_min_margin_pct: float = field(default_factory=lambda: _f("ALERT_MIN_MARGIN_PCT", 1.0))
+    # Telegram solo con lo que importa: prepartido, pronto, neto de comisiones y sin repetir
+    alert_min_net_pct: float = field(default_factory=lambda: _f("ALERT_MIN_NET_PCT", 1.0))
+    alert_max_hours: float = field(default_factory=lambda: _f("ALERT_MAX_HOURS", 6.0))
+    alert_min_stake: float = field(default_factory=lambda: _f("ALERT_MIN_STAKE", 50.0))
+    alert_repeat_min: float = field(default_factory=lambda: _f("ALERT_REPEAT_MIN", 60.0))
     beep: bool = field(default_factory=lambda: os.getenv("BEEP", "1") == "1")
 
     db_path: Path = field(default_factory=lambda: ROOT / "data" / "opportunities.db")
