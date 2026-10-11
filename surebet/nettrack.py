@@ -10,6 +10,10 @@ Para cada apuesta de valor "oro" anotada (prepartido, EV 2–7 %, cuota 1.6–4,
      (alguien tiene que vender a ese precio):
        - si bajó → "asegurada" a esa hora: ganancia fija, salga lo que salga;
        - si no → "quedó como valor": se cancela la red y cuenta el resultado real de la apuesta.
+Además se prueban redes "a X centavos": orden límite 1, 2, 3, 4 y 5 ¢ por debajo del precio que tenía el lado
+contrario al entrar (más abajo = se llena menos pero asegura más). Cada nivel se compara con no usar red.
+Si Polymarket no devuelve historial se reintenta; si nunca lo hay, el pick queda "sin datos" y no cuenta.
+
 Mismo método para el pasado (backtest con lo que ya estaba anotado) y para lo nuevo (seguimiento cada pocos
 minutos), así los números son comparables. Lo que NO modela: la cola de órdenes de Polymarket (es optimista).
 """
@@ -25,6 +29,7 @@ from pathlib import Path
 
 import httpx
 
+from .risk import risk_stats
 from .safety import golden_value
 
 CLOB = "https://clob.polymarket.com"
@@ -33,6 +38,8 @@ CANCEL_BEFORE_S = 600
 CROSS = 0.005           # el precio tiene que pasar medio centavo nuestra red para contarla llenada
 CHECK_EVERY_S = 300     # cada cuánto se revisa una red que sigue esperando
 PICKS_PER_RUN = 25      # para no golpear a Polymarket: tandas chicas
+LEVELS_C = (1, 2, 3, 4, 5)  # redes a X centavos bajo el precio de entrada del lado contrario
+MAX_TRIES = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS net_picks (
@@ -55,6 +62,7 @@ CREATE TABLE IF NOT EXISTS net_picks (
 );
 CREATE TABLE IF NOT EXISTS net_meta (k TEXT PRIMARY KEY, v TEXT);
 """
+MIGRATIONS = {"p_entry": "REAL", "p_close": "REAL", "levels": "TEXT", "tries": "INTEGER DEFAULT 0"}
 
 
 def limit_for(odds: float, lock_pct: float = LOCK_PCT) -> float:
@@ -79,6 +87,10 @@ class NetTracker:
     def __init__(self, db_path: Path, bankroll: float = 1000.0, lock_pct: float = LOCK_PCT) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(net_picks)")}
+        for col, decl in MIGRATIONS.items():
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE net_picks ADD COLUMN {col} {decl}")
         self.bankroll, self.lock_pct = bankroll, lock_pct
         self.conn.execute("INSERT OR IGNORE INTO net_meta VALUES ('activated', ?)", (str(time.time()),))
         self.conn.execute("INSERT OR REPLACE INTO net_meta VALUES ('bankroll', ?)", (str(bankroll),))
@@ -128,27 +140,43 @@ class NetTracker:
     async def update(self, client: httpx.AsyncClient) -> int:
         self._sync_picks()
         now = time.time()
+        # Las que esperan, y las ya decididas sin niveles calculados (se recalculan enteras con el mismo método)
         rows = self.conn.execute(
-            "SELECT key, created_ts, start_ts, odds, limit_price, tokens, covers, best_gap FROM net_picks "
-            "WHERE status='valor' AND (last_check IS NULL OR last_check < ?) ORDER BY COALESCE(last_check, 0) LIMIT ?",
-            (now - CHECK_EVERY_S, PICKS_PER_RUN)).fetchall()
-        updates = []  # se escriben al final: no dejar la base tomada mientras se consulta a Polymarket
-        for key, created, start, odds, lim, tokens_json, covers_json, best_gap in rows:
+            "SELECT key, created_ts, start_ts, odds, limit_price, tokens, covers, tries FROM net_picks "
+            "WHERE (status='valor' OR levels IS NULL) AND status!='sin datos' AND (last_check IS NULL OR last_check < ?) "
+            "ORDER BY COALESCE(last_check, 0) LIMIT ?", (now - CHECK_EVERY_S, PICKS_PER_RUN)).fetchall()
+        updates, retries, gone = [], [], []  # se escriben al final: no dejar la base tomada mientras se consulta
+        for key, created, start, odds, lim, tokens_json, covers_json, tries in rows:
             end = min(now, start - CANCEL_BEFORE_S)
             path = await self._path(client, json.loads(tokens_json), set(json.loads(covers_json)), created, end)
-            status, lock_ts, gap_now = "valor", None, None
+            if not path:
+                if (tries or 0) + 1 >= MAX_TRIES and now >= start - CANCEL_BEFORE_S:
+                    gone.append((now, key))           # nunca hubo historial: no cuenta (no se asume nada)
+                else:
+                    retries.append((now, key))
+                continue
+            status, lock_ts, gap_now, best_gap = "valor", None, None, None
             for t, pa in path:
                 gap = 100 * ((1 - pa) + CROSS - lim)          # ¢ que le faltan al precio para llenar la red
                 best_gap = gap if best_gap is None else min(best_gap, gap)
                 gap_now = gap
-                if gap <= 0:
+                if gap <= 0 and lock_ts is None:
                     status, lock_ts = "asegurada", t
-                    break
             if status == "valor" and now >= start - CANCEL_BEFORE_S:
                 status = "quedó como valor"
-            updates.append((status, lock_ts, best_gap, gap_now, now, key))
-        self.conn.executemany("UPDATE net_picks SET status=?, lock_ts=?, best_gap=?, gap_now=?, last_check=? WHERE key=?",
-                              updates)
+            comp0 = 1 - path[0][1]
+            levels = {}
+            for k in LEVELS_C:
+                lk = math.floor((comp0 - k / 100) * 100 + 1e-9) / 100
+                hit = next((t for t, pa in path[1:] if (1 - pa) + CROSS <= lk), None) if lk >= 0.01 else None
+                levels[str(k)] = {"limit": lk, "ts": hit}
+            updates.append((status, lock_ts, best_gap, gap_now, now, path[0][1], path[-1][1], json.dumps(levels), key))
+        self.conn.executemany(
+            "UPDATE net_picks SET status=?, lock_ts=?, best_gap=?, gap_now=?, last_check=?, p_entry=?, p_close=?, levels=?, "
+            "result='pendiente', pnl=NULL, pnl_no_net=NULL WHERE key=?", updates)
+        self.conn.executemany("UPDATE net_picks SET last_check=?, tries=COALESCE(tries,0)+1 WHERE key=?", retries)
+        self.conn.executemany("UPDATE net_picks SET status='sin datos', result='sin datos', pnl=NULL, last_check=? "
+                              "WHERE key=?", gone)
         self._settle()
         self.conn.commit()
         return len(rows)
@@ -162,11 +190,16 @@ class NetTracker:
             try:
                 r = await client.get(f"{CLOB}/prices-history", params={
                     "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
+                if r.status_code == 429:
+                    await asyncio.sleep(3)
+                    r = await client.get(f"{CLOB}/prices-history", params={
+                        "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
                 pts = r.json().get("history") or [] if r.status_code == 200 else []
             except (httpx.HTTPError, ValueError):
                 return []
             # Polymarket a veces devuelve puntos fuera del rango pedido: se filtran
             hs[out] = {int(p["t"]) // 60: float(p["p"]) for p in pts if a <= p["t"] <= b}
+            await asyncio.sleep(0.25)  # suave con Polymarket (sin pausa a veces devuelve vacío)
         if not hs or not all(hs.values()):
             return []
         mins = sorted(set.intersection(*(set(h) for h in hs.values())))
@@ -200,14 +233,61 @@ class NetTracker:
             "WHERE result='asegurada' AND pnl_no_net IS NULL")
 
 
+def _lock_gain(stake: float, odds: float, limit: float) -> tuple[float, float]:
+    """(ganancia fija, costo en Polymarket) de una red llenada a `limit` cubriendo el cobro de la apuesta."""
+    shares = stake * odds
+    return shares - stake - shares * limit, shares * limit
+
+
+def by_level(rows: list[dict]) -> list[dict]:
+    """Cada forma de poner la red sobre los MISMOS picks decididos: se llena %, asegura %, resultado real y esperado."""
+    decided = [r for r in rows if r["status"] in ("asegurada", "quedó como valor") and r["levels"] is not None]
+    out = []
+
+    def add(name: str, fill) -> None:
+        fills = real = exp = staked = staked_real = 0.0
+        locks = []
+        for r in decided:
+            stake, odds = r["stake"], r["odds"]
+            lim = fill(r)
+            exp_value = stake * (odds * (r["p_close"] or 0) - 1)        # valor esperado al cierre (sin suerte)
+            staked += stake
+            if lim is not None:
+                gain, cost = _lock_gain(stake, odds, lim)
+                fills += 1
+                locks.append(100 * gain / (stake + cost))
+                exp += gain
+                real += gain
+                staked_real += stake
+            else:
+                exp += exp_value
+                if r["pnl_no_net"] is not None:
+                    real += r["pnl_no_net"]
+                    staked_real += stake
+        n = len(decided)
+        out.append({"name": name, "picks": n, "fills": int(fills),
+                    "fill_rate": round(100 * fills / n, 1) if n else None,
+                    "avg_lock": round(sum(locks) / len(locks), 2) if locks else None,
+                    "real": round(real, 2), "real_roi": round(100 * real / staked_real, 2) if staked_real else None,
+                    "exp": round(exp, 2), "exp_roi": round(100 * exp / staked, 2) if staked else None})
+
+    add("Sin red (solo valor)", lambda r: None)
+    add("Red +1 % (actual)", lambda r: r["limit_price"] if r["status"] == "asegurada" else None)
+    for k in LEVELS_C:
+        add(f"Red a {k}¢ bajo la entrada",
+            lambda r, k=k: r["levels"][str(k)]["limit"] if r["levels"][str(k)]["ts"] else None)
+    return out
+
+
 def summary(conn) -> dict | None:
     try:
         meta = dict(conn.execute("SELECT k, v FROM net_meta").fetchall())
         cols = ("key", "source", "created_ts", "start_ts", "title", "sport", "market", "selection", "house", "odds",
                 "ev_pct", "stake", "net_label", "limit_price", "status", "lock_ts", "best_gap", "gap_now", "result",
-                "pnl", "pnl_no_net")
+                "pnl", "pnl_no_net", "p_entry", "p_close", "levels")
         rows = [dict(zip(cols, r)) for r in conn.execute(
-            f"SELECT {', '.join(cols)} FROM net_picks ORDER BY created_ts DESC")]
+            f"SELECT {', '.join(cols)} FROM net_picks WHERE status!='sin datos' ORDER BY created_ts DESC")]
+        no_data = conn.execute("SELECT COUNT(*) FROM net_picks WHERE status='sin datos'").fetchone()[0]
     except sqlite3.OperationalError:
         return None
     bankroll = float(meta.get("bankroll", 1000))
@@ -237,7 +317,28 @@ def summary(conn) -> dict | None:
                     key=lambda r: r["start_ts"] or 0):
         eq += r["pnl"]
         curve.append([(r["start_ts"] or 0) * 1000, round(eq, 2)])
-    return {"activated": float(meta.get("activated", 0)), "bankroll": bankroll,
+    for r in rows:
+        r["levels"] = json.loads(r["levels"]) if r["levels"] else None
+    # Riesgo con y sin red. El partido se da por liquidado ~2 h después del inicio. Con red, el dinero de la
+    # orden en Polymarket también queda inmovilizado: hasta 10 min antes del partido si no se llenó, o hasta
+    # el final si se llenó.
+    with_net, no_net = [], []
+    for r in rows:
+        end = (r["start_ts"] or r["created_ts"]) + 2 * 3600
+        done = r["result"] not in ("pendiente", None)
+        outcome = {"ganada": "won", "perdida": "lost", "anulada": "void", "asegurada": "won"}.get(r["result"])
+        reserve = r["stake"] * r["odds"] * r["limit_price"]
+        poly_end = end if r["status"] == "asegurada" else (r["start_ts"] or r["created_ts"]) - CANCEL_BEFORE_S
+        with_net.append({"open_ts": r["created_ts"], "close_ts": end if done else None, "capital": r["stake"],
+                         "pnl": r["pnl"] if done else None, "outcome": outcome})
+        with_net.append({"open_ts": r["created_ts"], "close_ts": poly_end if r["status"] != "valor" else None,
+                         "capital": reserve, "pnl": 0.0 if r["status"] != "valor" else None, "outcome": None})
+        nn = r["pnl_no_net"]
+        no_net.append({"open_ts": r["created_ts"], "close_ts": end if nn is not None else None, "capital": r["stake"],
+                       "pnl": nn, "outcome": None if nn is None else ("won" if nn > 0 else "lost" if nn < 0 else "void")})
+    return {"activated": float(meta.get("activated", 0)), "bankroll": bankroll, "no_data": no_data,
+            "by_level": by_level(rows),
+            "risk": risk_stats(with_net, bankroll), "risk_no_net": risk_stats(no_net, bankroll),
             "equity": round(bankroll + all_["pnl"], 2), "all": all_,
             "backtest": block([r for r in rows if r["source"] == "backtest"]),
             "live": block([r for r in rows if r["source"] == "vivo"]),

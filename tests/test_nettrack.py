@@ -64,3 +64,24 @@ def test_kept_as_value_then_uses_real_result(tmp_path):
     run(tr, {"tH": [(60, 0.50), (120, 0.49)], "tA": [(60, 0.50), (120, 0.51)]})
     st, res, pnl = tr.conn.execute("SELECT status, result, pnl FROM net_picks").fetchone()
     assert st == "quedó como valor" and res == "perdida" and pnl < 0
+
+
+def test_levels_in_cents(tmp_path):
+    pb = PaperBook(tmp_path / "p.db", PaperConfig())
+    add_value(pb, "v3", status="won", hours=1.5, created_ago=7200)
+    tr = NetTracker(tmp_path / "p.db")
+    # lado contrario: 0.50 al entrar → baja a 0.475: llena la red a 2¢ (0.48), no la de 3¢ (0.47)
+    run(tr, {"tH": [(60, 0.50), (120, 0.525)], "tA": [(60, 0.50), (120, 0.475)]})
+    lv = json.loads(tr.conn.execute("SELECT levels FROM net_picks").fetchone()[0])
+    assert lv["2"]["ts"] and not lv["3"]["ts"] and lv["2"]["limit"] == 0.48
+    rows = {l["name"]: l for l in summary(tr.conn)["by_level"]}
+    assert rows["Red a 2¢ bajo la entrada"]["fills"] == 1 and rows["Red a 5¢ bajo la entrada"]["fills"] == 0
+
+
+def test_no_history_is_retried_not_counted(tmp_path):
+    pb = PaperBook(tmp_path / "p.db", PaperConfig())
+    add_value(pb, "v4", hours=1.5, created_ago=7200)
+    tr = NetTracker(tmp_path / "p.db")
+    run(tr, {"tH": [], "tA": []})
+    st, tries = tr.conn.execute("SELECT status, tries FROM net_picks").fetchone()
+    assert st == "valor" and tries == 1                       # no se asume "quedó como valor"

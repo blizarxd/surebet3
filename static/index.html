@@ -85,6 +85,7 @@
     Cada apuesta muestra la cuota tomada, la cuota justa de Polymarket al entrar, el <b>CLV</b> (si la cuota que tomaste era mejor que el precio de cierre:
     es la mejor señal de ventaja real) y el resultado. Puede perder apuestas sueltas: se gana a largo plazo si el CLV es positivo.</div></section>
   <section class="kpis" id="kpis-valor"></section>
+  <section class="card"><h2>Riesgo de la cuenta de valor</h2><div class="kpis" id="risk-valor"></div></section>
   <section class="card">
     <h2>🛟 Valor con red de seguridad (simulado) <span class="count" id="vn-sum"></span></h2>
     <div class="small muted">Cada apuesta oro en 1xBet + una orden <b>límite</b> esperando en Polymarket del lado contrario, al precio que asegura +1 %
@@ -137,6 +138,20 @@
     <b>queda como valor</b> con su resultado real. Los picks <span class="tag void">backtest</span> ya estaban anotados antes de activar esto
     (desde ayer); los <span class="tag open">vivo</span> se siguen desde hoy con el mismo método. Ojo: no modela la fila de órdenes (es optimista).</div></section>
   <section class="kpis" id="kpis-red"></section>
+  <section class="card">
+    <h2>Riesgo: con red vs. sin red</h2>
+    <div class="small muted">Con red el dinero de la orden límite también queda en Polymarket mientras espera (y hasta el final si se llena):
+      por eso pide más capital en juego, a cambio de caídas más chicas.</div>
+    <h2 style="margin-top:10px">Con red +1 %</h2><div class="kpis" id="risk-red"></div>
+    <h2 style="margin-top:10px">Sin red (solo valor)</h2><div class="kpis" id="risk-nonet"></div>
+  </section>
+  <section class="card">
+    <h2>¿A qué distancia poner la red? <span class="count" id="lvl-sum"></span></h2>
+    <div class="small muted">Los mismos picks con cada forma de red. "A X¢" = orden límite X centavos por debajo del precio que tenía el lado
+      contrario al entrar: más abajo se llena menos, pero cuando se llena asegura más. Si no se llena, queda la apuesta de valor sola.
+      <b>Esperado</b> = sin suerte (las que quedan como valor cuentan su valor según el precio de cierre de Polymarket); <b>real</b> = con los resultados de los partidos.</div>
+    <div class="scroll"><table id="red-levels"></table></div>
+  </section>
   <section class="grid2">
     <div class="card"><h2>Curva de capital (con red)</h2><div class="chart-box"><canvas id="curve-red"></canvas></div></div>
     <div class="card"><h2>Backtest vs. desde hoy</h2><div class="scroll"><table id="red-compare"></table></div></div>
@@ -156,6 +171,7 @@
     Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
     la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
   <section class="kpis" id="kpis-auto"></section>
+  <section class="card"><h2>Riesgo de la cuenta automática</h2><div class="kpis" id="risk-auto"></div></section>
   <section class="card">
     <h2>Embudo: todas las surebets automatizables de 7 días <span class="count" id="funnel-sum"></span></h2>
     <div class="small muted">Cada surebet donde todas las casas tienen API (Polymarket, Cloudbet, SX Bet) y qué pasó con ella.
@@ -194,6 +210,7 @@
 </main>
 <main id="tab-main">
   <section class="kpis" id="kpis"></section>
+  <section class="card"><h2>Riesgo de la cuenta (surebets)</h2><div class="kpis" id="risk-main"></div></section>
 
   <section class="grid2">
     <div class="card"><h2>Curva de capital</h2><div class="chart-box"><canvas id="curve"></canvas></div></div>
@@ -393,7 +410,7 @@ document.addEventListener("click", (e) => {
 let autoChart = null;
 function renderAuto(au) {
   if (!au) return;
-  renderKpis(au.account, "kpis-auto");
+  renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk);
   $("auto-count").textContent = `(${au.ops.length})`;
   $("ops-auto").innerHTML = au.ops.length ? `<tr><th>Entrada</th><th>Partido</th><th>Apuestas (cada lado)</th><th class="num">Total</th>
       <th class="num">Asegurado</th><th>Estado</th><th class="num">Ganancia</th></tr>` + au.ops.map((o) => `<tr>
@@ -471,7 +488,7 @@ function valueGroupTable(id, rows) {
 let valorChart = null, vmFilter = "gold";
 function renderValor(v, vm) {
   if (!v) return;
-  renderKpis(v.account, "kpis-valor");
+  renderKpis(v.account, "kpis-valor"); renderRisk("risk-valor", v.risk);
   $("valor-count").textContent = `(${v.ops.length})`;
   valueOpsTable("valor-ops", v.ops);
   valueGroupTable("valor-ev", v.groups.ev); valueGroupTable("valor-odds", v.groups.odds);
@@ -536,6 +553,18 @@ function renderNets(n) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true) + ` (${pct(r.net_pct)})`}</td></tr>`).join("");
 }
 
+function renderRisk(id, r) {
+  if (!r) return;
+  const streak = r.cur_streak > 0 ? `ganando ${r.cur_streak} seguidas` : r.cur_streak < 0 ? `perdiendo ${-r.cur_streak} seguidas` : "sin racha";
+  $(id).innerHTML = [
+    kpi("Caída máxima", r.max_dd ? "-" + money(r.max_dd) : money(0), r.max_dd ? `${pct(-r.max_dd_pct)} desde el pico · ${when(r.dd_from)} → ${when(r.dd_to)}` : "todavía ninguna", r.max_dd ? "neg" : ""),
+    kpi("Caída actual", r.cur_dd ? "-" + money(r.cur_dd) : money(0), r.cur_dd ? `${pct(-r.cur_dd_pct)} bajo el pico de ${money(r.peak)}` : `en el pico (${money(r.peak)})`, r.cur_dd ? "warn" : "pos"),
+    kpi("Rachas", `${r.win_streak} / ${r.loss_streak}`, `mejor ganadora / peor perdedora · ahora ${streak}`),
+    kpi("Capital máx. en juego", money(r.max_in_play), `${r.max_in_play_pct ?? "-"}% del capital · ${when(r.max_in_play_ts)} · ahora ${money(r.in_play)}`),
+    kpi("Mejor / peor día", r.best_day ? `${money(r.best_day[1], true)} / ${money(r.worst_day[1], true)}` : "-", r.best_day ? `${r.best_day[0]} / ${r.worst_day[0]}` : ""),
+  ].join("");
+}
+
 let redChart = null, redFilter = "all";
 const dur = (s) => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.round(s / 60)} min`;
 function renderRed(n) {
@@ -548,6 +577,14 @@ function renderRed(n) {
     kpi("Resultado con red", money(a.pnl, true), `ROI ${a.roi == null ? "-" : pct(a.roi)} · ${a.settled} cerradas`, cls(a.pnl)),
     kpi("Mismas sin red", money(a.pnl_no_net, true), `ROI ${a.roi_no_net == null ? "-" : pct(a.roi_no_net)} (con red: ${money(a.pnl_same, true)})`, cls(a.pnl_no_net)),
   ].join("");
+  renderRisk("risk-red", n.risk); renderRisk("risk-nonet", n.risk_no_net);
+  $("lvl-sum").textContent = n.no_data ? `(${n.no_data} picks sin historial en Polymarket, no cuentan)` : "";
+  $("red-levels").innerHTML = `<tr><th>Red</th><th class="num">Picks</th><th class="num">Se llena</th><th class="num">Asegura (medio)</th>
+    <th class="num">Esperado</th><th class="num">ROI esperado</th><th class="num">Real</th><th class="num">ROI real</th></tr>` +
+    (n.by_level || []).map((l) => `<tr><td>${esc(l.name)}</td><td class="num">${l.picks}</td>
+      <td class="num">${l.fill_rate == null ? "-" : l.fill_rate + "%"}</td><td class="num">${l.avg_lock == null ? "-" : pct(l.avg_lock)}</td>
+      <td class="num ${cls(l.exp)}">${money(l.exp, true)}</td><td class="num ${cls(l.exp_roi)}">${l.exp_roi == null ? "-" : pct(l.exp_roi)}</td>
+      <td class="num ${cls(l.real)}">${money(l.real, true)}</td><td class="num ${cls(l.real_roi)}">${l.real_roi == null ? "-" : pct(l.real_roi)}</td></tr>`).join("");
   const row = (name, b) => `<tr><td>${name}</td><td class="num">${b.picks}</td><td class="num">${b.lock_rate == null ? "-" : b.lock_rate + "%"}</td>
     <td class="num">${b.won} / ${b.lost}</td><td class="num ${cls(b.pnl)}">${money(b.pnl, true)}</td><td class="num ${cls(b.roi)}">${b.roi == null ? "-" : pct(b.roi)}</td>
     <td class="num ${cls(b.pnl_no_net)}">${money(b.pnl_no_net, true)}</td></tr>`;
@@ -572,7 +609,7 @@ function renderRed(n) {
         <td>${esc(r.title)}<div class="muted small">${esc(r.sport)} · ${esc(r.market)} · empieza ${when(r.start_ts)}</div></td>
         <td class="small">${esc(r.house)}: <b>${esc(r.selection)}</b> @ <b>${Number(r.odds).toFixed(2)}</b><div class="muted">EV ${pct(r.ev_pct, 1)} · ${money(r.stake)}</div></td>
         <td class="small">${esc(r.net_label)}<div class="muted">límite ${(100 * r.limit_price).toFixed(0)}¢ · ${Number(r.stake * r.odds).toFixed(0)} shares</div></td>
-        <td>${story}</td>
+        <td>${story}${r.levels ? `<div class="small muted">a ¢: ${[1, 2, 3, 4, 5].map((k) => `${k}${r.levels[k].ts ? "✓" : "✗"}`).join(" ")}</div>` : ""}</td>
         <td><span class="tag ${resTag[r.result] || "open"}">${esc(r.result)}</span></td>
         <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td>
         <td class="num ${cls(r.pnl_no_net)}">${r.pnl_no_net == null ? "-" : money(r.pnl_no_net, true)}</td></tr>`;
@@ -664,7 +701,7 @@ async function refresh() {
     const alive = st.ts && state.now - st.ts < 60;
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
-    renderKpis(state.account); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
+    renderKpis(state.account); renderRisk("risk-main", state.risk); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
     renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderRed(state.netpaper); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);

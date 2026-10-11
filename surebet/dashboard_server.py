@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .risk import from_paper_ops, risk_stats
+
 STATIC = Path(__file__).resolve().parent.parent / "static"
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -40,7 +42,7 @@ def _auto_account(ops: list[dict], initial: float, started: float) -> dict:
                         "void": sum(o["status"] == "void" for o in settled),
                         "fees": round(sum(o["fees"] or 0 for o in ops), 2),
                         "expected_open": round(sum(o["expected_profit"] or 0 for o in open_), 2)},
-            "curve": curve, "ops": ops[:200]}
+            "curve": curve, "ops": ops[:200], "risk": risk_stats(from_paper_ops(ops), initial)}
 
 
 def _execsim(conn) -> dict:
@@ -261,6 +263,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
             "expected_open": round(sum(o["expected_profit"] or 0 for o in open_), 2),
         },
         "curve": curve,
+        "risk": risk_stats(from_paper_ops(ops), initial),
         "weekly": weekly,
         "by_kind": group(lambda o: "Arbitraje" if o["kind"] == "arb" else "Valor"),
         "by_market": group(lambda o: o["market_name"] or o["market"]),
