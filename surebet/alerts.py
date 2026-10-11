@@ -175,7 +175,9 @@ async def send_telegram(client: httpx.AsyncClient, token: str, chat_id: str, tex
         return
     payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
     if buttons:
-        payload["reply_markup"] = {"inline_keyboard": [[{"text": t, "url": u}] for t, u in buttons]}
+        # "cb:<dato>" = botón que le habla al bot (callback); lo demás abre un link
+        payload["reply_markup"] = {"inline_keyboard": [[{"text": t, "callback_data": u[3:]} if u.startswith("cb:")
+                                                        else {"text": t, "url": u}] for t, u in buttons]}
     try:
         await client.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload)
     except httpx.HTTPError:

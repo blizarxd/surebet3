@@ -208,7 +208,7 @@ Monto sugerido: Kelly fraccional (¼), con tope del 3 % de la banca.
 
 ## Simulaciones de automatización
 
-Las dos están en la pestaña **"Automático (simulado)"** del panel. **No envían ninguna orden real.**
+Las dos están en la pestaña **"Automático (simulado)"** del panel, junto al **embudo** de todas las surebets automatizables de 7 días (qué pasó con cada una: en vivo, duró poco, intentada, entró). **No envían ninguna orden real.**
 
 1. **Ejecución automática Cloudbet / SX + Polymarket** (`surebet/execsim.py`): arma el payload exacto que
    iría a cada API (Cloudbet `bets/place`, orden de Polymarket, orden de SX), espera 5 s de latencia y
@@ -222,6 +222,39 @@ Para pasar a dinero real, la simulación tiene que mostrar **más de 70 % de ór
 durante semanas. Después se empezaría con montos chicos, un interruptor de apagado y cuentas en países permitidos.
 
 ---
+
+## Botón de Telegram: "Ya aposté en 1xBet → comprar en Polymarket"
+
+Cada aviso 1xBet + Polymarket trae un botón (`surebet/polybuy.py`). El flujo es así:
+
+1. Apuestas en 1xBet a mano.
+2. Tocas el botón.
+3. El bot lee el libro de Polymarket **en ese momento** y compra las shares exactas que igualan el cobro de 1xBet.
+   Solo compra si el costo total, con comisión, todavía deja ganancia. Si el precio subió, **no compra** y avisa.
+
+Las protecciones son estas:
+
+- **Modo DEMO por defecto** (`POLY_LIVE=0`): anota lo que habría comprado y no envía nada.
+- **Solo obedece a tu chat** (`TELEGRAM_CHAT_ID`).
+- **Orden límite FOK:** se llena entera al momento, con precio tope, o se cancela.
+- **Topes:** `POLY_MAX_ORDER_USD` por orden y `POLY_MAX_DAILY_USD` por día.
+- **Uso:** cada botón vale 10 min y se usa una sola vez.
+- **Comandos:** `/estado`, `/pausa` (apaga todo) y `/activar`.
+
+Para pasar a real:
+
+1. Instala la librería en el VPS: `pip install py-clob-client`.
+2. Pon `POLY_PRIVATE_KEY` (y `POLY_FUNDER` / `POLY_SIGNATURE_TYPE` si entras con email) **solo en el `.env` del VPS**.
+3. Pon `POLY_LIVE=1` y reinicia el servicio.
+
+Todo queda en la tabla del panel (pestaña Principal).
+
+## Pestaña "Valor" del panel
+
+- **Cuenta en papel propia** de apuestas de valor "oro" ($1000, Kelly/4 con tope de 3 %): curva y cada apuesta con
+  cuota tomada, cuota justa de Polymarket, EV, monto, **CLV**, resultado y ganancia.
+- **Tablas por franja de EV, cuota, casa y deporte**, con ROI, CLV medio y porcentaje de CLV positivo.
+- **Medición de todas las señales de valor** ($100 fijos), filtrable entre "solo oro" y "todas", para ver qué filtro funciona.
 
 ## Alertas de Telegram y apuesta rápida
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sqlite3
 import time
 from contextlib import nullcontext
@@ -24,6 +25,7 @@ from rich.console import Console
 from rich.live import Live
 
 from clv import build_report as build_clv_report
+from clv import report as clv_report
 from surebet.alerts import (beep, format_ready, leg_buttons, format_round_summary, format_startup,
                             format_value_bet, send_telegram)
 from surebet.arb import POLYMARKET, ArbConfig, ValueBet, find_opportunities, find_value_bets
@@ -43,6 +45,7 @@ from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
 from surebet.execsim import ExecSimulator
 from surebet.makersim import MakerSimulator, book_ref
+from surebet.polybuy import PolyBuyer
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -196,6 +199,18 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     return res
 
 
+async def update_value_clv(s, paper) -> None:
+    """CLV (cuota vs. precio de cierre de Polymarket) de las apuestas de la cuenta de valor ya empezadas."""
+    keys = []
+    for ek, market, legs in paper.conn.execute(
+            "SELECT event_key, market, legs_json FROM paper_ops WHERE kind='value' AND track='valor' "
+            "AND start_ts < ? AND start_ts > ?", (time.time() - 120, time.time() - 3 * 86400)):
+        leg = (json.loads(legs) or [{}])[0]
+        keys.append(f"{ek}#{market}#{leg.get('source')}:{''.join(leg.get('covers') or [])}")
+    if keys:
+        await clv_report(s, keys)
+
+
 async def main() -> None:
     args = parse_args()
     s = Settings()
@@ -252,10 +267,13 @@ async def main() -> None:
             value_min_ev_pct=s.value_min_ev_pct, include_live=s.paper_include_live,
             take_value=s.paper_take_value, measure=s.paper_measure, measure_stake=s.paper_measure_stake,
             real_max_hours=s.paper_real_max_hours, live_accept_delay_s=s.paper_live_delay_s,
-            real_min_net_pct=s.paper_real_min_net_pct,
+            real_min_net_pct=s.paper_real_min_net_pct, value_bankroll=s.value_bankroll,
         ))
     execsim = ExecSimulator(s.db_path, s.paper_arb_stake) if paper else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake) if paper else None
+    buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
+                      private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
+                      max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
     status_path = s.db_path.parent / "status.json"
     if not args.no_dashboard:
         try:
@@ -320,6 +338,8 @@ async def main() -> None:
     async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         if not args.once and not args.cycles:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
+            bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
+        last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
             while True:
@@ -340,9 +360,12 @@ async def main() -> None:
                     if worth_alert(o):
                         if s.beep:
                             beep()
+                        buttons = leg_buttons(o, s.rotate_books)
+                        oid = buyer.offer(o, s.paper_arb_stake)
+                        if oid:
+                            buttons.append(buyer.button(oid))
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_ready(o, s.paper_arb_stake, s.rotate_books),
-                                            leg_buttons(o, s.rotate_books))
+                                            format_ready(o, s.paper_arb_stake, s.rotate_books), buttons)
                 for v in fresh_values:
                     st_ = v.event.anchor.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
@@ -380,6 +403,12 @@ async def main() -> None:
                     write_status(status_path, sources, res, s, time.time() - t0, equity)
                 except OSError:
                     pass
+                if paper and time.time() - last_clv >= 3600:  # CLV de la cuenta de valor, cada hora
+                    last_clv = time.time()
+                    try:
+                        await update_value_clv(s, paper)
+                    except Exception:
+                        pass
                 if papi and papi.rounds > rounds_before:
                     summary = format_round_summary(res, papi, s)
                     try:

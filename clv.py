@@ -58,11 +58,15 @@ async def main() -> None:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, "📈 Informe CLV\n" + text)
 
 
-async def report(s: Settings) -> None:
+async def report(s: Settings, keys: list[str] | None = None) -> None:
+    """`keys`: solo esas señales (la cuenta de valor, cada hora) y sin imprimir el informe."""
     conn = sqlite3.connect(s.db_path, timeout=30)
     rows = conn.execute(
         "SELECT key, start_ts, covers, odds, poly_tokens FROM value_bets "
         "WHERE clv_pct IS NULL AND start_ts IS NOT NULL AND start_ts < ?", (time.time() - 120,)).fetchall()
+    if keys is not None:
+        wanted = set(keys)
+        rows = [r for r in rows if r[0] in wanted]
     updates = []  # se escriben al final: no dejar la base bloqueada mientras se consulta a Polymarket
     async with httpx.AsyncClient(timeout=20) as client:
         for key, start_ts, covers, odds, tokens_json in rows:
@@ -75,6 +79,9 @@ async def report(s: Settings) -> None:
             updates.append((p_close, 100 * (odds * p_close - 1), key))
     conn.executemany("UPDATE value_bets SET close_prob=?, clv_pct=? WHERE key=?", updates)
     conn.commit()
+    if keys is not None:
+        conn.close()
+        return
 
     done = conn.execute("SELECT source, ev_pct, clv_pct FROM value_bets WHERE clv_pct IS NOT NULL").fetchall()
     pending = conn.execute("SELECT COUNT(*) FROM value_bets WHERE clv_pct IS NULL").fetchone()[0]

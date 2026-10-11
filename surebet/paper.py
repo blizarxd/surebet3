@@ -36,6 +36,7 @@ import httpx
 from .arb import POLYMARKET, ValueBet, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
+from .safety import golden_value
 
 CLOB = "https://clob.polymarket.com"
 SX_API = "https://api.sx.bet"
@@ -100,6 +101,9 @@ class PaperConfig:
     # En vivo la casa tarda en aceptar y rechaza si la cuota cambió: la señal solo cuenta si sigue en
     # pie con cuotas de la casa pedidas al menos este tiempo después de verla (y se entra a ESAS cuotas)
     live_accept_delay_s: float = 8.0
+    # Cuenta aparte solo de apuestas de valor "oro" (track 'valor'): Kelly/4 con tope de value_max_pct
+    value_account: bool = True
+    value_bankroll: float = 1000.0
 
 
 class PaperBook:
@@ -120,6 +124,8 @@ class PaperBook:
         self.conn.execute("INSERT OR REPLACE INTO paper_meta VALUES ('initial', ?)", (str(cfg.bankroll),))
         self.conn.execute("INSERT OR REPLACE INTO paper_meta VALUES ('arb_stake', ?)", (str(cfg.arb_stake),))
         self.conn.execute("INSERT OR IGNORE INTO paper_meta VALUES ('auto_initial', ?)", (str(cfg.bankroll),))
+        self.conn.execute("INSERT OR IGNORE INTO paper_meta VALUES ('valor_initial', ?)", (str(cfg.value_bankroll),))
+        self.conn.execute("INSERT OR IGNORE INTO paper_meta VALUES ('valor_started', ?)", (str(time.time()),))
         self.conn.commit()
         self.initial = float(self.conn.execute("SELECT v FROM paper_meta WHERE k='initial'").fetchone()[0])
         self._seen: dict[str, float] = {}
@@ -139,6 +145,15 @@ class PaperBook:
 
     def _skip(self, kind: str, reason: str, title: str, market: str, edge: float) -> None:
         self.conn.execute("INSERT INTO paper_skips VALUES (?,?,?,?,?,?)", (time.time(), kind, reason, title, market, edge))
+
+    def valor_balances(self) -> dict[str, float]:
+        """Cuenta aparte de apuestas de valor 'oro' (track 'valor')."""
+        initial = float(self.conn.execute("SELECT v FROM paper_meta WHERE k='valor_initial'").fetchone()[0])
+        settled = self.conn.execute(
+            "SELECT COALESCE(SUM(pnl),0) FROM paper_ops WHERE status!='open' AND track='valor'").fetchone()[0]
+        in_play = self.conn.execute(
+            "SELECT COALESCE(SUM(total_stake),0) FROM paper_ops WHERE status='open' AND track='valor'").fetchone()[0]
+        return {"initial": initial, "equity": initial + settled, "in_play": in_play, "cash": initial + settled - in_play}
 
     def auto_balances(self) -> dict[str, float]:
         """Cuenta aparte del bot automático simulado (track 'auto')."""
@@ -223,15 +238,29 @@ class PaperBook:
                 # Una sola anotación por resultado (1xBet llega por dos fuentes): la de mejor cuota, que va primero
                 key = f"value#{v.event.key}#{v.market}#{''.join(sorted(v.quote.covers))}"
                 present.add(key)
-                if self._taken(key) or not (self.cfg.value_min_ev_pct <= v.ev_pct < self.cfg.value_max_ev_pct):
+                if not (self.cfg.value_min_ev_pct <= v.ev_pct < self.cfg.value_max_ev_pct):
                     continue
                 in_play = _in_play(v.event, now)
+                resolve = None
+                vkey = "valor#" + key[len("value#"):]
+                if self.cfg.value_account and not in_play and not self._taken(vkey):
+                    st = v.event.anchor.start
+                    hrs = (st.timestamp() - now) / 3600 if st else None
+                    # la cuenta de valor: solo lo que se avisa (filtro "oro"), con Kelly/4
+                    if golden_value(False, v.ev_pct, v.quote.odds, hrs) and self._ready(key, now, False, v.quote.ts):
+                        resolve = resolution(v.event, v.market)
+                        op = self._enter_value(vkey, v, resolve, "valor")
+                        if op:
+                            new.append(op)
+                if self._taken(key):
+                    continue
                 real = self.cfg.take_value and (self.cfg.include_live or not in_play) and self._soon(v.event, now)
                 if not real and not self.cfg.measure:
                     continue
                 if not self._ready(key, now, in_play, v.quote.ts):
                     continue
-                op = self._enter_value(key, v, resolution(v.event, v.market), "real" if real else "medicion")
+                op = self._enter_value(key, v, resolve if resolve is not None else resolution(v.event, v.market),
+                                       "real" if real else "medicion")
                 if op:
                     new.append(op)
         self._seen = {k: t for k, t in self._seen.items() if k in present}
@@ -294,8 +323,8 @@ class PaperBook:
         if not resolve or set(resolve) != set(v.poly_tokens):
             self._skip("value", "sin forma de liquidar con Polymarket", title, market, v.ev_pct)
             return None
-        if track == "real":
-            bal = self.balances()
+        if track in ("real", "valor"):
+            bal = self.balances() if track == "real" else self.valor_balances()
             stake = bal["equity"] * v.kelly * self.cfg.kelly_fraction
             stake = min(max(stake, self.cfg.min_stake), bal["equity"] * self.cfg.value_max_pct, bal["cash"])
             if stake < self.cfg.min_stake:
@@ -304,6 +333,7 @@ class PaperBook:
         else:
             stake = self.cfg.measure_stake  # monto fijo: así el ROI de cada tipo se compara directo
         row = _leg_row(v.quote, round(stake, 2), v.quote.odds)
+        row["fair_odds"] = round(1 / v.fair_prob, 3)   # cuota justa según Polymarket al entrar
         expected = row["stake"] * (v.quote.odds * v.fair_prob - 1)
         return self._insert(key, "value", v.event, market, v.ev_pct, [row], 0.0, expected, resolve, track)
 

@@ -125,7 +125,8 @@ def test_value_bets_only_measured_by_default(tmp_path):
                                  label="Arsenal", market="1x2"),
                            Quote(source="onexbet", feed="oddsapi", covers=frozenset({HOME}), odds=2.10,
                                  label="Arsenal", market="1x2")])
-    new = pb.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=2.0), lambda k, m: RESOLVE)
+    new = [o for o in pb.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=2.0), lambda k, m: RESOLVE)
+           if o["track"] != "valor"]
     # una sola anotación por resultado (la de mejor cuota), $100 fijos, sin tocar el capital
     assert len(new) == 1 and new[0]["track"] == "medicion" and new[0]["legs"][0]["odds"] == 2.15
     assert new[0]["total"] == pytest.approx(100.0)
@@ -240,3 +241,16 @@ def test_arb_uses_fixed_stake_when_liquidity_allows(tmp_path):
     op = pb.consider(find_opportunities(deep, ArbConfig()), [], lambda k, m: RESOLVE)[0]
     assert op["total"] == pytest.approx(100.0, abs=0.02)
     assert len(op["legs"]) == 2 and all(l["stake"] > 1 for l in op["legs"])
+
+
+def test_value_account_takes_only_golden_with_kelly(tmp_path):
+    pb = PaperBook(tmp_path / "p.db", PaperConfig(min_persist_s=0, value_bankroll=1000))
+    poly = [poly_q({o}, p, f"t_{o.lower()}") for o, p in ((HOME, 0.50), (DRAW, 0.28), (AWAY, 0.22))]
+    ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=2.08,
+                                 label="Arsenal", market="1x2")])
+    new = pb.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=2.0), lambda k, m: RESOLVE)
+    valor = [o for o in new if o["track"] == "valor"]
+    assert len(valor) == 1 and 0 < valor[0]["total"] <= 30          # Kelly/4 con tope 3 % de $1000
+    assert valor[0]["legs"][0]["fair_odds"] == pytest.approx(2.0, abs=0.01)
+    assert pb.valor_balances()["in_play"] == pytest.approx(valor[0]["total"])
+    assert pb.balances()["in_play"] == 0                              # no toca la cuenta de surebets

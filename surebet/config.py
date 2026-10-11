@@ -120,6 +120,15 @@ class Settings:
     # Alertas
     telegram_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
     telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
+    # Botón "Ya aposté en 1xBet → comprar en Polymarket" (DEMO salvo POLY_LIVE=1 y clave en .env)
+    poly_live: bool = field(default_factory=lambda: os.getenv("POLY_LIVE", "0") == "1")
+    poly_private_key: str = field(default_factory=lambda: os.getenv("POLY_PRIVATE_KEY", ""), repr=False)
+    poly_funder: str = field(default_factory=lambda: os.getenv("POLY_FUNDER", ""))
+    poly_signature_type: int = field(default_factory=lambda: int(_f("POLY_SIGNATURE_TYPE", 0)))
+    poly_max_order_usd: float = field(default_factory=lambda: _f("POLY_MAX_ORDER_USD", 150))
+    poly_max_daily_usd: float = field(default_factory=lambda: _f("POLY_MAX_DAILY_USD", 600))
+    # Cuenta en papel solo de apuestas de valor "oro" (Kelly/4, tope 3 %)
+    value_bankroll: float = field(default_factory=lambda: _f("VALUE_BANKROLL", 1000))
     alert_min_margin_pct: float = field(default_factory=lambda: _f("ALERT_MIN_MARGIN_PCT", 1.0))
     # Telegram solo con lo que importa: prepartido, pronto, neto de comisiones y sin repetir
     alert_min_net_pct: float = field(default_factory=lambda: _f("ALERT_MIN_NET_PCT", 1.0))

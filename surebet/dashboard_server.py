@@ -56,6 +56,91 @@ def _execsim(conn) -> dict:
             "avg_net": round(avg, 3) if avg is not None else None, "rows": rows}
 
 
+AUTO_BOOKS = {"polymarket", "cloudbet", "sxbet"}
+
+
+def _auto_funnel(conn) -> dict:
+    """Todas las surebets automatizables (solo Polymarket / Cloudbet / SX) de 7 días y qué pasó con cada una."""
+    since = time.time() - 7 * 86400
+    execs = {r["key"]: dict(r) for r in conn.execute("SELECT key, status, reason, net_pct FROM exec_sim")}
+    autos = {r[0] for r in conn.execute("SELECT key FROM paper_ops WHERE track='auto'")}
+    rows, counts = [], {}
+    for r in conn.execute("SELECT key, first_seen, last_seen, title, live, best_margin_pct, legs_json FROM opportunities "
+                          "WHERE first_seen > ? ORDER BY first_seen DESC", (since,)):
+        srcs = sorted({l.get("source") for l in json.loads(r["legs_json"] or "[]")})
+        if len(srcs) < 2 or not set(srcs) <= AUTO_BOOKS:
+            continue
+        dur = r["last_seen"] - r["first_seen"]
+        ex = execs.get(r["key"])
+        parts = r["key"].split("#")
+        entered = len(parts) > 1 and f"auto#{parts[0]}#{parts[1]}" in autos
+        if ex and ex["status"] == "filled":
+            stage = ("entró a la cuenta automática" if entered
+                     else "llenada, pero no entró (saldo, partido ya tomado o sin forma de liquidar)")
+        elif ex:
+            stage = "intentada y rechazada: " + (ex["reason"] or "")
+        elif r["live"]:
+            stage = "en vivo: el bot solo toma prepartido"
+        elif dur < 5:
+            stage = "duró menos de 5 s"
+        elif r["best_margin_pct"] >= 8:
+            stage = "margen sospechoso (8 % o más): casi siempre dato malo"
+        else:
+            stage = "no apta: empieza en más de 6 h, neto bajo o filtro de seguridad"
+        key = stage.split(":")[0]
+        counts[key] = counts.get(key, 0) + 1
+        if len(rows) < 80:
+            rows.append({"ts": r["first_seen"], "title": r["title"], "sources": " + ".join(srcs), "live": r["live"],
+                         "margin": r["best_margin_pct"], "dur": round(dur), "stage": stage,
+                         "net": ex["net_pct"] if ex else None})
+    return {"total": sum(counts.values()),
+            "counts": sorted(({"stage": k, "n": v} for k, v in counts.items()), key=lambda x: -x["n"]), "rows": rows}
+
+
+def _bucket(v: float, edges: list[float], fmt: str) -> str:
+    for lo, hi in zip(edges, edges[1:]):
+        if lo <= v < hi:
+            return fmt.format(lo, hi)
+    return fmt.format(edges[-1], "+") if v >= edges[-1] else fmt.format("-", edges[0])
+
+
+def _value_groups(ops: list[dict]) -> dict:
+    """Rendimiento de apuestas de valor por franja de EV, de cuota, casa, deporte y fase (ROI de las cerradas, CLV)."""
+    def group(key) -> list[dict]:
+        out: dict[str, dict] = {}
+        for o in ops:
+            k = key(o)
+            g = out.setdefault(k, {"name": k, "n": 0, "open": 0, "won": 0, "lost": 0, "staked": 0.0, "pnl": 0.0,
+                                   "clv_sum": 0.0, "clv_n": 0, "clv_pos": 0})
+            g["n"] += 1
+            if o.get("clv") is not None:
+                g["clv_sum"] += o["clv"]
+                g["clv_n"] += 1
+                g["clv_pos"] += o["clv"] > 0
+            if o["status"] == "open":
+                g["open"] += 1
+                continue
+            g["won"] += o["status"] == "won"
+            g["lost"] += o["status"] == "lost"
+            g["staked"] += o["total_stake"]
+            g["pnl"] += o["pnl"] or 0
+        return [{"name": g["name"], "n": g["n"], "open": g["open"], "won": g["won"], "lost": g["lost"],
+                 "staked": round(g["staked"], 2), "pnl": round(g["pnl"], 2),
+                 "roi": round(100 * g["pnl"] / g["staked"], 2) if g["staked"] else None,
+                 "clv": round(g["clv_sum"] / g["clv_n"], 2) if g["clv_n"] else None,
+                 "clv_pos": round(100 * g["clv_pos"] / g["clv_n"]) if g["clv_n"] else None}
+                for g in sorted(out.values(), key=lambda g: g["name"])]
+
+    def odds(o):
+        return (o["legs"] or [{}])[0].get("odds", 0)
+
+    return {"ev": group(lambda o: _bucket(o["edge_pct"], [0, 2, 3, 4, 5, 7, 10], "EV {}–{} %")),
+            "odds": group(lambda o: _bucket(odds(o), [1, 1.6, 2, 2.5, 3, 4, 6], "cuota {}–{}")),
+            "house": group(lambda o: (o["legs"] or [{}])[0].get("source", "?")),
+            "sport": group(lambda o: o["sport"] or "?"),
+            "phase": group(lambda o: "en vivo" if o["live"] else "prepartido")}
+
+
 def build_state(db_path: Path, status_path: Path) -> dict:
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -76,6 +161,19 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         maker = maker_summary(conn)
     except sqlite3.OperationalError:
         maker = None
+    try:
+        funnel = _auto_funnel(conn)
+    except sqlite3.OperationalError:
+        funnel = None
+    try:
+        from .polybuy import summary as polybuy_summary
+        polybuy = polybuy_summary(conn)
+    except sqlite3.OperationalError:
+        polybuy = None
+    try:  # CLV de cada apuesta de valor (lo calcula clv.py contra el cierre de Polymarket)
+        clv = {r[0]: r[1] for r in conn.execute("SELECT key, clv_pct FROM value_bets WHERE clv_pct IS NOT NULL")}
+    except sqlite3.OperationalError:
+        clv = {}
     finally:
         conn.close()
 
@@ -84,8 +182,14 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         o["legs"] = json.loads(o.pop("legs_json") or "[]")
         o.pop("resolve_json", None)
         o["track"] = o.get("track") or "real"
+    for o in ops:
+        if o["kind"] == "value" and o["legs"]:
+            leg = o["legs"][0]
+            o["clv"] = clv.get(f"{o['event_key']}#{o['market']}#{leg.get('source')}:{''.join(leg.get('covers') or [])}")
     auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
-    all_ops = [o for o in ops if o["track"] != "auto"]
+    valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
+    value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]
+    all_ops = [o for o in ops if o["track"] not in ("auto", "valor")]
     measure = _measure(all_ops)
     ops = [o for o in all_ops if o["track"] == "real"]  # la cuenta de $1000 (lo demás solo se mide)
     settled = [o for o in ops if o["status"] != "open"]
@@ -162,10 +266,25 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "execsim": execsim,
         "maker": maker,
         "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
+        "funnel": funnel,
+        "polybuy": polybuy,
+        "valor": {**_auto_account(valor_ops, float(meta.get("valor_initial", 1000)),
+                                  float(meta.get("valor_started", time.time()))),
+                  "groups": _value_groups(valor_ops)},
+        "value_measure": {"groups": _value_groups(value_measured),
+                          "gold": _value_groups([o for o in value_measured if _is_gold(o)]),
+                          "ops": value_measured[:600]},
         "ops": all_ops[:300],
         "skips": [{"reason": r["reason"], "n": r["n"]} for r in skips],
         "status": status,
     }
+
+
+def _is_gold(o: dict) -> bool:
+    from .safety import golden_value
+    return bool(o["start_ts"] and o["legs"] and golden_value(
+        bool(o["live"]) or o["created_ts"] >= o["start_ts"], o["edge_pct"], o["legs"][0]["odds"],
+        (o["start_ts"] - o["created_ts"]) / 3600))
 
 
 def _category(o: dict) -> str:
