@@ -63,4 +63,5 @@ def test_only_matches():
     from surebet.lprewards import is_match
     assert is_match("Bears vs. Packers") and is_match("Bears vs. Packers: O/U 46.5") and is_match("Spread: Jets (-2.5)")
     assert is_match("Will Real Madrid vs Villarreal end in a draw?")
+    assert is_match("Will Arsenal FC win on 2026-10-12?")
     assert not is_match("Will the highest temperature in Denver be between 60-61°F?")

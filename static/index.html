@@ -725,11 +725,11 @@ let lpChart = null;
 function renderLp(lp) {
   if (!lp) { $("kpis-lp").innerHTML = `<div class="card empty">La simulación todavía no arrancó.</div>`; return; }
   $("kpis-lp").innerHTML = [
-    kpi("Ganancia neta", money(lp.net, true), `en ${lp.days} días · ${money(lp.per_day, true)}/día`, cls(lp.net)),
+    kpi("Ganancia neta", money(lp.net, true), `en ${lp.days} días · ${lp.per_day == null ? "promedio diario desde el 1er día completo" : money(lp.per_day, true) + "/día"}`, cls(lp.net)),
     kpi("Recompensas", money(lp.reward, true), "lo que paga Polymarket por la liquidez", "pos"),
     kpi("Pérdidas por llenadas", money(lp.inv_pnl, true), `${lp.fills} llenadas · ${lp.pairs} con las dos patas (ganancia fija)`, cls(lp.inv_pnl)),
     kpi("Capital en órdenes", money(lp.in_use), `de ${money(lp.capital)} · ${lp.active.length} mercados ahora`),
-    kpi("Rendimiento diario", lp.capital ? pct(100 * lp.per_day / lp.capital) : "-", "ganancia por día sobre el capital", cls(lp.per_day)),
+    kpi("Rendimiento diario", lp.capital && lp.per_day != null ? pct(100 * lp.per_day / lp.capital) : "-", "ganancia por día sobre el capital (desde el 1er día)", cls(lp.per_day)),
   ].join("");
   $("lp-daily").innerHTML = lp.daily.length ? `<tr><th>Día</th><th class="num">Recompensas</th><th class="num">Llenadas</th><th class="num">Pérdida por llenadas</th><th class="num">Neto</th></tr>` +
     lp.daily.slice().reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="num pos">${money(d.reward, true)}</td><td class="num">${d.fills}</td>

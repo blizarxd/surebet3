@@ -43,9 +43,11 @@ STEP_S = 60
 CLOSE_BEFORE_S = 120
 MIN_DAILY_RATE = 10.0
 MAX_MARKETS = 10
+MAX_PER_MARKET = 1000.0   # si el mercado exige un tamaño mínimo grande (NFL: 1000 shares), hasta este monto
+HORIZON_S = 24 * 3600
 # Solo partidos (fútbol, básquet, esports, tenis...): "A vs B", "O/U", "Spread". Otros mercados con hora de inicio
 # (clima, política) también pagan recompensa, pero su riesgo es otro: se miden aparte si se habilitan.
-MATCH_RE = re.compile(r"\bvs\.?\s|\bo/u\b|^spread:|\bboth teams\b|\bdraw\b", re.I)
+MATCH_RE = re.compile(r"\bvs\.?\s|\bo/u\b|^spread:|\bboth teams\b|\bdraw\b|\bwin on \d{4}-\d{2}-\d{2}", re.I)
 
 
 def is_match(question: str) -> bool:
@@ -164,7 +166,7 @@ class RewardsSimulator:
                 rw = m.get("rewards") or {}
                 rate = sum(float(x.get("rewards_daily_rate") or 0) for x in rw.get("rates") or [])
                 toks = [t.get("token_id") for t in m.get("tokens") or []]
-                if (not start or not 1800 <= start - now <= 12 * 3600 or rate < MIN_DAILY_RATE or len(toks) != 2
+                if (not start or not 1800 <= start - now <= HORIZON_S or rate < MIN_DAILY_RATE or len(toks) != 2
                         or not is_match(m.get("question") or "")
                         or not m.get("accepting_orders") or m.get("closed") or not rw.get("max_spread")):
                     continue
@@ -205,8 +207,8 @@ class RewardsSimulator:
             if not MID_RANGE[0] <= mid <= MID_RANGE[1] or (asks[0][0] - bids[0][0]) * 100 > c["max_spread"]:
                 continue
             yes_px, no_px = quote_prices(mid, bids[0][0], asks[0][0], c["max_spread"], c["tick"])
-            size = math.floor(self.per_market / (yes_px + no_px))
-            if size < max(c["min_size"], 1) or yes_px <= 0 or no_px <= 0:
+            size = max(math.floor(self.per_market / (yes_px + no_px)), math.ceil(c["min_size"]))
+            if size < 1 or yes_px <= 0 or no_px <= 0 or size * (yes_px + no_px) > MAX_PER_MARKET:
                 continue
             ours = q_min(score(yes_px, mid, c["max_spread"]) * size, score(1 - no_px, mid, c["max_spread"]) * size, mid)
             share = ours / (competition(bids, asks, mid, c["max_spread"]) + ours) if ours else 0.0
@@ -321,5 +323,5 @@ def summary(conn) -> dict | None:
         d["reward"], d["inv_pnl"] = round(d["reward"], 2), round(d["inv_pnl"], 2)
     return {"capital": float(meta.get("capital", 2000)), "started": started, "days": round(days, 2),
             "markets": n, "reward": round(reward, 2), "inv_pnl": round(inv, 2), "net": round(net, 2),
-            "per_day": round(net / days, 2), "fills": fills or 0, "pairs": pairs or 0, "in_use": round(in_use, 2),
+            "per_day": round(net / days, 2) if days >= 1 else None,   # antes de 1 día la proyección es ruido "fills": fills or 0, "pairs": pairs or 0, "in_use": round(in_use, 2),
             "daily": daily, "active": active, "closed": closed}
