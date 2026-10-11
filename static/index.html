@@ -76,7 +76,7 @@
 <nav class="tabs">
   <button data-tab="main" class="active">Principal (manual)</button>
   <button data-tab="valor">Valor (apuestas simples)</button>
-  <button data-tab="red">🛟 Valor + red (papel)</button>
+  <button data-tab="red">🔒 Valor + red (papel)</button>
   <button data-tab="auto">Automático (simulado)</button>
 </nav>
 <main id="tab-valor" hidden>
@@ -85,9 +85,13 @@
     Cada apuesta muestra la cuota tomada, la cuota justa de Polymarket al entrar, el <b>CLV</b> (si la cuota que tomaste era mejor que el precio de cierre:
     es la mejor señal de ventaja real) y el resultado. Puede perder apuestas sueltas: se gana a largo plazo si el CLV es positivo.</div></section>
   <section class="kpis" id="kpis-valor"></section>
+  <section class="card"><h2>Entradas activas <span class="count" id="act-valor-sum"></span></h2>
+    <div class="small muted">Si la cuota de ahora es más baja que la de entrada, entraste a mejor precio que el mercado (buena señal: CLV a favor).
+      Si sigue igual o más alta, todavía se puede apostar.</div>
+    <div class="scroll"><table id="act-valor"></table></div></section>
   <section class="card"><h2>Riesgo de la cuenta de valor</h2><div class="kpis" id="risk-valor"></div></section>
   <section class="card">
-    <h2>🛟 Valor con red de seguridad (simulado) <span class="count" id="vn-sum"></span></h2>
+    <h2>🔒 Valor con red de seguridad (simulado) <span class="count" id="vn-sum"></span></h2>
     <div class="small muted">Cada apuesta oro en 1xBet + una orden <b>límite</b> esperando en Polymarket del lado contrario, al precio que asegura +1 %
       (sin comisión). Como el CLV es positivo, el precio suele venir hacia la orden: si se llena, la apuesta queda <b>asegurada</b> (surebet);
       si no se llena antes del partido, se cancela y queda como apuesta de valor. Se compara con la misma apuesta sin red.</div>
@@ -96,8 +100,8 @@
   </section>
   <section class="card"><h2>Curva de capital (valor)</h2><div class="chart-box"><canvas id="curve-valor"></canvas></div></section>
   <section class="card">
-    <h2>🛟 Tus redes desde Telegram <span class="count" id="nets-sum"></span></h2>
-    <div class="small muted">Cuando tocas «🛟 Ya aposté» en un aviso de valor, el bot deja la orden límite en Polymarket, la vigila y la cancela
+    <h2>🔒 Tus redes desde Telegram <span class="count" id="nets-sum"></span></h2>
+    <div class="small muted">Cuando tocas «🔒 Ya aposté» en un aviso de valor, el bot deja la orden límite en Polymarket, la vigila y la cancela
       10 min antes del partido si no se llenó. En DEMO no envía nada (da por llenada la orden cuando el vendedor baja a tu precio).</div>
     <div class="scroll"><table id="nets"></table></div>
   </section>
@@ -138,6 +142,10 @@
     <b>queda como valor</b> con su resultado real. Los picks <span class="tag void">backtest</span> ya estaban anotados antes de activar esto
     (desde ayer); los <span class="tag open">vivo</span> se siguen desde hoy con el mismo método. Ojo: no modela la fila de órdenes (es optimista).</div></section>
   <section class="kpis" id="kpis-red"></section>
+  <section class="card"><h2>Entradas activas <span class="count" id="act-red-sum"></span></h2>
+    <div class="small muted">Cada pick abierto con la plata en cada lado: lo apostado en 1xBet + lo que queda apartado en la orden límite de Polymarket.
+      Si la red se llena, la ganancia queda fija; si no, se cancela 10 min antes y queda solo la apuesta de 1xBet.</div>
+    <div class="scroll"><table id="act-red"></table></div></section>
   <section class="card">
     <h2>Riesgo: con red vs. sin red</h2>
     <div class="small muted">Con red el dinero de la orden límite también queda en Polymarket mientras espera (y hasta el final si se llena):
@@ -171,6 +179,8 @@
     Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
     la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
   <section class="kpis" id="kpis-auto"></section>
+  <section class="card"><h2>Entradas activas <span class="count" id="act-auto-sum"></span></h2>
+    <div class="scroll"><table id="act-auto"></table></div></section>
   <section class="card"><h2>Riesgo de la cuenta automática</h2><div class="kpis" id="risk-auto"></div></section>
   <section class="card">
     <h2>Embudo: todas las surebets automatizables de 7 días <span class="count" id="funnel-sum"></span></h2>
@@ -210,6 +220,9 @@
 </main>
 <main id="tab-main">
   <section class="kpis" id="kpis"></section>
+  <section class="card"><h2>Entradas activas <span class="count" id="act-main-sum"></span></h2>
+    <div class="small muted">Lo que está en juego ahora en la cuenta de surebets: cuánto hay en cada casa, la cuota con la que entró y la de <b>ahora</b>.</div>
+    <div class="scroll"><table id="act-main"></table></div></section>
   <section class="card"><h2>Riesgo de la cuenta (surebets)</h2><div class="kpis" id="risk-main"></div></section>
 
   <section class="grid2">
@@ -410,7 +423,7 @@ document.addEventListener("click", (e) => {
 let autoChart = null;
 function renderAuto(au) {
   if (!au) return;
-  renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk);
+  renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk); activeTable("act-auto", au.ops);
   $("auto-count").textContent = `(${au.ops.length})`;
   $("ops-auto").innerHTML = au.ops.length ? `<tr><th>Entrada</th><th>Partido</th><th>Apuestas (cada lado)</th><th class="num">Total</th>
       <th class="num">Asegurado</th><th>Estado</th><th class="num">Ganancia</th></tr>` + au.ops.map((o) => `<tr>
@@ -488,7 +501,7 @@ function valueGroupTable(id, rows) {
 let valorChart = null, vmFilter = "gold";
 function renderValor(v, vm) {
   if (!v) return;
-  renderKpis(v.account, "kpis-valor"); renderRisk("risk-valor", v.risk);
+  renderKpis(v.account, "kpis-valor"); renderRisk("risk-valor", v.risk); activeTable("act-valor", v.ops);
   $("valor-count").textContent = `(${v.ops.length})`;
   valueOpsTable("valor-ops", v.ops);
   valueGroupTable("valor-ev", v.groups.ev); valueGroupTable("valor-odds", v.groups.odds);
@@ -540,7 +553,7 @@ function renderValueNet(v) {
 }
 
 function renderNets(n) {
-  if (!n || !n.rows.length) { $("nets").innerHTML = `<tr><td class="empty">Todavía no llegó ningún aviso de valor con botón 🛟.</td></tr>`; return; }
+  if (!n || !n.rows.length) { $("nets").innerHTML = `<tr><td class="empty">Todavía no llegó ningún aviso de valor con botón 🔒.</td></tr>`; return; }
   const lab = {offered: ["open", "aviso enviado (sin tocar)"], resting: ["open", "red esperando"], locked: ["won", "ASEGURADA"],
     partial: ["won", "asegurada en parte"], kept: ["void", "quedó como valor"], expired: ["void", "botón vencido"], rejected: ["lost", "no se puso"], error: ["lost", "error"]};
   $("nets-sum").textContent = `(${Object.entries(n.counts).map(([k, c]) => `${(lab[k] || ["", k])[1]}: ${c}`).join(" · ")})`;
@@ -551,6 +564,50 @@ function renderNets(n) {
       <td class="small">${Number(r.shares).toFixed(0)} shares de ${esc(r.label)} a ${(100 * r.limit_price).toFixed(0)}¢</td>
       <td><span class="tag ${(lab[r.status] || ["open"])[0]}">${(lab[r.status] || ["", r.status])[1]}</span></td>
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true) + ` (${pct(r.net_pct)})`}</td></tr>`).join("");
+}
+
+const startsIn = (ts) => { if (!ts) return "-"; const s = ts - state.now; return s <= 0 ? "en juego" : "empieza en " + dur(s); };
+function nowOdds(l, start) {
+  if (l.source === "polymarket") return "";
+  if (start && state.now > start && l.now_odds != null)
+    return `<div class="small muted">ahora ${Number(l.now_odds).toFixed(2)} (en vivo: ya no se compara con la de entrada)</div>`;
+  if (l.now_odds == null) return `<div class="muted small">cuota de ahora: sin dato</div>`;
+  const age = state.now - l.now_ts, d = l.now_odds - l.odds;
+  const txt = Math.abs(d) < 0.005 ? "sigue igual" : d < 0 ? "bajó (entraste mejor que el mercado)" : "subió";
+  return `<div class="small ${d < -0.005 ? "pos" : d > 0.005 ? "warn" : "muted"}">ahora <b>${Number(l.now_odds).toFixed(2)}</b> · ${txt}${age > 600 ? ` · visto hace ${dur(age)}` : ""}</div>`;
+}
+function activeTable(id, ops) {
+  const open = ops.filter((o) => o.status === "open").sort((a, b) => (a.start_ts || 0) - (b.start_ts || 0));
+  const total = open.reduce((a, o) => a + o.total_stake, 0), exp = open.reduce((a, o) => a + (o.expected_profit || 0), 0);
+  $(id + "-sum").textContent = open.length ? `(${open.length} abiertas · ${money(total)} en juego · ${money(exp, true)} ${open[0].kind === "arb" ? "asegurado" : "esperado"})` : "";
+  if (!open.length) { $(id).innerHTML = `<tr><td class="empty">No hay entradas abiertas ahora.</td></tr>`; return; }
+  $(id).innerHTML = `<tr><th>Partido</th><th>Plata en cada lado (cuota de entrada → ahora)</th><th class="num">Total</th><th class="num">${open[0].kind === "arb" ? "Asegurado" : "Esperado"}</th></tr>` +
+    open.map((o) => `<tr><td>${esc(o.title)}<div class="muted small">${esc(o.sport)} · ${esc(o.market_name)} · ${startsIn(o.start_ts)}</div>
+      <div class="muted small">entró ${when(o.created_ts)}</div></td>
+      <td>${o.legs.map((l) => legHtml(l, o.total_stake) + nowOdds(l, o.start_ts)).join("")}${splitLine(o.legs, o.kind)}</td>
+      <td class="num"><b>${money(o.total_stake)}</b></td><td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}</td></tr>`).join("");
+}
+function activeRed(n) {
+  const open = n.rows.filter((r) => r.result === "pendiente").sort((a, b) => (a.start_ts || 0) - (b.start_ts || 0));
+  const tot = open.reduce((a, r) => a + r.stake + r.stake * r.odds * r.limit_price, 0);
+  $("act-red-sum").textContent = open.length ? `(${open.length} abiertos · ${money(tot)} entre 1xBet y Polymarket)` : "";
+  if (!open.length) { $("act-red").innerHTML = `<tr><td class="empty">No hay picks abiertos ahora.</td></tr>`; return; }
+  $("act-red").innerHTML = `<tr><th>Partido</th><th>Apuestas (cada lado)</th><th class="num">Total</th><th>Red</th></tr>` +
+    open.map((r) => {
+      const shares = r.stake * r.odds, poly = shares * r.limit_price, total = r.stake + poly, locked = r.status === "asegurada";
+      const legs = [{source: r.house, label: r.selection, odds: r.odds, stake: r.stake, now_odds: r.now_odds, now_ts: r.now_ts},
+                    {source: "polymarket (orden límite)", label: r.net_label, odds: 1 / r.limit_price, stake: poly}];
+      const after = locked ? splitLine(legs, "arb")
+        : `<div class="small">Si la red se llena: pones ${money(total)} entre los 2 lados → cobras ${money(shares)} salga lo que salga (<span class="pos">${money(shares - total, true)}</span>).</div>
+           <div class="small muted">Si no se llena: queda solo 1xBet, ${money(r.stake)} para cobrar ${money(shares)} si sale ${esc(r.selection)} (los ${money(poly)} de Polymarket vuelven).</div>`;
+      return `<tr><td>${esc(r.title)}<div class="muted small">${esc(r.market)} · ${startsIn(r.start_ts)}</div><div class="muted small">entró ${when(r.created_ts)}</div></td>
+        <td>${legHtml(legs[0], total) + nowOdds(legs[0], r.start_ts)}${legHtml(legs[1], total)}${after}</td>
+        <td class="num"><b>${money(total)}</b><div class="muted small">${money(r.stake)} + ${money(poly)}</div></td>
+        <td>${locked ? `<span class="tag won">🔒 asegurada</span><div class="small">${when(r.lock_ts)}</div>`
+          : r.status === "valor" && r.start_ts && state.now > r.start_ts - 600 ? `<span class="tag void">red cancelada</span><div class="small muted">revisando el historial de precios</div>`
+          : r.status === "quedó como valor" ? `<span class="tag void">red cancelada</span><div class="small muted">no se llenó: queda solo 1xBet</div>`
+          : `<span class="tag open">red esperando</span><div class="small muted">${r.gap_now == null ? "" : `falta ${Math.max(0, r.gap_now).toFixed(1)}¢`}</div>`}</td></tr>`;
+    }).join("");
 }
 
 function renderRisk(id, r) {
@@ -577,7 +634,7 @@ function renderRed(n) {
     kpi("Resultado con red", money(a.pnl, true), `ROI ${a.roi == null ? "-" : pct(a.roi)} · ${a.settled} cerradas`, cls(a.pnl)),
     kpi("Mismas sin red", money(a.pnl_no_net, true), `ROI ${a.roi_no_net == null ? "-" : pct(a.roi_no_net)} (con red: ${money(a.pnl_same, true)})`, cls(a.pnl_no_net)),
   ].join("");
-  renderRisk("risk-red", n.risk); renderRisk("risk-nonet", n.risk_no_net);
+  renderRisk("risk-red", n.risk); renderRisk("risk-nonet", n.risk_no_net); activeRed(n);
   $("lvl-sum").textContent = n.no_data ? `(${n.no_data} picks sin historial en Polymarket, no cuentan)` : "";
   $("red-levels").innerHTML = `<tr><th>Red</th><th class="num">Picks</th><th class="num">Se llena</th><th class="num">Asegura (medio)</th>
     <th class="num">Esperado</th><th class="num">ROI esperado</th><th class="num">Real</th><th class="num">ROI real</th></tr>` +
@@ -602,13 +659,14 @@ function renderRed(n) {
     <th>Qué pasó con la red</th><th>Resultado</th><th class="num">Con red</th><th class="num">Sin red</th></tr>` +
     rows.map((r) => {
       let story;
-      if (r.status === "asegurada") story = `<span class="tag won">🛟 asegurada</span><div class="small">${when(r.lock_ts)} · ${dur(r.lock_ts - r.created_ts)} después de entrar</div>`;
+      if (r.status === "asegurada") story = `<span class="tag won">🔒 asegurada</span><div class="small">${when(r.lock_ts)} · ${dur(r.lock_ts - r.created_ts)} después de entrar</div>`;
       else if (r.status === "valor") story = `<span class="tag open">red esperando</span><div class="small muted">${r.gap_now == null ? "sin precio todavía" : `falta ${Math.max(0, r.gap_now).toFixed(1)}¢`}${r.best_gap != null ? ` · lo más cerca: ${Math.max(0, r.best_gap).toFixed(1)}¢` : ""}</div>`;
       else story = `<span class="tag void">quedó como valor</span><div class="small muted">red cancelada${r.best_gap != null ? ` · se quedó a ${r.best_gap.toFixed(1)}¢` : ""}</div>`;
       return `<tr><td class="small nowrap">${when(r.created_ts)}<div><span class="tag ${r.source === "vivo" ? "open" : "void"}">${r.source}</span></div></td>
         <td>${esc(r.title)}<div class="muted small">${esc(r.sport)} · ${esc(r.market)} · empieza ${when(r.start_ts)}</div></td>
-        <td class="small">${esc(r.house)}: <b>${esc(r.selection)}</b> @ <b>${Number(r.odds).toFixed(2)}</b><div class="muted">EV ${pct(r.ev_pct, 1)} · ${money(r.stake)}</div></td>
-        <td class="small">${esc(r.net_label)}<div class="muted">límite ${(100 * r.limit_price).toFixed(0)}¢ · ${Number(r.stake * r.odds).toFixed(0)} shares</div></td>
+        <td class="small">${esc(r.house)}: <b>${money(r.stake)}</b> a <b>${esc(r.selection)}</b> @ <b>${Number(r.odds).toFixed(2)}</b><div class="muted">EV ${pct(r.ev_pct, 1)}</div></td>
+        <td class="small">${esc(r.net_label)}<div class="muted">${Number(r.stake * r.odds).toFixed(0)} shares a ${(100 * r.limit_price).toFixed(0)}¢ = <b>${money(r.stake * r.odds * r.limit_price)}</b></div>
+          <div class="muted">total con 1xBet: ${money(r.stake + r.stake * r.odds * r.limit_price)}</div></td>
         <td>${story}${r.levels ? `<div class="small muted">a ¢: ${[1, 2, 3, 4, 5].map((k) => `${k}${r.levels[k].ts ? "✓" : "✗"}`).join(" ")}</div>` : ""}</td>
         <td><span class="tag ${resTag[r.result] || "open"}">${esc(r.result)}</span></td>
         <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td>
@@ -701,7 +759,7 @@ async function refresh() {
     const alive = st.ts && state.now - st.ts < 60;
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
-    renderKpis(state.account); renderRisk("risk-main", state.risk); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
+    renderKpis(state.account); renderRisk("risk-main", state.risk); activeTable("act-main", state.ops.filter((o) => o.track === "real")); renderWeekly(state.weekly); renderOps(); renderSignals(st); renderNear(st); renderCharts();
     renderMeasure(state.measure || []); renderExec(state.execsim); renderAuto(state.auto); renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
     renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets); renderRed(state.netpaper); renderFunnel(state.funnel); renderPolybuy(state.polybuy);
     groupTable("by-market", state.by_market); groupTable("by-source", state.by_source); groupTable("by-sport", state.by_sport);

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from .liveodds import leg_ref, load as load_live_odds
 from .risk import from_paper_ops, risk_stats
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
@@ -188,10 +189,23 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         o["legs"] = json.loads(o.pop("legs_json") or "[]")
         o.pop("resolve_json", None)
         o["track"] = o.get("track") or "real"
+    live = load_live_odds(db_path.parent / "live_odds.json")  # cuota de AHORA de cada pata abierta
+    for o in ops:
+        if o["status"] == "open":
+            for l in o["legs"]:
+                now_odds = live.get(leg_ref(l.get("source"), l.get("url", ""), o["market"], l.get("label")))
+                if now_odds:
+                    l["now_odds"], l["now_ts"] = now_odds
+    by_key = {o["key"]: o for o in ops}
     for o in ops:
         if o["kind"] == "value" and o["legs"]:
             leg = o["legs"][0]
             o["clv"] = clv.get(f"{o['event_key']}#{o['market']}#{leg.get('source')}:{''.join(leg.get('covers') or [])}")
+    if netpaper:  # cuota de ahora también en los picks de "valor + red" que siguen abiertos
+        for r in netpaper["rows"]:
+            o = by_key.get(r["key"])
+            if o and o["status"] == "open" and o["legs"]:
+                r["now_odds"], r["now_ts"] = o["legs"][0].get("now_odds"), o["legs"][0].get("now_ts")
     auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
     valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
     value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]

@@ -48,6 +48,7 @@ from surebet.makersim import MakerSimulator, book_ref
 from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
+from surebet.liveodds import LiveOdds
 from surebet.status import write_status
 from surebet.store import OpportunityLog
 
@@ -62,6 +63,7 @@ class CycleResult:
     n_clusters: int = 0
     n_matched: int = 0
     book_quotes: dict = field(default_factory=dict)  # cuota actual de cada casa (prueba de orden límite)
+    clusters: list = field(default_factory=list)      # todos los partidos del ciclo (cuota actual de lo abierto)
 
 
 def parse_args() -> argparse.Namespace:
@@ -174,7 +176,7 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     # Partidos solo de Polymarket no se evalúan (no se piden sus libros, ahorra peticiones);
     # sí los emparejados y los que tienen varias casas de otra fuente (casa vs casa).
     evaluable = matched + [c for c in clusters if len(c.feeds) == 1 and c.anchor.feed != poly.name]
-    res = CycleResult(n_clusters=len(clusters), n_matched=len(matched))
+    res = CycleResult(n_clusters=len(clusters), n_matched=len(matched), clusters=clusters)
     res.book_quotes = {book_ref(q): q for c in matched for ev, _ in c.members if ev.feed in ("onexbet", "1xbet")
                        for q in ev.quotes}
     res.opps = [o for c in evaluable for o in find_opportunities(c, cfg) if _allowed(o, s.my_books)]
@@ -277,6 +279,7 @@ async def main() -> None:
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
     nets = ValueNet(buyer)  # red de seguridad de las apuestas de valor (botón 🛟 en el aviso)
+    live_odds = LiveOdds(s.db_path, s.db_path.parent / "live_odds.json")  # cuota de ahora de lo abierto
     status_path = s.db_path.parent / "status.json"
     if not args.no_dashboard:
         try:
@@ -404,6 +407,7 @@ async def main() -> None:
                         execsim.step(res.opps, paper.eligible_real,
                                      lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
                         poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
+                        live_odds.update(res.clusters)
                         makersim.step_value(res.values, golden_value)
                         makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes)
                         await nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
