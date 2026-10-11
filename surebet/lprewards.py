@@ -323,5 +323,7 @@ def summary(conn) -> dict | None:
         d["reward"], d["inv_pnl"] = round(d["reward"], 2), round(d["inv_pnl"], 2)
     return {"capital": float(meta.get("capital", 2000)), "started": started, "days": round(days, 2),
             "markets": n, "reward": round(reward, 2), "inv_pnl": round(inv, 2), "net": round(net, 2),
-            "per_day": round(net / days, 2) if days >= 1 else None,   # antes de 1 día la proyección es ruido "fills": fills or 0, "pairs": pairs or 0, "in_use": round(in_use, 2),
+            # antes de 1 día completo la proyección diaria es ruido
+            "per_day": round(net / days, 2) if days >= 1 else None,
+            "fills": fills or 0, "pairs": pairs or 0, "in_use": round(in_use, 2),
             "daily": daily, "active": active, "closed": closed}
