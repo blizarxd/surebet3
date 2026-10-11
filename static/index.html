@@ -182,9 +182,13 @@
     de la recompensa le toca según la competencia real del libro, y si alguien le "llena" una orden. Si se llenan las dos patas, la ganancia queda
     fija; si se llena una sola, al cerrar (2 min antes del partido) vende lo que tenga y ahí se ve la pérdida. <b>Ganancia = recompensas − pérdidas
     por llenadas.</b> Nunca envía nada. Capital simulado: LP_CAPITAL (por defecto $2000), hasta LP_PER_MARKET por mercado.</div></section>
-  <section class="kpis" id="kpis-lp"></section>
+  <section class="card"><h2>Base <span class="count">(cierra 2 min antes del partido, sin más protecciones)</span></h2>
+    <div class="kpis" id="kpis-lp-base"></div></section>
+  <section class="card"><h2>🛡 Protegida <span class="count">(retira 75 min antes · pausa 10 min si el precio salta ≥ 2¢ · si le llenan un lado
+    lo cubre al instante · tope de pérdida diaria $20 · sin mercados de jugadores)</span></h2>
+    <div class="kpis" id="kpis-lp-protegida"></div></section>
   <section class="grid2">
-    <div class="card"><h2>Ganancia por día</h2><div class="chart-box"><canvas id="lp-chart"></canvas></div></div>
+    <div class="card"><h2>Ganancia por día: base vs. protegida</h2><div class="chart-box"><canvas id="lp-chart"></canvas></div></div>
     <div class="card"><h2>Día por día</h2><div class="scroll"><table id="lp-daily"></table></div></div>
   </section>
   <section class="card"><h2>Mercados con órdenes ahora <span class="count" id="lp-act-sum"></span></h2><div class="scroll"><table id="lp-active"></table></div></section>
@@ -722,34 +726,47 @@ function renderAutoVivo(av) {
 }
 
 let lpChart = null;
-function renderLp(lp) {
-  if (!lp) { $("kpis-lp").innerHTML = `<div class="card empty">La simulación todavía no arrancó.</div>`; return; }
-  $("kpis-lp").innerHTML = [
+function lpKpis(id, lp) {
+  if (!lp) return;
+  $(id).innerHTML = [
     kpi("Ganancia neta", money(lp.net, true), `en ${lp.days} días · ${lp.per_day == null ? "promedio diario desde el 1er día completo" : money(lp.per_day, true) + "/día"}`, cls(lp.net)),
     kpi("Recompensas", money(lp.reward, true), "lo que paga Polymarket por la liquidez", "pos"),
-    kpi("Pérdidas por llenadas", money(lp.inv_pnl, true), `${lp.fills} llenadas · ${lp.pairs} con las dos patas (ganancia fija)`, cls(lp.inv_pnl)),
+    kpi("Pérdidas por llenadas", money(lp.inv_pnl, true), `${lp.fills} llenadas · ${lp.pairs} con las dos patas (fija)${lp.pauses ? ` · ${lp.pauses} pausas` : ""}`, cls(lp.inv_pnl)),
     kpi("Capital en órdenes", money(lp.in_use), `de ${money(lp.capital)} · ${lp.active.length} mercados ahora`),
     kpi("Rendimiento diario", lp.capital && lp.per_day != null ? pct(100 * lp.per_day / lp.capital) : "-", "ganancia por día sobre el capital (desde el 1er día)", cls(lp.per_day)),
   ].join("");
-  $("lp-daily").innerHTML = lp.daily.length ? `<tr><th>Día</th><th class="num">Recompensas</th><th class="num">Llenadas</th><th class="num">Pérdida por llenadas</th><th class="num">Neto</th></tr>` +
-    lp.daily.slice().reverse().map((d) => `<tr><td>${esc(d.day)}</td><td class="num pos">${money(d.reward, true)}</td><td class="num">${d.fills}</td>
-      <td class="num ${cls(d.inv_pnl)}">${money(d.inv_pnl, true)}</td><td class="num ${cls(d.net)}"><b>${money(d.net, true)}</b></td></tr>`).join("")
-    : `<tr><td class="empty">Todavía sin días completos.</td></tr>`;
-  const mrow = (m, act) => `<tr><td>${esc(m.question)}${m.category && m.category !== "partido" ? ` <span class="tag void">${esc(m.category)}</span>` : ""}<div class="muted small">empieza ${when(m.start_ts)} · recompensa del mercado ${money(m.rate)}/día · spread máx ${m.max_spread}¢</div></td>
-    <td class="small">${m.size} shares: compra SÍ a ${(100 * m.yes_px).toFixed(1)}¢${m.yes_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}<br>compra NO a ${(100 * m.no_px).toFixed(1)}¢${m.no_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}</td>
+}
+function renderLp(all) {
+  if (!all || !all.base) { $("kpis-lp-base").innerHTML = `<div class="card empty">La simulación todavía no arrancó.</div>`; return; }
+  const V = ["base", "protegida"], tag = {base: `<span class="tag void">base</span>`, protegida: `<span class="tag won">🛡 protegida</span>`};
+  V.forEach((v) => lpKpis("kpis-lp-" + v, all[v]));
+  const days = [...new Set(V.flatMap((v) => (all[v] ? all[v].daily : []).map((d) => d.day)))].sort();
+  const byDay = (v, day) => ((all[v] ? all[v].daily : []).find((d) => d.day === day) || {reward: 0, inv_pnl: 0, net: 0, fills: 0});
+  $("lp-daily").innerHTML = days.length ? `<tr><th>Día</th><th class="num">Base: recompensas</th><th class="num">llenadas</th><th class="num">neto</th>
+      <th class="num">Protegida: recompensas</th><th class="num">llenadas</th><th class="num">neto</th></tr>` +
+    days.slice().reverse().map((day) => { const b = byDay("base", day), p = byDay("protegida", day);
+      return `<tr><td>${esc(day)}</td><td class="num pos">${money(b.reward, true)}</td><td class="num ${cls(b.inv_pnl)}">${b.fills} · ${money(b.inv_pnl, true)}</td>
+        <td class="num ${cls(b.net)}"><b>${money(b.net, true)}</b></td><td class="num pos">${money(p.reward, true)}</td>
+        <td class="num ${cls(p.inv_pnl)}">${p.fills} · ${money(p.inv_pnl, true)}</td><td class="num ${cls(p.net)}"><b>${money(p.net, true)}</b></td></tr>`; }).join("")
+    : `<tr><td class="empty">Todavía sin días.</td></tr>`;
+  const mrow = (m, act) => `<tr><td>${tag[m.variant] || ""} ${esc(m.question)}${m.category && m.category !== "partido" ? ` <span class="tag void">${esc(m.category)}</span>` : ""}<div class="muted small">empieza ${when(m.start_ts)} · recompensa del mercado ${money(m.rate)}/día · spread máx ${m.max_spread}¢</div></td>
+    <td class="small">${m.size} shares: compra SÍ a ${(100 * m.yes_px).toFixed(1)}¢${m.yes_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}<br>compra NO a ${(100 * m.no_px).toFixed(1)}¢${m.no_fill_px != null ? ` <span class="tag lost">llenada</span>` : ""}${m.pauses ? `<br><span class="muted">${m.pauses} pausa(s) por salto de precio</span>` : ""}</td>
     <td class="num">${m.last_share != null ? (100 * m.last_share).toFixed(2) + "%" : "-"}<div class="muted small">${m.minutes} min</div></td>
     <td class="num pos">${money(m.reward_usd, true)}</td>
     ${act ? "" : `<td class="num ${cls(m.inv_pnl_usd)}">${money(m.inv_pnl_usd, true)}</td><td class="num ${cls((m.reward_usd || 0) + (m.inv_pnl_usd || 0))}"><b>${money((m.reward_usd || 0) + (m.inv_pnl_usd || 0), true)}</b><div class="muted small">${esc(m.close_reason || "")}</div></td>`}</tr>`;
-  $("lp-act-sum").textContent = `(${lp.active.length})`;
-  $("lp-active").innerHTML = lp.active.length ? `<tr><th>Mercado</th><th>Nuestras órdenes</th><th class="num">Parte de la recompensa</th><th class="num">Ganado</th></tr>` + lp.active.map((m) => mrow(m, true)).join("")
+  const active = V.flatMap((v) => all[v] ? all[v].active : []).sort((a, b) => a.start_ts - b.start_ts);
+  const closed = V.flatMap((v) => all[v] ? all[v].closed : []).sort((a, b) => (b.closed_ts || 0) - (a.closed_ts || 0)).slice(0, 80);
+  $("lp-act-sum").textContent = `(${active.length})`;
+  $("lp-active").innerHTML = active.length ? `<tr><th>Mercado</th><th>Nuestras órdenes</th><th class="num">Parte de la recompensa</th><th class="num">Ganado</th></tr>` + active.map((m) => mrow(m, true)).join("")
     : `<tr><td class="empty">Buscando mercados con buena recompensa por dólar…</td></tr>`;
-  $("lp-closed").innerHTML = lp.closed.length ? `<tr><th>Mercado</th><th>Órdenes</th><th class="num">Parte</th><th class="num">Recompensa</th><th class="num">Llenadas</th><th class="num">Neto</th></tr>` + lp.closed.map((m) => mrow(m, false)).join("")
+  $("lp-closed").innerHTML = closed.length ? `<tr><th>Mercado</th><th>Órdenes</th><th class="num">Parte</th><th class="num">Recompensa</th><th class="num">Llenadas</th><th class="num">Neto</th></tr>` + closed.map((m) => mrow(m, false)).join("")
     : `<tr><td class="empty">Todavía ninguno cerrado.</td></tr>`;
   if (typeof Chart === "undefined") return;
   const css = getComputedStyle(document.documentElement);
-  const data = {labels: lp.daily.map((d) => d.day.slice(5)), datasets: [{data: lp.daily.map((d) => d.net),
-    backgroundColor: lp.daily.map((d) => d.net >= 0 ? css.getPropertyValue("--green").trim() : css.getPropertyValue("--red").trim())}]};
-  if (!lpChart) lpChart = new Chart($("lp-chart"), {type: "bar", data, options: {maintainAspectRatio: false, plugins: {legend: {display: false}}}});
+  const data = {labels: days.map((d) => d.slice(5)), datasets: [
+    {label: "Base", data: days.map((d) => byDay("base", d).net), backgroundColor: css.getPropertyValue("--muted").trim()},
+    {label: "Protegida", data: days.map((d) => byDay("protegida", d).net), backgroundColor: css.getPropertyValue("--green").trim()}]};
+  if (!lpChart) lpChart = new Chart($("lp-chart"), {type: "bar", data, options: {maintainAspectRatio: false}});
   else { lpChart.data = data; lpChart.update("none"); }
 }
 

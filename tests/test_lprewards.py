@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+import surebet.lprewards as lpmod
 from surebet.lprewards import RewardsSimulator, q_min, quote_prices, score, summary
 
 
@@ -41,12 +42,12 @@ def run_step(sim, state):
 
 
 def test_opens_earns_and_pairs(tmp_path):
+    lpmod._CAND.update(ts=0.0, list=[])
     sim = RewardsSimulator(tmp_path / "lp.db", capital=1000, per_market=100)
     state = {"book": {"bids": [{"price": "0.49", "size": "100"}], "asks": [{"price": "0.51", "size": "100"}]}}
     run_step(sim, state)
     assert sim.conn.execute("SELECT COUNT(*) FROM lp_markets WHERE status='active'").fetchone()[0] == 1
     sim.conn.execute("UPDATE lp_markets SET last_step = last_step - 60")
-    sim._cand_ts = time.time()
     run_step(sim, state)                                          # un minuto con las dos órdenes: suma recompensa
     reward, = sim.conn.execute("SELECT reward_usd FROM lp_markets").fetchone()
     assert reward > 0
@@ -55,7 +56,7 @@ def test_opens_earns_and_pairs(tmp_path):
     run_step(sim, state)
     st, pnl = sim.conn.execute("SELECT status, inv_pnl_usd FROM lp_markets").fetchone()
     assert st == "closed" and pnl > 0                             # SÍ + NO por menos de $1: ganancia fija
-    s = summary(sim.conn)
+    s = summary(sim.conn)["base"]
     assert s["pairs"] == 1 and s["net"] > 0 and s["daily"]
 
 
@@ -65,3 +66,22 @@ def test_only_matches():
     assert is_match("Will Real Madrid vs Villarreal end in a draw?")
     assert is_match("Will Arsenal FC win on 2026-10-12?")
     assert not is_match("Will the highest temperature in Denver be between 60-61°F?")
+
+
+
+def test_protected_hedges_a_single_fill(tmp_path):
+    lpmod._CAND.update(ts=0.0, list=[])
+    sim = RewardsSimulator(tmp_path / "lp.db", capital=1000, per_market=100, variant="protegida")
+    state = {"book": {"bids": [{"price": "0.49", "size": "100"}], "asks": [{"price": "0.51", "size": "100"}]}}
+    run_step(sim, state)
+    assert sim.conn.execute("SELECT COUNT(*) FROM lp_markets WHERE variant='protegida' AND status='active'").fetchone()[0] == 1
+    # solo le venden hasta nuestra compra del SÍ (49¢): la protegida compra el NO al instante y cierra
+    state["book"] = {"bids": [{"price": "0.485", "size": "100"}], "asks": [{"price": "0.49", "size": "100"}]}
+    run_step(sim, state)
+    st, reason, pnl = sim.conn.execute("SELECT status, close_reason, inv_pnl_usd FROM lp_markets").fetchone()
+    assert st == "closed" and "cubierto" in reason and -10 < pnl < 0          # pérdida chica y fija
+
+
+def test_protected_skips_player_props():
+    from surebet.lprewards import is_prop
+    assert is_prop("Derrick Henry: Rushing Yards O/U 49.5") and not is_prop("Bears vs. Packers: O/U 46.5")
