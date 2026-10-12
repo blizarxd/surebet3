@@ -426,22 +426,34 @@ async def main() -> None:
                     while getattr(src, "notices", None):
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id, src.notices.pop(0))
                 if paper:
-                    try:
-                        paper.consider(res.opps, res.values, resolution)
-                        execsim.step(res.opps, paper.eligible_auto,
-                                     lambda o, plan: paper.enter_auto(o, plan, resolution(o.event, o.market)))
-                        poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
-                        live_odds.update(res.clusters)
-                        makersim.step_value(res.values, golden_value)
-                        makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes)
-                        await nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
-                                                                             s.telegram_chat_id, t))
-                        if autovivo:
-                            autovivo.detect(res.opps, resolution)
-                            await autovivo.check(client)
-                        await paper.settle(client)
-                    except Exception as e:  # el papel nunca debe tumbar el escáner
-                        poly.status = f"error en papel: {e!r}"[:160]
+                    # Cada paso por separado: si uno falla (p. ej. base ocupada) los demás igual corren; antes un
+                    # fallo en la entrada saltaba también la liquidación y quedaban apuestas sin cerrar por horas
+                    poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
+                    steps = [
+                        ("papel", lambda: paper.consider(res.opps, res.values, resolution)),
+                        ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
+                                                            paper.enter_auto(o, plan, resolution(o.event, o.market)))),
+                        ("cuotas", lambda: live_odds.update(res.clusters)),
+                        ("maker", lambda: (makersim.step_value(res.values, golden_value),
+                                           makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes))),
+                        ("red", lambda: nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
+                                                                                       s.telegram_chat_id, t))),
+                        ("vivo", lambda: (autovivo.detect(res.opps, resolution), autovivo.check(client))[1]
+                         if autovivo else None),
+                        ("liquidación", lambda: paper.settle(client)),
+                    ]
+                    for name, step in steps:
+                        try:
+                            out = step()
+                            if asyncio.iscoroutine(out):
+                                await out
+                        except Exception as e:  # el papel nunca debe tumbar el escáner
+                            poly.status = f"error en papel ({name}): {e!r}"[:160]
+                            for conn in (paper.conn, execsim.conn):
+                                try:
+                                    conn.rollback()
+                                except sqlite3.Error:
+                                    pass
                 try:
                     equity = paper.balances()["equity"] if paper else s.bankroll
                     write_status(status_path, sources, res, s, time.time() - t0, equity)

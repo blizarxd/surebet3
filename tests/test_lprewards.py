@@ -85,3 +85,33 @@ def test_protected_hedges_a_single_fill(tmp_path):
 def test_protected_skips_player_props():
     from surebet.lprewards import is_prop
     assert is_prop("Derrick Henry: Rushing Yards O/U 49.5") and not is_prop("Bears vs. Packers: O/U 46.5")
+
+
+def test_advance_never_holds_db_lock_while_waiting(tmp_path):
+    """Una escritura abierta durante un await dejaba la base tomada: el papel (mismo hilo) fallaba con
+    'database is locked' en cada ciclo y las apuestas quedaban sin liquidar."""
+    import sqlite3
+    lpmod._CAND.update(ts=0.0, list=[])
+    sim = RewardsSimulator(tmp_path / "lp.db", capital=1000, per_market=100)
+    state = {"book": {"bids": [{"price": "0.49", "size": "100"}], "asks": [{"price": "0.51", "size": "100"}]}}
+    run_step(sim, state)
+    cols = ("question, slug, token_yes, start_ts, rate, max_spread, min_size, tick, size, opened_ts, status, yes_px, "
+            "no_px, last_step, last_share, last_mid, variant")
+    sim.conn.execute(f"INSERT INTO lp_markets (condition_id, {cols}) SELECT 'c2', {cols} FROM lp_markets")
+    sim.conn.commit()
+    other = sqlite3.connect(tmp_path / "lp.db", timeout=0.2)
+    errors = []
+
+    def handler(r):
+        try:   # otro escritor (como el papel) mientras la simulación espera el libro
+            other.execute("INSERT OR REPLACE INTO lp_meta VALUES ('probe', '1')")
+            other.commit()
+        except sqlite3.OperationalError as e:
+            errors.append(e)
+        return httpx.Response(200, json=state["book"])
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            await sim._advance(c, time.time())
+    asyncio.run(go())
+    assert not errors

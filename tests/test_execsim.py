@@ -54,3 +54,21 @@ def test_stake_up_to_book_capacity_and_half_free_cash(tmp_path):
     from surebet.execsim import ExecSimulator
     sim = ExecSimulator(tmp_path / "e.db", 500, cash_fn=lambda: 600.0)
     assert sim.stake == 500 and sim.cash_fn() * 0.5 == 300.0      # tope: min(500, lo que aguanta, 300)
+
+
+def test_best_stake_stops_where_thin_book_stops_paying():
+    from surebet.arb import _profit, best_stake, size_legs
+    # Polymarket: solo 100 shares a 45¢ y después 60¢; la casa paga 2,00. Hasta ~$95 gana 5 %; más allá pierde
+    p = Quote(source="polymarket", feed="polymarket", covers=frozenset({HOME}), odds=poly_odds(0.45, 0.0), label="A",
+              asks=(BookLevel(0.45, 100), BookLevel(0.60, 10000)), fee_rate=0.0, market="ml", token_id="t")
+    c = Quote(source="cloudbet", feed="cloudbet", covers=frozenset({AWAY}), odds=2.0, label="B", market="ml", ref="1|x")
+    s = best_stake([p, c], 500)
+    assert 80 <= s <= 110
+    assert _profit(size_legs([p, c], s)) > max(0.0, _profit(size_legs([p, c], 500)))
+
+
+def test_book_capacity_is_stored(tmp_path):
+    sim = ExecSimulator(tmp_path / "x.db", 500)
+    sim.step(opp(2.20), lambda o: True)
+    stake, book_max = sim.conn.execute("SELECT stake, book_max FROM exec_sim").fetchone()
+    assert book_max and stake <= min(500, book_max) + 0.01

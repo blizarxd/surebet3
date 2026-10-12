@@ -15,7 +15,9 @@ EXPERIMENTS = [
      "hypothesis": "Con los mismos $1000, la plata queda trabada ~4 h en vez de 8,4 h y entran ~el doble de "
                    "surebets por día, sin bajar el neto (~1,3 %) ni sumar pérdidas.",
      "kind": "real", "until": 1791831279,
-     "verdict": "NO SE CUMPLIÓ: la plata giró rápido (2,9 h) pero entraron 8/día en vez de 31 → se volvió a 6 h"},
+     "verdict": "NO VÁLIDA: casi toda la prueba corrió con la liquidación trabada (base bloqueada por la simulación "
+                "de recompensas, 11/10 13:35 → 12/10 14:20, hora Colombia): apuestas terminadas tardaron 13–18 h en cerrarse, la plata "
+                "quedaba en juego y por eso entraron pocas. Se volvió a 6 h; se puede repetir con la base sana"},
     {"id": "auto-vivo",
      "ts": 1791736676,   # 2026-10-11, primera versión del automático en vivo simulado
      "name": "Automático en vivo (simulado): releer cada pata en la casa después del retraso real",
@@ -23,16 +25,18 @@ EXPERIMENTS = [
                    "Si llena poco o el neto es ~0, en vivo no vale la pena.",
      "kind": "autovivo", "verdict": "DESCARTADO el 12/10: 1 llenada de 38 (la cuota baja o la pata desaparece en el retraso)"},
     {"id": "real-6h-early",
-     "ts": 1791831279,   # 2026-10-12: vuelta a 6 h (la regla de 2 h dejaba pasar casi todo)
+     "ts": 1791832785,   # 2026-10-12: vuelta a 6 h, medida desde el arreglo de la base bloqueada
      "name": "Cuenta real: otra vez hasta 6 h antes del partido, con liquidación anticipada",
      "hypothesis": "Vuelve el volumen (~30 surebets/día como antes) pero con la plata trabada menos que las 8,5 h "
                    "de antes (≈ 5 h), gracias a liquidar en cuanto el partido queda decidido.",
      "kind": "real"},
     {"id": "auto-500",
-     "ts": 1791831279,   # 2026-10-12: automático de prepartido hasta lo que aguante el libro
+     "ts": 1791832785,   # 2026-10-12: automático de prepartido hasta lo que aguante el libro (desde el arreglo)
      "name": "Automático prepartido: monto hasta lo que aguante el libro (tope $500)",
-     "hypothesis": "Con plata libre de sobra, poner lo que aguanta cada libro (en vez de $100) multiplica ~3 veces la "
-                   "ganancia por día del automático, con el mismo % de llenado.",
+     "hypothesis": "Poner lo que aguanta cada libro (el monto de más ganancia, tope $500) en vez de $100 duplica "
+                   "la ganancia por día del automático. El 'antes' es la historia RE-SIMULADA con esta regla (estimada: "
+                   "a $100 fijos eran $13,27 y re-simulado ~$27); el 'después' es lo medido: sirve para ver si la "
+                   "estimación se cumple.",
      "kind": "auto"},
 ]
 

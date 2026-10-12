@@ -179,6 +179,7 @@ class ValueNet:
                     except Exception:
                         pass
                     self.conn.execute("UPDATE value_nets SET matched=?, last_poll=? WHERE id=?", (matched, now, net_id))
+                    self.conn.commit()   # nunca dejar una escritura abierta durante un await (bloquea la base)
             else:
                 q = poly_quotes.get(token)
                 if q and q.asks and q.asks[0].price <= limit + 1e-9:
@@ -211,6 +212,7 @@ class ValueNet:
         net = None if gain is None else round(100 * gain / (bstake + cost), 3)
         self.conn.execute("UPDATE value_nets SET status=?, done_ts=?, cost=?, matched=?, net_pct=?, pnl=? WHERE id=?",
                           (status, now, round(cost, 4), matched, net, None if gain is None else round(gain, 2), net_id))
+        self.conn.commit()   # antes del aviso a Telegram (await): si no, la base queda tomada mientras se envía
 
 
 def summary(conn) -> dict:

@@ -64,6 +64,20 @@ def _execsim(conn) -> dict:
 AUTO_BOOKS = {"polymarket", "cloudbet", "sxbet"}
 
 
+def _resim_totals(auto_ops: list[dict]) -> dict:
+    """Ganancia de la cuenta automática a $100 fijos (como entró) vs. con la regla nueva (re-simulada)."""
+    before = after = 0.0
+    n = 0
+    for o in auto_ops:
+        r = o.get("resim")
+        now_ = o["pnl"] if o["status"] != "open" else o["expected_profit"]
+        then = (r["orig_pnl"] if o["status"] != "open" else r["orig_expected"]) if r else now_
+        before += then or 0
+        after += now_ or 0
+        n += bool(r)
+    return {"before": round(before, 2), "after": round(after, 2), "changed": n, "ops": len(auto_ops)}
+
+
 def _auto_funnel(conn) -> dict:
     """Todas las surebets automatizables (solo Polymarket / Cloudbet / SX) de 7 días y qué pasó con cada una."""
     since = time.time() - 7 * 86400
@@ -196,6 +210,10 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         maker = maker_summary(conn)
     except sqlite3.OperationalError:
         maker = None
+    try:   # cuenta automática re-simulada con la regla nueva (tools/resim_auto.py): lo de antes, por operación
+        resim = {r["op_id"]: dict(r) for r in conn.execute("SELECT * FROM auto_resim")}
+    except sqlite3.OperationalError:
+        resim = {}
     try:
         funnel = _auto_funnel(conn)
     except sqlite3.OperationalError:
@@ -256,6 +274,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
                 r["now_odds"], r["now_ts"] = o["legs"][0].get("now_odds"), o["legs"][0].get("now_ts")
     autovivo_ops = [o for o in ops if o["track"] == "autovivo"]  # automático en vivo simulado: cuenta aparte
     auto_ops = [o for o in ops if o["track"] == "auto"]   # bot automático simulado: cuenta aparte
+    for o in auto_ops:
+        o["resim"] = resim.get(o["id"])
     valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
     value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]
     ops_all = ops
@@ -336,7 +356,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "measure": measure,
         "execsim": execsim,
         "maker": maker,
-        "auto": _auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
+        "auto": {**_auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
+                 "resim": _resim_totals(auto_ops) if resim else None},
         "funnel": funnel,
         "lp": lp,
         "colombia": colombia,

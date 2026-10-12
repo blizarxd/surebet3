@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 
 from .alerts import _max_poly_price, _min_odds
-from .arb import POLYMARKET, size_legs
+from .arb import POLYMARKET, best_stake, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
 
@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS exec_sim (
     status TEXT,              -- pending | filled | rejected
     reason TEXT,
     checked_ts REAL,
-    net_pct REAL              -- ganancia neta asegurada con los precios del momento de ejecutar
+    net_pct REAL,             -- ganancia neta asegurada con los precios del momento de ejecutar
+    book_max REAL             -- lo que aguantaba el libro al detectar (monto con margen promedio >= 0,5 %)
 );
 """
 
@@ -68,6 +69,8 @@ class ExecSimulator:
     def __init__(self, db_path: Path, stake: float = 100.0, cash_fn=None) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
+        if "book_max" not in {r[1] for r in self.conn.execute("PRAGMA table_info(exec_sim)")}:
+            self.conn.execute("ALTER TABLE exec_sim ADD COLUMN book_max REAL")
         self.stake = stake          # tope por surebet; se usa lo que aguante el libro hasta este monto
         self.cash_fn = cash_fn      # plata libre de la cuenta automática (no se pone más de la mitad en una sola)
 
@@ -87,7 +90,9 @@ class ExecSimulator:
                 target = min(target, max(0.0, self.cash_fn()) * 0.5)
             if target < 5:
                 continue
-            legs = size_legs([l.quote for l in o.legs], round(target, 2))
+            quotes = [l.quote for l in o.legs]
+            target = best_stake(quotes, target) or target   # el monto que deja más ganancia, no siempre el tope
+            legs = size_legs(quotes, round(target, 2))
             if not legs:
                 continue
             plan = []
@@ -97,11 +102,12 @@ class ExecSimulator:
                              "stake": round(l.stake, 2), "odds": round(l.odds, 4), "min_odds": round(mo, 4),
                              "order": _payload(l.quote, l.stake, l.odds, mo)})
             self.conn.execute(
-                "INSERT INTO exec_sim (key, created_ts, title, market, sources, margin_pct, stake, plan_json, status) "
-                "VALUES (?,?,?,?,?,?,?,?, 'pending')",
+                "INSERT INTO exec_sim (key, created_ts, title, market, sources, margin_pct, stake, plan_json, status, "
+                "book_max) VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
                 (o.key, now, o.event.anchor.title, market_label(o.market),
                  " + ".join(sorted({l.quote.source for l in legs})), o.margin_pct,
-                 round(sum(l.stake for l in legs), 2), json.dumps(plan, ensure_ascii=False)))
+                 round(sum(l.stake for l in legs), 2), json.dumps(plan, ensure_ascii=False),
+                 round(o.max_total_stake, 2) if o.max_total_stake else None))
         self.conn.commit()
 
     def _check(self, current: dict[str, Opportunity], now: float, on_fill=None) -> None:

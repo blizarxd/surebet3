@@ -118,6 +118,23 @@ def max_profitable_stake(quotes: list[Quote], min_margin_pct: float, cap: float)
     return lo
 
 
+def best_stake(quotes: list[Quote], hi: float, lo: float = 5.0, steps: int = 40) -> float:
+    """Monto total (<= hi) que deja MÁS ganancia asegurada. Subir el monto recorre el libro: en libros finos poner
+    más deja menos (los últimos dólares entran a peor precio), así que no siempre conviene llegar al tope."""
+    if hi <= lo:
+        return hi
+    best, best_p = 0.0, 0.0
+    for i in range(1, steps + 1):
+        total = round(lo + (hi - lo) * i / steps, 2)
+        legs = size_legs(quotes, total)
+        if legs is None:
+            continue
+        p = _profit(legs)
+        if p > best_p:
+            best, best_p = total, p
+    return best
+
+
 def _usable(q: Quote, outcomes: frozenset[str], max_age: float, now: float) -> bool:
     return q.odds > 1.0 and bool(q.covers) and q.covers < outcomes and q.age(now) <= max_age
 

@@ -219,6 +219,7 @@
   <section class="card"><div class="small muted">Bot automático en <b>simulación</b>: Cloudbet / SX Bet + Polymarket por sus APIs oficiales.
     Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
     la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
+  <section class="card" id="auto-rule"></section>
   <section class="kpis" id="kpis-auto"></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-auto-sum"></span></h2>
     <div class="scroll"><table id="act-auto"></table></div></section>
@@ -482,15 +483,23 @@ let autoChart = null;
 function renderAuto(au) {
   if (!au) return;
   renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk); activeTable("act-auto", au.ops);
+  const rs = au.resim;
+  $("auto-rule").innerHTML = `<h2>Cómo juega ahora</h2><div class="small">En cada surebet pone <b>lo que aguante el libro</b>
+    (el monto que deja más ganancia), con tope de <b>$500</b> y nunca más de la mitad de la plata libre.</div>` +
+    (rs ? `<div class="small" style="margin-top:6px">Las ${rs.changed} surebets anteriores a la regla se <b>re-simularon</b> con ella
+      (monto y margen estimados con lo que aguantaba el libro): a $100 fijos ganaban <b>${money(rs.before, true)}</b>,
+      con la regla nueva <b class="${cls(rs.after)}">${money(rs.after, true)}</b> (incluye lo asegurado de las abiertas).
+      En cada operación se ve lo de antes debajo del total.</div>` : "");
   $("auto-count").textContent = `(${au.ops.length})`;
   $("ops-auto").innerHTML = au.ops.length ? `<tr><th>Entrada</th><th>Partido</th><th>Apuestas (cada lado)</th><th class="num">Total</th>
       <th class="num">Asegurado</th><th>Estado</th><th class="num">Ganancia</th></tr>` + au.ops.map((o) => `<tr>
       <td class="nowrap small">${when(o.created_ts)}</td>
       <td>${esc(o.title)}<div class="muted small">${esc(o.sport)} · ${esc(o.market_name)} · empieza ${when(o.start_ts)}</div></td>
       <td>${o.legs.map((l) => legHtml(l, o.total_stake)).join("")}${splitLine(o.legs, "arb")}</td>
-      <td class="num">${money(o.total_stake)}</td><td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}</td>
-      <td><span class="tag ${o.status}">${{open: "abierta", won: "ganada", lost: "perdida", void: "anulada"}[o.status] || o.status}</span></td>
-      <td class="num ${cls(o.pnl)}">${o.pnl == null ? "-" : money(o.pnl, true)}</td></tr>`).join("")
+      <td class="num">${money(o.total_stake)}${o.resim ? `<div class="muted small">antes ${money(o.resim.orig_stake)}<br>${esc(o.resim.cap_src || "")}</div>` : ""}</td>
+      <td class="num ${cls(o.expected_profit)}">${money(o.expected_profit, true)}</td>
+      <td><span class="tag ${o.status}">${{open: "abierta", won: "ganada", lost: "perdida", void: "anulada"}[o.status] || o.status}</span>${o.resim ? ` <span class="tag void">re-simulada</span>` : ""}</td>
+      <td class="num ${cls(o.pnl)}">${o.pnl == null ? "-" : money(o.pnl, true)}${o.resim && o.resim.orig_pnl != null ? `<div class="muted small">antes ${money(o.resim.orig_pnl, true)}</div>` : ""}</td></tr>`).join("")
     : `<tr><td class="empty">El bot todavía no habría ejecutado ninguna surebet.</td></tr>`;
   if (typeof Chart === "undefined") return;
   const css = getComputedStyle(document.documentElement);

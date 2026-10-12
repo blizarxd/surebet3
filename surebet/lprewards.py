@@ -374,6 +374,9 @@ class RewardsSimulator:
                     self._close(mid_id, now, day, size * ((1 - best_ask) - no_fill), f"{why}: vendió el NO que le llenaron")
                 else:
                     self._close(mid_id, now, day, 0.0, f"{why}: no le llenaron nada")
+            # Guardar ANTES de cada espera: una escritura abierta durante un await deja la base tomada y el papel
+            # (mismo hilo) se queda esperando 30 s y falla con "database is locked"
+            self.conn.commit()
             await asyncio.sleep(0.05)
         self.conn.commit()
 
