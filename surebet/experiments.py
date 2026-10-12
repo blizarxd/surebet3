@@ -14,13 +14,26 @@ EXPERIMENTS = [
      "name": "Cuenta real: solo partidos que empiezan en ≤ 2 h + liquidar cuando el ganador vale ≥ 99,7¢",
      "hypothesis": "Con los mismos $1000, la plata queda trabada ~4 h en vez de 8,4 h y entran ~el doble de "
                    "surebets por día, sin bajar el neto (~1,3 %) ni sumar pérdidas.",
-     "kind": "real"},
+     "kind": "real", "until": 1791831279,
+     "verdict": "NO SE CUMPLIÓ: la plata giró rápido (2,9 h) pero entraron 8/día en vez de 31 → se volvió a 6 h"},
     {"id": "auto-vivo",
      "ts": 1791736676,   # 2026-10-11, primera versión del automático en vivo simulado
      "name": "Automático en vivo (simulado): releer cada pata en la casa después del retraso real",
      "hypothesis": "Un bot por API llena al menos la mitad de las surebets en vivo aptas con neto > 0,5 %. "
                    "Si llena poco o el neto es ~0, en vivo no vale la pena.",
-     "kind": "autovivo"},
+     "kind": "autovivo", "verdict": "DESCARTADO el 12/10: 1 llenada de 38 (la cuota baja o la pata desaparece en el retraso)"},
+    {"id": "real-6h-early",
+     "ts": 1791831279,   # 2026-10-12: vuelta a 6 h (la regla de 2 h dejaba pasar casi todo)
+     "name": "Cuenta real: otra vez hasta 6 h antes del partido, con liquidación anticipada",
+     "hypothesis": "Vuelve el volumen (~30 surebets/día como antes) pero con la plata trabada menos que las 8,5 h "
+                   "de antes (≈ 5 h), gracias a liquidar en cuanto el partido queda decidido.",
+     "kind": "real"},
+    {"id": "auto-500",
+     "ts": 1791831279,   # 2026-10-12: automático de prepartido hasta lo que aguante el libro
+     "name": "Automático prepartido: monto hasta lo que aguante el libro (tope $500)",
+     "hypothesis": "Con plata libre de sobra, poner lo que aguanta cada libro (en vez de $100) multiplica ~3 veces la "
+                   "ganancia por día del automático, con el mismo % de llenado.",
+     "kind": "auto"},
 ]
 
 
@@ -40,9 +53,9 @@ def _metrics(ops: list[dict], a: float, b: float) -> dict:
 def evaluate(ops: list[dict], started: float, live_exec: dict | None = None) -> list[dict]:
     out = []
     for e in EXPERIMENTS:
-        if e["kind"] == "real":
-            arbs = [o for o in ops if o["kind"] == "arb" and o["track"] == "real"]
-            before, after = _metrics(arbs, started, e["ts"]), _metrics(arbs, e["ts"], float("inf"))
+        if e["kind"] in ("real", "auto"):
+            arbs = [o for o in ops if o["kind"] == "arb" and o["track"] == e["kind"]]
+            before, after = _metrics(arbs, started, e["ts"]), _metrics(arbs, e["ts"], e.get("until", float("inf")))
         else:
             auto = [o for o in ops if o["track"] == "autovivo"]
             before = None

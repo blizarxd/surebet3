@@ -703,7 +703,7 @@ function renderExperiments(list) {
       plata trabada <b>${m(x, "lock_h", (v) => v + " h")}</b> · neto <b>${m(x, "net", (v) => pct(v))}</b> · ${money(x.pnl_day, true)}/día
       · ${x.lost} perdidas${x.fill_rate != null ? `<br>intentos ${x.tries} · llenadas <b>${x.fill_rate}%</b> · neto al ejecutar ${m(x, "exec_net", (v) => pct(v))}` : ""}</td>`;
   $("experiments").innerHTML = `<tr><th>Cambio</th><th>Desde</th><th>Hipótesis</th><th>Antes</th><th>Después</th></tr>` +
-    list.map((e) => `<tr><td><b>${esc(e.name)}</b></td><td class="small nowrap">${when(e.ts)}</td><td class="small">${esc(e.hypothesis)}</td>
+    list.map((e) => `<tr><td><b>${esc(e.name)}</b>${e.verdict ? `<div class="small ${e.verdict.startsWith("NO") || e.verdict.startsWith("DESCART") ? "neg" : "pos"}">${esc(e.verdict)}</div>` : ""}</td><td class="small nowrap">${when(e.ts)}</td><td class="small">${esc(e.hypothesis)}</td>
       ${col(e.before)}${col(e.after)}</tr>`).join("");
 }
 

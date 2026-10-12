@@ -106,7 +106,7 @@ class Settings:
     # Medición: lo que la cuenta real no toma (vivo, valor) se anota igual, sin tocar el saldo
     paper_measure: bool = field(default_factory=lambda: os.getenv("PAPER_MEASURE", "1") == "1")
     paper_measure_stake: float = field(default_factory=lambda: _f("PAPER_MEASURE_STAKE", 100))
-    paper_real_max_hours: float = field(default_factory=lambda: _f("PAPER_REAL_MAX_HOURS", 2))
+    paper_real_max_hours: float = field(default_factory=lambda: _f("PAPER_REAL_MAX_HOURS", 6))
     paper_live_delay_s: float = field(default_factory=lambda: _f("PAPER_LIVE_DELAY_S", 8))
     paper_real_min_net_pct: float = field(default_factory=lambda: _f("PAPER_REAL_MIN_NET_PCT", 0.5))
     dashboard_port: int = field(default_factory=lambda: int(_f("DASHBOARD_PORT", 8765)))
@@ -131,6 +131,10 @@ class Settings:
     value_bankroll: float = field(default_factory=lambda: _f("VALUE_BANKROLL", 1000))
     # Mínimo entre los dos lados de una apuesta de valor (casa + red en Polymarket)
     value_min_total: float = field(default_factory=lambda: _f("VALUE_MIN_TOTAL", 30))
+    # Automático en vivo: descartado con datos (12/10: 1 llenada de 38 intentos). Apagado salvo AUTOVIVO_ENABLED=1
+    autovivo_enabled: bool = field(default_factory=lambda: os.getenv("AUTOVIVO_ENABLED", "0") == "1")
+    # Automático de prepartido: monto por surebet hasta lo que aguante el libro, con este tope
+    auto_max_stake: float = field(default_factory=lambda: _f("AUTO_MAX_STAKE", 500))
     # Monto por surebet en los avisos de Telegram y el botón ✅ (fase en real); el papel sigue con PAPER_ARB_STAKE
     alert_arb_stake: float = field(default_factory=lambda: _f("ALERT_ARB_STAKE", _f("PAPER_ARB_STAKE", 100)))
     # Tope de dinero en juego a la vez en valor + red (1xBet + órdenes de Polymarket) mientras se resuelven

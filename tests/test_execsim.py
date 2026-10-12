@@ -48,3 +48,9 @@ def test_rejected_when_price_moves(tmp_path):
     sim.step([], lambda o: True)                     # al ejecutar, la surebet ya no está
     status, reason = sim.conn.execute("SELECT status, reason FROM exec_sim").fetchone()
     assert status == "rejected" and "ya no" in reason
+
+
+def test_stake_up_to_book_capacity_and_half_free_cash(tmp_path):
+    from surebet.execsim import ExecSimulator
+    sim = ExecSimulator(tmp_path / "e.db", 500, cash_fn=lambda: 600.0)
+    assert sim.stake == 500 and sim.cash_fn() * 0.5 == 300.0      # tope: min(500, lo que aguanta, 300)

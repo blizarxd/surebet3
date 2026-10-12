@@ -285,8 +285,10 @@ async def main() -> None:
             real_min_net_pct=s.paper_real_min_net_pct, value_bankroll=s.value_bankroll,
             value_min_total=s.value_min_total,
         ))
-    execsim = ExecSimulator(s.db_path, s.paper_arb_stake) if paper else None
-    autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper else None  # automático en vivo (simulado)
+    execsim = (ExecSimulator(s.db_path, s.auto_max_stake, cash_fn=lambda: paper.auto_balances()["cash"])
+               if paper else None)
+    # automático en vivo (simulado): descartado, solo corre con AUTOVIVO_ENABLED=1
+    autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake) if paper else None
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
@@ -434,8 +436,9 @@ async def main() -> None:
                         makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes)
                         await nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
                                                                              s.telegram_chat_id, t))
-                        autovivo.detect(res.opps, resolution)
-                        await autovivo.check(client)
+                        if autovivo:
+                            autovivo.detect(res.opps, resolution)
+                            await autovivo.check(client)
                         await paper.settle(client)
                     except Exception as e:  # el papel nunca debe tumbar el escáner
                         poly.status = f"error en papel: {e!r}"[:160]

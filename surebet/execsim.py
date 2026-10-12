@@ -65,10 +65,11 @@ def _payload(q, stake: float, odds: float, min_odds: float) -> dict:
 
 
 class ExecSimulator:
-    def __init__(self, db_path: Path, stake: float = 100.0) -> None:
+    def __init__(self, db_path: Path, stake: float = 100.0, cash_fn=None) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
-        self.stake = stake
+        self.stake = stake          # tope por surebet; se usa lo que aguante el libro hasta este monto
+        self.cash_fn = cash_fn      # plata libre de la cuenta automática (no se pone más de la mitad en una sola)
 
     def step(self, opps: list[Opportunity], eligible, on_fill=None) -> None:
         """Llamado en cada ciclo: `eligible(o)` dice si la surebet entraría en la cuenta real;
@@ -82,6 +83,10 @@ class ExecSimulator:
             if self.conn.execute("SELECT 1 FROM exec_sim WHERE key=?", (o.key,)).fetchone():
                 continue
             target = min(self.stake, o.max_total_stake) if o.max_total_stake else self.stake
+            if self.cash_fn:
+                target = min(target, max(0.0, self.cash_fn()) * 0.5)
+            if target < 5:
+                continue
             legs = size_legs([l.quote for l in o.legs], round(target, 2))
             if not legs:
                 continue
