@@ -237,15 +237,17 @@ class AzuroSource(Source):
         return {res: (f"azuro:{c['conditionId']}", oid) for oid, res in omap.items()} if omap else {}
 
     def _build(self) -> list[SourceEvent]:
-        if not self._dirty:
-            return self._cache
-        events = self._bare()
-        out = []
-        for gid in self._wanted:
-            se = events.get(gid)
-            if se:
-                se.quotes = self.quotes_for(gid)
-                if se.quotes:
-                    out.append(se)
-        self._cache, self._dirty = out, False
-        return out
+        if self._dirty:
+            events = self._bare()
+            out = []
+            for gid in self._wanted:
+                se = events.get(gid)
+                if se:
+                    se.quotes = self.quotes_for(gid)
+                    if se.quotes:
+                        out.append(se)
+            self._cache, self._dirty = out, False
+        # A su hora de inicio Azuro deja de aceptar prepartido y su última cuota queda vieja: daba falsas surebets
+        # de segundos al empezar el partido (Chicken Coop vs Zomblers, +5,8 % durante 23 s el 12/10)
+        now = time.time()
+        return [e for e in self._cache if e.start and e.start.timestamp() > now]

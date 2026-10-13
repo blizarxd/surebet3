@@ -105,3 +105,15 @@ def test_settle_with_kalshi_and_azuro_results(tmp_path, handler_result, expected
     assert asyncio.run(run()) == 1
     status, out = pb.conn.execute("SELECT status, outcome FROM paper_ops").fetchone()
     assert (status, out) == expected
+
+
+def test_azuro_hides_quotes_once_the_game_starts():
+    src = AzuroSource()
+    for gid, hours in (("soon", 2), ("started", -0.01)):
+        src._games[gid] = {"id": gid, "sport": "soccer", "start": datetime.now(timezone.utc) + timedelta(hours=hours),
+                           "home": "Home FC", "away": "Away FC", "league": "", "slug": ""}
+        src._conds[gid] = (time.time(), "1x2", AZ_COND)
+        src._wanted.add(gid)
+    for oid in ("1", "2", "3"):
+        src._limits[("c9", oid)] = (time.time(), 50.0)
+    assert [e.event_id for e in src._build()] == ["soon"]     # el ya empezado tiene cuota vieja: no se usa
