@@ -219,6 +219,21 @@
   <section class="card"><div class="small muted">Bot automático en <b>simulación</b>: Polymarket, SX Bet, Cloudbet, Kalshi y Azuro (Polygon) por sus APIs oficiales.
     Arma la orden exacta, espera 5 s (latencia real) y solo si las dos patas se habrían llenado dentro de sus límites
     la anota aquí, con su propia cuenta en papel. Nunca envía órdenes.</div></section>
+  <section class="card"><h2>Casas evaluadas para el automático <span class="count">(investigación 12/10)</span></h2>
+    <table>
+      <tr><th>Casa</th><th>Estado</th><th>Por qué</th></tr>
+      <tr><td>Polymarket (Polygon)</td><td><span class="tag won">midiendo</span></td><td class="small">La base de todo: libro con API y comisión baja (≤ 1,25 %)</td></tr>
+      <tr><td>SX Bet</td><td><span class="tag won">midiendo</span></td><td class="small">Exchange con API; la mayoría de las automáticas de hoy</td></tr>
+      <tr><td>Cloudbet</td><td><span class="tag won">midiendo</span></td><td class="small">API oficial para apostar; pocas surebets en prepartido</td></tr>
+      <tr><td>Kalshi</td><td><span class="tag won">midiendo desde 12/10</span></td><td class="small">~480 partidos/día, libros grandes, comisión ≤ 1,75 %. La nueva con más potencial</td></tr>
+      <tr><td>Azuro (Polygon)</td><td><span class="tag won">midiendo desde 12/10</span></td><td class="small">~320 partidos/día pero margen 6-9 % y límites de $5-275: solo sirve si una cuota queda atrasada</td></tr>
+      <tr><td>Limitless (Base)</td><td><span class="tag lost">descartada</span></td><td class="small">Copia los precios de Polymarket exactos y cobra hasta 3 %: nunca mejor que Polymarket</td></tr>
+      <tr><td>Overtime (Optimism/Arbitrum/Base)</td><td><span class="tag lost">descartada</span></td><td class="small">API con clave aprobada; sus reglas prohíben arbitraje y bots</td></tr>
+      <tr><td>Pinnacle</td><td><span class="tag lost">descartada</span></td><td class="small">Cerró su API pública en julio de 2025</td></tr>
+      <tr><td>Predict.fun / Myriad</td><td><span class="tag void">pendiente</span></td><td class="small">Casi sin deportes; API con clave por Discord / sin documentación</td></tr>
+      <tr><td>BetDEX (Solana)</td><td><span class="tag void">pendiente</span></td><td class="small">No se pudo confirmar que siga activa; cobra 3 % de la ganancia</td></tr>
+    </table>
+    <div class="small muted" style="margin-top:6px">Cuánto aporta cada una: tabla "Por par de casas" del embudo, más abajo. Estado en vivo de cada fuente: pestaña Principal → Fuentes de datos.</div></section>
   <section class="card" id="auto-rule"></section>
   <section class="kpis" id="kpis-auto"></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-auto-sum"></span></h2>
