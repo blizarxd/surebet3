@@ -226,11 +226,13 @@
   <section class="card"><h2>Riesgo de la cuenta automática</h2><div class="kpis" id="risk-auto"></div></section>
   <section class="card">
     <h2>Embudo: todas las surebets automatizables de 7 días <span class="count" id="funnel-sum"></span></h2>
-    <div class="small muted">Cada surebet donde todas las casas tienen API (Polymarket, Cloudbet, SX Bet) y qué pasó con ella.
+    <div class="small muted">Cada surebet donde todas las casas tienen API (Polymarket, SX Bet, Cloudbet, Kalshi, Azuro) y qué pasó con ella.
       El bot solo toma prepartido apto para la cuenta (empieza en ≤ 6 h, neto suficiente, sin filtros de seguridad): las de vivo y las
       que duran segundos se ven pero no se toman.</div>
     <div class="grid2" style="margin-top:10px">
-      <div><table id="funnel-counts"></table></div>
+      <div><table id="funnel-counts"></table>
+        <h2 style="margin-top:14px">Por par de casas <span class="count">(qué aporta cada casa)</span></h2>
+        <table id="funnel-pairs"></table></div>
       <div class="scroll" style="max-height:420px;overflow-y:auto"><table id="funnel-rows"></table></div>
     </div>
   </section>
@@ -885,6 +887,9 @@ function renderFunnel(f) {
   $("funnel-sum").textContent = `(${f.total} señales)`;
   $("funnel-counts").innerHTML = `<tr><th>Qué pasó</th><th class="num">Señales</th><th class="num">%</th></tr>` +
     f.counts.map((c) => `<tr><td>${esc(c.stage)}</td><td class="num">${c.n}</td><td class="num">${Math.round(100 * c.n / f.total)}%</td></tr>`).join("");
+  $("funnel-pairs").innerHTML = (f.by_pair || []).length ? `<tr><th>Casas</th><th class="num">Señales</th><th class="num">Prepartido</th><th class="num">Margen medio</th><th class="num">Entraron</th></tr>` +
+    f.by_pair.map((p) => `<tr><td>${esc(p.pair)}</td><td class="num">${p.n}</td><td class="num">${p.pre}</td><td class="num">${p.avg_margin == null ? "-" : pct(p.avg_margin)}</td><td class="num">${p.taken}</td></tr>`).join("")
+    : `<tr><td class="empty">Sin datos.</td></tr>`;
   $("funnel-rows").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th class="num">Margen</th><th class="num">Duró</th><th>Qué pasó</th></tr>` +
     f.rows.map((r) => `<tr><td class="small nowrap">${when(r.ts)}</td><td>${esc(r.title)}${r.live ? ' <span class="tag live">VIVO</span>' : ""}<div class="muted small">${esc(r.sources)}</div></td>
       <td class="num">${pct(r.margin)}</td><td class="num small">${r.dur >= 3600 ? Math.round(r.dur / 3600) + " h" : r.dur >= 60 ? Math.round(r.dur / 60) + " min" : r.dur + " s"}</td>

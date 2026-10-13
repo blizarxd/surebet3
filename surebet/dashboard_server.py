@@ -83,7 +83,7 @@ def _auto_funnel(conn) -> dict:
     since = time.time() - 7 * 86400
     execs = {r["key"]: dict(r) for r in conn.execute("SELECT key, status, reason, net_pct FROM exec_sim")}
     autos = {r[0] for r in conn.execute("SELECT key FROM paper_ops WHERE track='auto'")}
-    rows, counts = [], {}
+    rows, counts, pairs = [], {}, {}
     for r in conn.execute("SELECT key, first_seen, last_seen, title, live, best_margin_pct, legs_json FROM opportunities "
                           "WHERE first_seen > ? ORDER BY first_seen DESC", (since,)):
         srcs = sorted({l.get("source") for l in json.loads(r["legs_json"] or "[]")})
@@ -108,12 +108,22 @@ def _auto_funnel(conn) -> dict:
             stage = "no apta: empieza en más de 6 h, neto bajo o filtro de seguridad"
         key = stage.split(":")[0]
         counts[key] = counts.get(key, 0) + 1
+        pr = pairs.setdefault(" + ".join(srcs), {"n": 0, "pre": 0, "taken": 0, "margins": []})
+        pr["n"] += 1
+        if not r["live"]:
+            pr["pre"] += 1
+            pr["margins"].append(r["best_margin_pct"])
+        pr["taken"] += bool(ex and ex["status"] == "filled" and entered)
         if len(rows) < 80:
             rows.append({"ts": r["first_seen"], "title": r["title"], "sources": " + ".join(srcs), "live": r["live"],
                          "margin": r["best_margin_pct"], "dur": round(dur), "stage": stage,
                          "net": ex["net_pct"] if ex else None})
+    by_pair = sorted(({"pair": k, "n": v["n"], "pre": v["pre"], "taken": v["taken"],
+                       "avg_margin": round(sum(v["margins"]) / len(v["margins"]), 2) if v["margins"] else None}
+                      for k, v in pairs.items()), key=lambda x: -x["pre"])
     return {"total": sum(counts.values()),
-            "counts": sorted(({"stage": k, "n": v} for k, v in counts.items()), key=lambda x: -x["n"]), "rows": rows}
+            "counts": sorted(({"stage": k, "n": v} for k, v in counts.items()), key=lambda x: -x["n"]), "rows": rows,
+            "by_pair": by_pair}
 
 
 COLOMBIA_BOOKS = ("rushbet.co", "betplay")
