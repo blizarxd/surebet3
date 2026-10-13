@@ -12,7 +12,8 @@ from .pricing import fill_detail, poly_cost_per_share
 
 BOOK_NAMES = {"1xbet": "1xBet", "onexbet": "1xBet", "polymarket": "Polymarket", "sxbet": "SX Bet",
               "stake": "Stake", "rollbit": "Rollbit", "cloudbet": "Cloudbet",
-              "rushbet.co": "Rushbet (CO)", "betplay": "BetPlay (CO)"}
+              "rushbet.co": "Rushbet (CO)", "betplay": "BetPlay (CO)", "kalshi": "Kalshi", "azuro": "Azuro",
+              "limitless": "Limitless"}
 EXCHANGES = {POLYMARKET, "sxbet"}   # libro visible: se apuestan DESPUÉS de la casa
 SX_FEE = 0.01
 

@@ -38,6 +38,13 @@ EXPERIMENTS = [
                    "a $100 fijos eran $13,27 y re-simulado ~$27); el 'después' es lo medido: sirve para ver si la "
                    "estimación se cumple.",
      "kind": "auto"},
+    {"id": "auto-kalshi-azuro",
+     "ts": 1791851518,   # 2026-10-12: Kalshi (exchange, API) y Azuro (Polygon, API) se suman al automático
+     "name": "Automático con Kalshi y Azuro (más casas por API)",
+     "hypothesis": "Con dos casas más que se operan por API (Kalshi ~480 partidos/día, Azuro ~300), el automático "
+                   "prepartido pasa de ~7 surebets/día a 15 o más y se acerca a $30/día. Si en una semana no suben "
+                   "las surebets automáticas, esas casas no aportan.",
+     "kind": "auto"},
 ]
 
 

@@ -16,7 +16,10 @@ from __future__ import annotations
 from .arb import POLYMARKET, fair_probs
 from .models import Opportunity, market_outcomes
 
-EXCHANGES = {POLYMARKET, "sxbet"}
+EXCHANGES = {POLYMARKET, "sxbet", "kalshi"}
+# Kalshi liquida por la FECHA del partido ("originally scheduled for Oct 12"), no por la hora: su hora es
+# aproximada (en tenis, hasta 2 h) y no sirve para comparar ni hay riesgo de anulación por eso
+DATE_SETTLED = {"kalshi"}
 TENNIS_MIN_MARGIN_PCT = 2.0
 PALP_EV_PCT = 12.0          # la casa paga >12 % por encima del precio justo: sospechoso de error
 MAX_START_DIFF_MIN = 15.0
@@ -40,7 +43,7 @@ def risk_flags(o: Opportunity, tennis_min_margin: float = TENNIS_MIN_MARGIN_PCT,
             if ev_pct > palp_ev_pct:
                 flags.append(f"⛔ {l.quote.source} paga {ev_pct:.0f} % sobre el precio justo: posible cuota errónea")
 
-    feeds = {l.quote.feed for l in o.legs}
+    feeds = {l.quote.feed for l in o.legs} - DATE_SETTLED
     starts = [m.start for m, _ in ev.members if m.feed in feeds and m.start]
     if len(starts) >= 2:
         diff = (max(starts) - min(starts)).total_seconds() / 60

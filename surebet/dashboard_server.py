@@ -61,7 +61,7 @@ def _execsim(conn) -> dict:
             "avg_net": round(avg, 3) if avg is not None else None, "rows": rows}
 
 
-AUTO_BOOKS = {"polymarket", "cloudbet", "sxbet"}
+AUTO_BOOKS = {"polymarket", "cloudbet", "sxbet", "kalshi", "azuro"}  # se pueden operar por API (execsim.AUTOMATABLE)
 
 
 def _resim_totals(auto_ops: list[dict]) -> dict:
@@ -79,7 +79,7 @@ def _resim_totals(auto_ops: list[dict]) -> dict:
 
 
 def _auto_funnel(conn) -> dict:
-    """Todas las surebets automatizables (solo Polymarket / Cloudbet / SX) de 7 días y qué pasó con cada una."""
+    """Todas las surebets automatizables (Polymarket / Cloudbet / SX / Kalshi / Azuro) de 7 días y qué pasó con cada una."""
     since = time.time() - 7 * 86400
     execs = {r["key"]: dict(r) for r in conn.execute("SELECT key, status, reason, net_pct FROM exec_sim")}
     autos = {r[0] for r in conn.execute("SELECT key FROM paper_ops WHERE track='auto'")}

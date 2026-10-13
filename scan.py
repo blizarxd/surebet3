@@ -39,6 +39,8 @@ from surebet.sources.onexbet import OneXBetSource
 from surebet.sources.polymarket import PolymarketSource
 from surebet.sources.sxbet import SXBetSource
 from surebet.sources.cloudbet import CloudbetSource
+from surebet.sources.kalshi import KalshiSource
+from surebet.sources.azuro import AzuroSource
 from surebet.safety import blocked, golden_value, risk_flags
 from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
@@ -81,6 +83,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no-oddspapi", action="store_true", help="no usar OddsPapi")
     p.add_argument("--no-onexbet", action="store_true", help="no usar el feed de 1xBet")
     p.add_argument("--no-sxbet", action="store_true", help="no usar SX Bet")
+    p.add_argument("--no-kalshi", action="store_true", help="no usar Kalshi")
+    p.add_argument("--no-azuro", action="store_true", help="no usar Azuro")
     p.add_argument("--quiet", action="store_true", help="sin Telegram ni pitidos (para pruebas)")
     p.add_argument("--no-paper", action="store_true", help="no operar en papel")
     p.add_argument("--no-dashboard", action="store_true", help="no levantar el panel web")
@@ -133,6 +137,9 @@ def daily_summary(s: Settings, status_path) -> str:
     return "\n".join(lines)
 
 
+API_EXCHANGES = {"kalshi", "azuro", "limitless"}   # nuevos exchanges por API: solo medición automática
+
+
 def _allowed(o: Opportunity, my_books: list[str]) -> bool:
     if not my_books:
         return True
@@ -142,7 +149,7 @@ def _allowed(o: Opportunity, my_books: list[str]) -> bool:
 async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncClient, s: Settings,
                      cfg: ArbConfig, mcfg: MatchConfig, radar: bool) -> CycleResult:
     # Estas fuentes eligen qué pedir según los partidos de Polymarket
-    targeted = (OddsPapiSource, OneXBetSource, SXBetSource, CloudbetSource)
+    targeted = (OddsPapiSource, OneXBetSource, SXBetSource, CloudbetSource, KalshiSource, AzuroSource)
     plain = [src for src in others if not isinstance(src, targeted)]
     papi = [src for src in others if isinstance(src, targeted)]
     results = await asyncio.gather(poly.events(client), *(src.fetch(client) for src in plain),
@@ -162,6 +169,12 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
             targets = targets + by_feed.get("cloudbet", [])      # surebets Cloudbet + SX sin Polymarket
         elif isinstance(src, CloudbetSource) and sx_src:
             targets = targets + list(sx_src._bare_events().values())
+        elif isinstance(src, KalshiSource):   # Kalshi contra Polymarket, SX y Cloudbet (todo por API)
+            targets = targets + by_feed.get("cloudbet", []) + (list(sx_src._bare_events().values()) if sx_src else [])
+        elif isinstance(src, AzuroSource):    # Azuro contra todo lo que se puede operar por API
+            ka = next((x for x in papi if isinstance(x, KalshiSource)), None)
+            targets = (targets + by_feed.get("cloudbet", []) + (list(sx_src._bare_events().values()) if sx_src else [])
+                       + (list(ka._bare().values()) if ka else []))
         try:
             by_feed[src.name] = await src.fetch(client, targets=targets)
         except Exception as e:
@@ -190,7 +203,7 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     # en pantalla y alertas solo desde VALUE_MIN_EV_PCT
     log_min = min(s.value_log_min_ev_pct, s.value_min_ev_pct)
     res.values = [v for c in matched for v in find_value_bets(c, cfg, log_min, s.value_max_odds, s.value_min_poly_depth)
-                  if not s.my_books or v.quote.source in s.my_books]
+                  if (not s.my_books or v.quote.source in s.my_books) and v.quote.source not in API_EXCHANGES]
     res.values.sort(key=lambda v: v.ev_pct, reverse=True)
 
     if True:  # radar: siempre se calcula (lo usa el panel); en consola solo se muestra con --radar
@@ -251,6 +264,10 @@ async def main() -> None:
         others.append(CloudbetSource(s.cloudbet_api_key, horizon_h=s.horizon_h, match_cfg=mcfg))
     if s.sxbet_enabled and not args.no_sxbet:
         others.append(SXBetSource(horizon_h=s.horizon_h, match_cfg=mcfg))
+    if s.kalshi_enabled and not args.no_kalshi:
+        others.append(KalshiSource(horizon_h=s.horizon_h, match_cfg=mcfg))
+    if s.azuro_enabled and not args.no_azuro:
+        others.append(AzuroSource(horizon_h=s.horizon_h, match_cfg=mcfg))
     if not args.no_oddspapi and s.oddspapi_key:
         papi = OddsPapiSource(
             api_key=s.oddspapi_key, cache_dir=s.db_path.parent / "oddspapi", sports=s.oddspapi_sports,
@@ -304,6 +321,8 @@ async def main() -> None:
             console.print(f"[yellow]No se pudo abrir el panel en el puerto {s.dashboard_port}: {e}[/]")
 
     sx_live = next((x for x in others if isinstance(x, SXBetSource)), None)
+    kalshi = next((x for x in others if isinstance(x, KalshiSource)), None)
+    azuro = next((x for x in others if isinstance(x, AzuroSource)), None)
 
     def resolution(event, market: str) -> dict:
         """Cómo liquidar: con Polymarket si el partido está ahí; si no, con el resultado oficial de SX Bet."""
@@ -320,6 +339,14 @@ async def main() -> None:
                     res = {{"H": "A", "A": "H"}.get(o, o): v for o, v in res.items()}
                 if res:
                     return res
+        for ev, swapped in ([] if isinstance(event, str) else event.members):
+            src_ = {"kalshi": kalshi, "azuro": azuro}.get(ev.feed)
+            if src_:   # sin Polymarket ni SX: resultado oficial de Kalshi o de Azuro
+                res = src_.resolution_for(ev.event_id, market)
+                if swapped:
+                    res = {{"H": "A", "A": "H"}.get(o, o): v for o, v in res.items()}
+                if res:
+                    return res
         return {}
 
     alerted: dict[str, tuple[float, float]] = {}  # partido#mercado -> (cuándo, neto) para no repetir avisos
@@ -332,6 +359,8 @@ async def main() -> None:
             return False
         if blocked(o) or not (s.alert_min_margin_pct <= o.margin_pct < cfg.suspicious_margin_pct):
             return False
+        if any(l.quote.source in API_EXCHANGES for l in o.legs):
+            return False   # Kalshi/Azuro: las mide el automático; avisarlas solo satura Telegram
         if o.max_total_stake and o.max_total_stake < s.alert_min_stake:
             return False
         net = paper._net_pct(o) if paper else o.margin_pct
@@ -430,7 +459,9 @@ async def main() -> None:
                     # fallo en la entrada saltaba también la liquidación y quedaban apuestas sin cerrar por horas
                     poly_quotes = {q.token_id: q for p in poly._parsed.values() for q in p.event.quotes}
                     steps = [
-                        ("papel", lambda: paper.consider(res.opps, res.values, resolution)),
+                        # La cuenta real/medición es la semi-manual: las de Kalshi/Azuro las hace el bot (cuenta automática)
+                        ("papel", lambda: paper.consider([o for o in res.opps if not any(
+                            l.quote.source in API_EXCHANGES for l in o.legs)], res.values, resolution)),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
                                                             paper.enter_auto(o, plan, resolution(o.event, o.market)))),
                         ("cuotas", lambda: live_odds.update(res.clusters)),

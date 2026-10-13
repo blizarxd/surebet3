@@ -255,7 +255,8 @@ class SXBetSource(Source):
         """Solo se piden libros de partidos que también están en Polymarket o en Cloudbet."""
         bare = self._bare_events()
         clusters = match_events({"polymarket": self._targets, self.name: list(bare.values())}, self.match_cfg)
-        ids = {ev.event_id for c in clusters if len(c.feeds) == 2 for ev, _ in c.members if ev.feed == self.name}
+        ids = {ev.event_id for c in clusters if self.name in c.feeds and len(c.feeds) >= 2
+               for ev, _ in c.members if ev.feed == self.name}
         self._wanted = {h for h, m in self._markets.items() if m["sportXeventId"] in ids}
 
     def _build_events(self) -> list[SourceEvent]:

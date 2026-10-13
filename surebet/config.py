@@ -72,6 +72,8 @@ class Settings:
     # Casas con las MISMAS cuotas que 1xBet (sus clones), una por día en los avisos para repartir la actividad
     rotate_books: list[str] = field(default_factory=lambda: _list("ROTATE_BOOKS", ""))
     sxbet_enabled: bool = field(default_factory=lambda: os.getenv("SXBET_ENABLED", "1") == "1")
+    kalshi_enabled: bool = field(default_factory=lambda: os.getenv("KALSHI_ENABLED", "1") == "1")
+    azuro_enabled: bool = field(default_factory=lambda: os.getenv("AZURO_ENABLED", "1") == "1")
     onexbet_base: str = field(default_factory=lambda: os.getenv("ONEXBET_BASE", "https://1xbet-col.com"))
     onexbet_partner: int = field(default_factory=lambda: int(_f("ONEXBET_PARTNER", 285)))
     onexbet_sports: list[int] = field(default_factory=lambda: [int(x) for x in _list("ONEXBET_SPORTS", "1,3,4,10,40,2,6")])

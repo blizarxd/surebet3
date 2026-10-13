@@ -46,6 +46,8 @@ CLOB = "https://clob.polymarket.com"
 EARLY_PRICE = 0.997
 EARLY_AFTER_S = 2 * 3600
 SX_API = "https://api.sx.bet"
+KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2"
+AZURO_API = "https://api.onchainfeed.org/api/v1/public"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS paper_ops (
@@ -387,7 +389,15 @@ class PaperBook:
             for cid, _token in json.loads(resolve_json).values():
                 if cid not in cache:
                     try:
-                        if cid.startswith("sx:"):   # partido sin Polymarket: resultado oficial de SX Bet
+                        if cid.startswith("azuro:"):    # resultado oficial de Azuro (condición resuelta)
+                            r = await client.post(f"{AZURO_API}/market-manager/condition-batch", timeout=15,
+                                                  json={"conditionIds": [cid[6:]], "environment": "PolygonUSDT"})
+                            conds = r.json().get("conditions") if r.status_code in (200, 201) else None
+                            cache[cid] = conds[0] if conds else None
+                        elif cid.startswith("kalshi:"):   # resultado oficial de Kalshi (mercado SÍ/NO)
+                            r = await client.get(f"{KALSHI_API}/markets/{cid[7:]}", timeout=15)
+                            cache[cid] = (r.json().get("market") if r.status_code == 200 else None)
+                        elif cid.startswith("sx:"):   # partido sin Polymarket: resultado oficial de SX Bet
                             r = await client.get(f"{SX_API}/markets/find", params={"marketHashes": cid[3:]}, timeout=15)
                             data = r.json().get("data") if r.status_code == 200 else None
                             cache[cid] = data[0] if isinstance(data, list) and data else None
@@ -404,6 +414,25 @@ class PaperBook:
             sold_at = None   # precio de venta si se liquida antes de la resolución oficial
             for out, (cid, token) in resolve.items():
                 m = cache[cid]
+                if cid.startswith("azuro:"):
+                    state = str((m or {}).get("state") or "")
+                    if state == "Resolved":
+                        if str(token) in {str(x) for x in m.get("wonOutcomeIds") or []}:
+                            outcome = out
+                    elif state == "Canceled":
+                        void = True
+                    else:
+                        all_closed = False
+                    continue
+                if cid.startswith("kalshi:"):
+                    result = str((m or {}).get("result") or "").lower()
+                    if result == "yes":
+                        outcome = out
+                    elif result not in ("no", ""):
+                        void = True          # anulado por Kalshi
+                    elif not result:
+                        all_closed = False
+                    continue
                 if cid.startswith("sx:"):
                     if not m or m.get("outcome") is None:
                         all_closed = False

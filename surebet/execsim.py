@@ -23,7 +23,7 @@ from .arb import POLYMARKET, best_stake, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
 
-AUTOMATABLE = {POLYMARKET, "cloudbet", "sxbet"}
+AUTOMATABLE = {POLYMARKET, "cloudbet", "sxbet", "kalshi", "azuro"}
 LATENCY_S = 5.0        # Cloudbet (~1-2 s) + Polymarket (1-3 s de demora en deportes) + red
 EXPIRE_S = 90.0
 
@@ -58,6 +58,18 @@ def _payload(q, stake: float, odds: float, min_odds: float) -> dict:
         return {"api": "cloudbet POST /pub/v3/bets/place", "referenceId": str(uuid.uuid4()), "eventId": event_id,
                 "marketUrl": market_url, "price": f"{min_odds:.3f}", "stake": f"{stake:.2f}", "currency": "USDT",
                 "acceptPriceChange": "BETTER"}
+    if q.source == "kalshi":
+        ticker, _, side = q.ref.partition("|")
+        fd = fill_detail(q.asks, stake, q.fee_rate, q.fee_exponent)
+        cap = _max_poly_price(min_odds, q.fee_rate, q.fee_exponent)
+        return {"api": "kalshi POST /trade-api/v2/portfolio/orders", "ticker": ticker, "action": "buy",
+                "side": side, "count": int(fd["shares"]), "type": "limit", "time_in_force": "fill_or_kill",
+                f"{side}_price_dollars": f"{cap:.2f}"}
+    if q.source == "azuro":
+        condition_id, _, outcome_id = q.ref.partition("|")
+        return {"api": "azuro relayer POST /bet/orders/ordinar (apuesta firmada EIP-712, sin gas)",
+                "conditionId": condition_id, "outcomeId": outcome_id, "amount": round(stake, 2),
+                "minOdds": round(min_odds, 3), "environment": "PolygonUSDT"}
     if q.source == "sxbet":
         market_hash, _, side = q.ref.partition("|")
         return {"api": "sxbet POST /orders-v3 (taker, FOK)", "marketHash": market_hash, "outcome": side,
