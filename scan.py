@@ -203,7 +203,7 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     # en pantalla y alertas solo desde VALUE_MIN_EV_PCT
     log_min = min(s.value_log_min_ev_pct, s.value_min_ev_pct)
     res.values = [v for c in matched for v in find_value_bets(c, cfg, log_min, s.value_max_odds, s.value_min_poly_depth)
-                  if (not s.my_books or v.quote.source in s.my_books) and v.quote.source not in API_EXCHANGES]
+                  if (not s.my_books or v.quote.source in s.my_books) and v.quote.source not in API_EXCHANGES - {"azuro"}]
     res.values.sort(key=lambda v: v.ev_pct, reverse=True)
 
     if True:  # radar: siempre se calcula (lo usa el panel); en consola solo se muestra con --radar
@@ -375,6 +375,8 @@ async def main() -> None:
         return True
 
     def worth_value(v, hrs) -> bool:
+        if v.quote.source in API_EXCHANGES:
+            return False   # Azuro: valor solo medido (CLV), sin avisos
         if not golden_value(v.event.live, v.ev_pct, v.quote.odds, hrs):
             return False
         k = f"v#{v.event.key}#{v.market}"
@@ -463,7 +465,8 @@ async def main() -> None:
                     steps = [
                         # La cuenta real/medición es la semi-manual: las de Kalshi/Azuro las hace el bot (cuenta automática)
                         ("papel", lambda: paper.consider([o for o in res.opps if not any(
-                            l.quote.source in API_EXCHANGES for l in o.legs)], res.values, resolution)),
+                            l.quote.source in API_EXCHANGES for l in o.legs)],
+                            [v for v in res.values if v.quote.source not in API_EXCHANGES], resolution)),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
                                                             paper.enter_auto(o, plan, resolution(o.event, o.market)))),
                         ("ejecución", lambda: execsim.verify(client)),
