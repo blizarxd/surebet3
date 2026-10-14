@@ -390,8 +390,9 @@ async def main() -> None:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
             if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
+                # Recompensas Polymarket: apagado el 13/10 (base −$42, protegida −$16: las llenadas se comen lo cobrado)
                 lp_tasks = [asyncio.create_task(RewardsSimulator(s.db_path, variant=v).run())  # noqa: F841
-                            for v in ("base", "protegida")]   # recompensas Polymarket: dos versiones en paralelo
+                            for v in ("base", "protegida")] if s.lp_enabled else []
                 net_task = asyncio.create_task(  # noqa: F841
                     NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total,
                                max_in_play=s.value_max_in_play).run())

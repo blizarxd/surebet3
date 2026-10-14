@@ -74,6 +74,7 @@ class Settings:
     sxbet_enabled: bool = field(default_factory=lambda: os.getenv("SXBET_ENABLED", "1") == "1")
     kalshi_enabled: bool = field(default_factory=lambda: os.getenv("KALSHI_ENABLED", "1") == "1")
     azuro_enabled: bool = field(default_factory=lambda: os.getenv("AZURO_ENABLED", "1") == "1")
+    lp_enabled: bool = field(default_factory=lambda: os.getenv("LP_ENABLED", "0") == "1")  # recompensas Polymarket (apagado)
     onexbet_base: str = field(default_factory=lambda: os.getenv("ONEXBET_BASE", "https://1xbet-col.com"))
     onexbet_partner: int = field(default_factory=lambda: int(_f("ONEXBET_PARTNER", 285)))
     onexbet_sports: list[int] = field(default_factory=lambda: [int(x) for x in _list("ONEXBET_SPORTS", "1,3,4,10,40,2,6")])
