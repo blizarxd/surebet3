@@ -8,10 +8,15 @@ Por cada surebet de prepartido apta para la cuenta real cuyas patas son TODAS au
   2. espera la latencia real de ejecución (LATENCY_S) y vuelve a mirar los precios del ciclo actual;
   3. si la surebet sigue en pie y cada pata respeta su límite al monto planeado -> "llenada",
      si no -> "rechazada" con el motivo (ya no existe, la cuota bajó, el libro no alcanza).
+
+Modo "precio real" (fresh=True, el que usa el escáner desde el 14/10): en el paso 2 NO se usan los precios
+guardados por el escáner (en Kalshi o Azuro pueden tener minutos) sino que se le PIDE a cada casa su libro o
+cuota en ese momento, al monto exacto de cada pata, como haría el bot de verdad (verify()).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import time
@@ -78,11 +83,17 @@ def _payload(q, stake: float, odds: float, min_odds: float) -> dict:
 
 
 class ExecSimulator:
-    def __init__(self, db_path: Path, stake: float = 100.0, cash_fn=None) -> None:
+    def __init__(self, db_path: Path, stake: float = 100.0, cash_fn=None, fresh: bool = False,
+                 cloudbet_key: str = "") -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
-        if "book_max" not in {r[1] for r in self.conn.execute("PRAGMA table_info(exec_sim)")}:
-            self.conn.execute("ALTER TABLE exec_sim ADD COLUMN book_max REAL")
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(exec_sim)")}
+        for col in ("book_max REAL", "fresh_json TEXT"):
+            if col.split()[0] not in cols:
+                self.conn.execute(f"ALTER TABLE exec_sim ADD COLUMN {col}")
+        self.fresh = fresh              # verificar con el precio de cada casa en ese momento (verify)
+        self.cloudbet_key = cloudbet_key
+        self._orig: dict[int, tuple] = {}   # id -> (surebet al detectarla, on_fill) para anotarla si se llena
         self.stake = stake          # tope por surebet; se usa lo que aguante el libro hasta este monto
         self.cash_fn = cash_fn      # plata libre de la cuenta automática (no se pone más de la mitad en una sola)
 
@@ -91,7 +102,8 @@ class ExecSimulator:
         `on_fill(o, plan)` anota en la cuenta automática las que se habrían llenado."""
         now = time.time()
         current = {o.key: o for o in opps}
-        self._check(current, now, on_fill)
+        if not self.fresh:
+            self._check(current, now, on_fill)
         for o in opps:
             if not all(l.quote.source in AUTOMATABLE for l in o.legs) or not eligible(o):
                 continue
@@ -113,15 +125,59 @@ class ExecSimulator:
                 mo = _min_odds(legs, i)
                 plan.append({"source": l.quote.source, "label": l.quote.label, "covers": sorted(l.quote.covers),
                              "stake": round(l.stake, 2), "odds": round(l.odds, 4), "min_odds": round(mo, 4),
-                             "order": _payload(l.quote, l.stake, l.odds, mo)})
-            self.conn.execute(
+                             "ref": l.quote.ref, "token": l.quote.token_id, "fee_rate": l.quote.fee_rate,
+                             "fee_exp": l.quote.fee_exponent, "order": _payload(l.quote, l.stake, l.odds, mo)})
+            cur = self.conn.execute(
                 "INSERT INTO exec_sim (key, created_ts, title, market, sources, margin_pct, stake, plan_json, status, "
                 "book_max) VALUES (?,?,?,?,?,?,?,?, 'pending', ?)",
                 (o.key, now, o.event.anchor.title, market_label(o.market),
                  " + ".join(sorted({l.quote.source for l in legs})), o.margin_pct,
                  round(sum(l.stake for l in legs), 2), json.dumps(plan, ensure_ascii=False),
                  round(o.max_total_stake, 2) if o.max_total_stake else None))
+            if self.fresh:
+                self._orig[cur.lastrowid] = (o, on_fill)
+        if self.fresh:   # sin verificar a tiempo (no debería pasar): se descarta
+            for (op_id,) in self.conn.execute("SELECT id FROM exec_sim WHERE status='pending' AND created_ts < ?",
+                                              (now - EXPIRE_S,)).fetchall():
+                self._orig.pop(op_id, None)
+            self.conn.execute("UPDATE exec_sim SET status='rejected', reason='sin revisar a tiempo' "
+                              "WHERE status='pending' AND created_ts < ?", (now - EXPIRE_S,))
         self.conn.commit()
+
+    async def verify(self, client) -> None:
+        """Modo precio real: pasada la latencia, pide a CADA casa su precio actual al monto de cada pata.
+        Llenada solo si todas siguen en su cuota mínima o mejor; se anota con esas cuotas frescas."""
+        from .autovivo import fresh_odds
+        now = time.time()
+        rows = self.conn.execute("SELECT id, plan_json FROM exec_sim WHERE status='pending' AND created_ts <= ? "
+                                 "ORDER BY created_ts LIMIT 6", (now - LATENCY_S,)).fetchall()
+        results = []
+        for op_id, plan_json in rows:          # primero todas las consultas, después las escrituras
+            plan = json.loads(plan_json)
+            fresh = await asyncio.gather(*(fresh_odds(client, p, self.cloudbet_key) for p in plan))
+            results.append((op_id, plan, fresh))
+        fills = []
+        for op_id, plan, fresh in results:
+            info = json.dumps([round(f, 4) if f else None for f in fresh])
+            bad = [f"{p['source']}: " + ("sin libro o no acepta ese monto" if f is None
+                                          else f"cuota real {f:.3f} < mínima {p['min_odds']:.3f}")
+                   for p, f in zip(plan, fresh) if f is None or f < p["min_odds"] - 1e-9]
+            if bad:
+                self.conn.execute("UPDATE exec_sim SET status='rejected', reason=?, checked_ts=?, fresh_json=? "
+                                  "WHERE id=?", ("precio real: " + "; ".join(bad), time.time(), info, op_id))
+                self._orig.pop(op_id, None)
+                continue
+            total = sum(p["stake"] for p in plan)
+            net = 100 * (min(p["stake"] * f for p, f in zip(plan, fresh)) / total - 1)
+            self.conn.execute("UPDATE exec_sim SET status='filled', reason=?, checked_ts=?, fresh_json=?, net_pct=? "
+                              "WHERE id=?", ("precio real confirmado en cada casa al monto de cada pata",
+                                             time.time(), info, round(net, 3), op_id))
+            o, on_fill = self._orig.pop(op_id, (None, None))
+            if o is not None and on_fill:
+                fills.append((o, on_fill, [{**p, "fill_odds": round(f, 4)} for p, f in zip(plan, fresh)]))
+        self.conn.commit()
+        for o, on_fill, plan in fills:
+            on_fill(o, plan)
 
     def _check(self, current: dict[str, Opportunity], now: float, on_fill=None) -> None:
         rows = self.conn.execute("SELECT id, key, created_ts, plan_json FROM exec_sim WHERE status='pending'").fetchall()

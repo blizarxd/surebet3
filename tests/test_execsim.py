@@ -72,3 +72,29 @@ def test_book_capacity_is_stored(tmp_path):
     sim.step(opp(2.20), lambda o: True)
     stake, book_max = sim.conn.execute("SELECT stake, book_max FROM exec_sim").fetchone()
     assert book_max and stake <= min(500, book_max) + 0.01
+
+
+def test_fresh_mode_fills_only_with_real_house_prices(tmp_path):
+    """Modo precio real: no se usa lo que vio el escáner; se le pide el libro a cada casa al ejecutar."""
+    import asyncio
+    import httpx
+    filled = []
+    for cb_price, expect in ((2.20, "filled"), (1.80, "rejected")):
+        sim = ExecSimulator(tmp_path / f"f{cb_price}.db", fresh=True, cloudbet_key="k")
+        sim.step(opp(2.20), lambda o: True, lambda o, plan: filled.append(plan))
+        age(sim)
+
+        def handler(r, cb_price=cb_price):
+            if "clob" in str(r.url):
+                return httpx.Response(200, json={"asks": [{"price": "0.50", "size": "10000"}]})
+            return httpx.Response(200, json={"markets": {"m": {"submarkets": {"s": {"selections": [
+                {"marketUrl": "tennis.winner/away", "status": "SELECTION_ENABLED", "price": str(cb_price),
+                 "maxStake": "1000"}]}}}}})
+
+        async def run():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+                await sim.verify(c)
+        asyncio.run(run())
+        status, reason = sim.conn.execute("SELECT status, reason FROM exec_sim").fetchone()
+        assert status == expect, reason
+    assert len(filled) == 1 and all(p.get("fill_odds") for p in filled[0])   # se anota con las cuotas frescas

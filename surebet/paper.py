@@ -184,7 +184,10 @@ class PaperBook:
             q = by_cov.get(tuple(p["covers"]))
             if q is None:
                 return None
-            rows.append(_leg_row(q, p["stake"], effective_odds(q, p["stake"]) or q.odds))
+            row = _leg_row(q, p["stake"], effective_odds(q, p["stake"]) or q.odds)
+            if p.get("fill_odds"):        # cuota leída en la casa al ejecutar (modo precio real)
+                row["odds"] = p["fill_odds"]
+            rows.append(row)
         total = sum(r["stake"] for r in rows)
         if total > self.auto_balances()["cash"]:
             return None

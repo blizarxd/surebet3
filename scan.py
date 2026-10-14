@@ -302,7 +302,8 @@ async def main() -> None:
             real_min_net_pct=s.paper_real_min_net_pct, value_bankroll=s.value_bankroll,
             value_min_total=s.value_min_total,
         ))
-    execsim = (ExecSimulator(s.db_path, s.auto_max_stake, cash_fn=lambda: paper.auto_balances()["cash"])
+    execsim = (ExecSimulator(s.db_path, s.auto_max_stake, cash_fn=lambda: paper.auto_balances()["cash"],
+                             fresh=True, cloudbet_key=s.cloudbet_api_key)   # precio real de cada casa al ejecutar
                if paper else None)
     # automático en vivo (simulado): descartado, solo corre con AUTOVIVO_ENABLED=1
     autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
@@ -465,6 +466,7 @@ async def main() -> None:
                             l.quote.source in API_EXCHANGES for l in o.legs)], res.values, resolution)),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
                                                             paper.enter_auto(o, plan, resolution(o.event, o.market)))),
+                        ("ejecución", lambda: execsim.verify(client)),
                         ("cuotas", lambda: live_odds.update(res.clusters)),
                         ("maker", lambda: (makersim.step_value(res.values, golden_value),
                                            makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes))),

@@ -88,6 +88,27 @@ async def fresh_odds(client: httpx.AsyncClient, leg: dict, cloudbet_key: str) ->
                     asks.append(BookLevel(pe, size / pe))
             fd = fill_detail(tuple(sorted(asks, key=lambda l: l.price)), stake, 0.0)
             return fd["shares"] / fd["spent"] if fd["spent"] >= stake * 0.999 else None
+        if src == "kalshi":
+            from .sources.kalshi import API as KALSHI_API, FEE_RATE as KALSHI_FEE, asks_from_bids
+            ticker, _, side = leg["ref"].partition("|")
+            book = ((await client.get(f"{KALSHI_API}/markets/{ticker}/orderbook", timeout=8)).json()
+                    .get("orderbook_fp") or {})
+            asks = asks_from_bids(book.get("no_dollars" if side == "yes" else "yes_dollars"))
+            fd = fill_detail(tuple(asks), stake, KALSHI_FEE)
+            return fd["shares"] / fd["spent"] if fd["spent"] >= stake * 0.999 else None
+        if src == "azuro":
+            from .sources.azuro import API as AZURO_API, ENV as AZURO_ENV
+            cid, _, oid = leg["ref"].partition("|")
+            r = await client.post(f"{AZURO_API}/market-manager/condition-batch", timeout=8,
+                                  json={"conditionIds": [cid], "environment": AZURO_ENV})
+            cond = (r.json().get("conditions") or [None])[0]
+            out = next((x for x in (cond or {}).get("outcomes") or [] if str(x.get("outcomeId")) == oid), None)
+            if not cond or cond.get("state") != "Active" or not out or out.get("state") not in (None, "Active"):
+                return None
+            lim = await client.post(f"{AZURO_API}/bet/calculation", timeout=8, json={
+                "bets": [{"conditionId": cid, "outcomeId": int(oid)}], "environment": AZURO_ENV})
+            max_bet = float(((lim.json() or {}).get("response") or {}).get("maxBet") or 0)
+            return float(out.get("odds") or 0) or None if stake <= max_bet else None
         if src == "cloudbet" and cloudbet_key:
             event_id, _, market_url = leg["ref"].partition("|")
             r = await client.get(f"{CLOUDBET_API}/events/{event_id}", timeout=8,

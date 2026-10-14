@@ -52,6 +52,13 @@ EXPERIMENTS = [
                    "depende de pocas surebets con libro grande: si en una semana no pasa de ~$22/día, no vale el "
                    "capital extra ($3.000-4.000 repartidos entre casas).",
      "kind": "auto"},
+    {"id": "auto-precio-real",
+     "ts": 1791952167,   # 2026-10-14: el simulador pide el precio a cada casa al ejecutar (como el bot de verdad)
+     "name": "Automático con precio real de cada casa al ejecutar",
+     "hypothesis": "Antes se confirmaba con los precios que tenía guardados el escáner (en Kalshi/Azuro de hasta "
+                   "minutos). Ahora se le pide el libro a cada casa a los 5 s. Si se siguen llenando ≥ 2 de cada 3 y "
+                   "el neto real queda ≥ 1 %, el automático está listo para probar en real con montos chicos.",
+     "kind": "auto"},
 ]
 
 
