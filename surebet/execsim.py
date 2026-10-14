@@ -97,7 +97,8 @@ class ExecSimulator:
                 continue
             if self.conn.execute("SELECT 1 FROM exec_sim WHERE key=?", (o.key,)).fetchone():
                 continue
-            target = min(self.stake, o.max_total_stake) if o.max_total_stake else self.stake
+            # 90 % de lo que aguanta el libro (margen de seguridad: el libro cambia entre ver y ejecutar), con tope
+            target = min(self.stake, 0.9 * o.max_total_stake) if o.max_total_stake else self.stake
             if self.cash_fn:
                 target = min(target, max(0.0, self.cash_fn()) * 0.5)
             if target < 5:

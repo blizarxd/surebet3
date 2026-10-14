@@ -45,6 +45,13 @@ EXPERIMENTS = [
                    "prepartido pasa de ~7 surebets/día a 15 o más y se acerca a $30/día. Si en una semana no suben "
                    "las surebets automáticas, esas casas no aportan.",
      "kind": "auto"},
+    {"id": "auto-1500",
+     "ts": 1791945241,   # 2026-10-13: tope $1.500 por surebet, 90 % de lo que aguanta el libro, cuenta automática $3.000
+     "name": "Automático: tope $1.500 por surebet (90 % de lo que aguanta el libro)",
+     "hypothesis": "Subir el tope de $500 a $1.500 lleva el automático de ~$17/día a ~$30/día. La ganancia extra "
+                   "depende de pocas surebets con libro grande: si en una semana no pasa de ~$22/día, no vale el "
+                   "capital extra ($3.000-4.000 repartidos entre casas).",
+     "kind": "auto"},
 ]
 
 
