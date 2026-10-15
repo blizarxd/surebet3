@@ -78,6 +78,41 @@ def _resim_totals(auto_ops: list[dict]) -> dict:
     return {"before": round(before, 2), "after": round(after, 2), "changed": n, "ops": len(auto_ops)}
 
 
+def _value_by_house(conn) -> list[dict]:
+    """Valor + red por casa (picks ya resueltos), con lo que habría dado con un mínimo de $50 entre casa y red."""
+    rows = conn.execute(
+        "SELECT house, created_ts, stake, odds, limit_price, status, result, pnl, pnl_no_net FROM net_picks "
+        "WHERE result NOT IN ('pendiente','sin datos') AND house IS NOT NULL").fetchall()
+    out: dict[str, dict] = {}
+    for house, ts, stake, odds, lim, status, result, pnl, pnl_no in rows:
+        h = out.setdefault(house, {"house": house, "picks": 0, "locked": 0, "stake": 0.0, "pnl": 0.0, "pnl_no_net": 0.0,
+                                   "pnl50": 0.0, "t0": ts, "t1": ts})
+        f = max(1.0, 50.0 / (stake + stake * odds * (lim or 0.4)))
+        h["picks"] += 1
+        h["locked"] += status == "asegurada"
+        h["stake"] += stake
+        h["pnl"] += pnl or 0
+        h["pnl_no_net"] += pnl_no or 0
+        h["pnl50"] += (pnl or 0) * f
+        h["t0"], h["t1"] = min(h["t0"], ts), max(h["t1"], ts)
+    clv: dict[str, list] = {}
+    for src, ev, odds, c, start, first in conn.execute(
+            "SELECT source, ev_pct, odds, clv_pct, start_ts, first_seen FROM value_bets WHERE clv_pct IS NOT NULL "
+            "AND first_seen > ?", (time.time() - 7 * 86400,)):
+        if 2 <= ev < 7 and 1.6 <= odds < 4 and start and 0 < start - first <= 6 * 3600:
+            clv.setdefault(src, []).append(c)
+    res = []
+    for h in out.values():
+        days = max((h["t1"] - h["t0"]) / 86400, 0.5)
+        c = sorted(clv.get(h["house"], []))
+        res.append({"house": h["house"], "picks": h["picks"], "locked": h["locked"], "stake": round(h["stake"]),
+                    "pnl": round(h["pnl"], 2), "pnl_no_net": round(h["pnl_no_net"], 2),
+                    "per_day": round(h["pnl"] / days, 1), "pnl50": round(h["pnl50"], 2),
+                    "per_day50": round(h["pnl50"] / days, 1), "days": round(days, 1),
+                    "clv_gold": round(c[len(c) // 2], 2) if c else None, "clv_n": len(c)})
+    return sorted(res, key=lambda r: -r["picks"])
+
+
 def _auto_funnel(conn) -> dict:
     """Todas las surebets automatizables (Polymarket / Cloudbet / SX / Kalshi / Azuro) de 7 días y qué pasó con cada una."""
     since = time.time() - 7 * 86400
@@ -225,6 +260,15 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     except sqlite3.OperationalError:
         resim = {}
     try:
+        from .makersim import auto_summary
+        maker_auto = auto_summary(conn)
+    except sqlite3.OperationalError:
+        maker_auto = None
+    try:
+        valor_house = _value_by_house(conn)
+    except sqlite3.OperationalError:
+        valor_house = []
+    try:
         funnel = _auto_funnel(conn)
     except sqlite3.OperationalError:
         funnel = None
@@ -367,7 +411,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "execsim": execsim,
         "maker": maker,
         "auto": {**_auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
-                 "resim": _resim_totals(auto_ops) if resim else None},
+                 "resim": _resim_totals(auto_ops) if resim else None,
+                 "maker_auto": maker_auto, "valor_house": valor_house},
         "funnel": funnel,
         "lp": lp,
         "colombia": colombia,

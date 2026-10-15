@@ -235,6 +235,16 @@
     </table>
     <div class="small muted" style="margin-top:6px">Cuánto aporta cada una: tabla "Por par de casas" del embudo, más abajo. Estado en vivo de cada fuente: pestaña Principal → Fuentes de datos.</div></section>
   <section class="card" id="auto-rule"></section>
+  <section class="card"><h2>Valor + red por casa <span class="count">(las que el bot puede operar por API)</span></h2>
+    <div class="small muted">Apuesta de valor en esa casa + orden límite de red en Polymarket. «Con $50» = lo que habría dado con un
+      mínimo de $50 entre casa y red (hoy se mide con $30). Sin red = si solo se hubiera dejado la apuesta de valor.</div>
+    <div class="scroll"><table id="valor-house"></table></div></section>
+  <section class="card"><h2>Automático como maker en Polymarket <span class="count">(desde 14/10)</span></h2>
+    <div class="small muted">En vez de comprar en Polymarket al precio que está (pagando comisión), el bot deja una orden límite y espera;
+      cuando se llena, le pide a la otra casa su precio de ese momento y cubre. Si ya no se puede cubrir, deshace vendiendo.
+      Se compara con comprar al instante.</div>
+    <div class="kpis" id="maker-auto-kpis"></div>
+    <div class="scroll" style="max-height:300px;overflow-y:auto"><table id="maker-auto-rows"></table></div></section>
   <section class="kpis" id="kpis-auto"></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-auto-sum"></span></h2>
     <div class="scroll"><table id="act-auto"></table></div></section>
@@ -500,6 +510,33 @@ let autoChart = null;
 function renderAuto(au) {
   if (!au) return;
   renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk); activeTable("act-auto", au.ops);
+  const vh = au.valor_house || [];
+  $("valor-house").innerHTML = vh.length ? `<tr><th>Casa</th><th class="num">Picks</th><th class="num">Red llena</th><th class="num">Con red</th><th class="num">Sin red</th>
+      <th class="num">Por día</th><th class="num">Con $50</th><th class="num">Por día con $50</th><th class="num">CLV oro</th></tr>` +
+    vh.map((h) => `<tr><td>${esc(h.house)}</td><td class="num">${h.picks}</td><td class="num">${h.locked} (${Math.round(100 * h.locked / h.picks)}%)</td>
+      <td class="num ${cls(h.pnl)}">${money(h.pnl, true)}</td><td class="num ${cls(h.pnl_no_net)}">${money(h.pnl_no_net, true)}</td>
+      <td class="num ${cls(h.per_day)}">${money(h.per_day, true)}</td><td class="num ${cls(h.pnl50)}">${money(h.pnl50, true)}</td>
+      <td class="num ${cls(h.per_day50)}"><b>${money(h.per_day50, true)}</b></td>
+      <td class="num">${h.clv_gold == null ? "-" : pct(h.clv_gold)}<div class="muted small">${h.clv_n} picks</div></td></tr>`).join("")
+    : `<tr><td class="empty">Todavía sin picks resueltos.</td></tr>`;
+  const ma = au.maker_auto;
+  if (ma && ma.total) {
+    const fr = ma.total - ma.cancelled;
+    $("maker-auto-kpis").innerHTML = [
+      kpi("Intentos", String(ma.total), `${ma.cancelled} canceladas sin llenar (no se arriesgó nada)`),
+      kpi("Llenadas", String(fr), `${ma.filled} cubiertas · ${ma.exposed} expuestas`, ma.exposed > ma.filled ? "neg" : "pos"),
+      kpi("Neto maker", ma.avg_net == null ? "-" : pct(ma.avg_net), `comprando al instante: ${ma.avg_taker == null ? "-" : pct(ma.avg_taker)}`, cls(ma.avg_net)),
+      kpi("Ganancia", money(ma.pnl, true), "con $100 por intento", cls(ma.pnl)),
+    ].join("") + (ma.by_house || []).map((h) => `<div class="small muted">${esc(h.house)}: ${h.total} intentos, ${h.filled} cubiertas, ${h.exposed} expuestas, ${h.cancelled} canceladas · ${money(h.pnl, true)}</div>`).join("");
+    $("maker-auto-rows").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th>Casa</th><th>Estado</th><th class="num">Límite</th><th class="num">Neto</th><th class="num">Al instante</th></tr>` +
+      ma.rows.map((r) => { let src = ""; try { src = JSON.parse(r.book_ref)[0]; } catch (e) {}
+        return `<tr><td class="small nowrap">${when(r.created_ts)}</td><td>${esc(r.title)}</td><td>${esc(src)}</td><td><span class="tag ${r.status === "covered" ? "won" : r.status === "exposed" ? "lost" : "void"}">${{covered: "cubierta", exposed: "expuesta", cancelled: "cancelada", filling: "llenando"}[r.status] || r.status}</span></td>
+        <td class="num">${r.limit_price == null ? "-" : (100 * r.limit_price).toFixed(0) + "¢"}</td><td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td>
+        <td class="num">${r.taker_net_pct == null ? "-" : pct(r.taker_net_pct)}</td></tr>`; }).join("");
+  } else {
+    $("maker-auto-kpis").innerHTML = `<div class="card empty">Esperando las primeras surebets automáticas para probar la orden límite.</div>`;
+    $("maker-auto-rows").innerHTML = "";
+  }
   const rs = au.resim;
   $("auto-rule").innerHTML = `<h2>Cómo juega ahora</h2><div class="small">En cada surebet pone <b>lo que aguante el libro</b>
     (el monto que deja más ganancia), con tope de <b>$500</b> y nunca más de la mitad de la plata libre.</div>` +

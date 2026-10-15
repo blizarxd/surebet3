@@ -46,7 +46,7 @@ from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
 from surebet.execsim import ExecSimulator
-from surebet.makersim import MakerSimulator, book_ref
+from surebet.makersim import AUTO_HOUSES, MakerSimulator, POLY_FIRST, book_ref
 from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
@@ -193,7 +193,7 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     # sí los emparejados y los que tienen varias casas de otra fuente (casa vs casa).
     evaluable = matched + [c for c in clusters if len(c.feeds) == 1 and c.anchor.feed != poly.name]
     res = CycleResult(n_clusters=len(clusters), n_matched=len(matched), clusters=clusters)
-    res.book_quotes = {book_ref(q): q for c in matched for ev, _ in c.members if ev.feed in ("onexbet", "1xbet")
+    res.book_quotes = {book_ref(q): q for c in matched for ev, _ in c.members if ev.feed in ("onexbet", "1xbet", *AUTO_HOUSES)
                        for q in ev.quotes}
     res.opps = [o for c in evaluable for o in find_opportunities(c, cfg) if _allowed(o, s.my_books)]
     for o in res.opps:
@@ -307,7 +307,7 @@ async def main() -> None:
                if paper else None)
     # automático en vivo (simulado): descartado, solo corre con AUTOVIVO_ENABLED=1
     autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
-    makersim = MakerSimulator(s.db_path, s.paper_arb_stake) if paper else None
+    makersim = MakerSimulator(s.db_path, s.paper_arb_stake, cloudbet_key=s.cloudbet_api_key) if paper else None
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
@@ -466,13 +466,18 @@ async def main() -> None:
                         # La cuenta real/medición es la semi-manual: las de Kalshi/Azuro las hace el bot (cuenta automática)
                         ("papel", lambda: paper.consider([o for o in res.opps if not any(
                             l.quote.source in API_EXCHANGES for l in o.legs)],
-                            [v for v in res.values if v.quote.source not in API_EXCHANGES], resolution)),
+                            [v for v in res.values if v.quote.source not in API_EXCHANGES - {"azuro"}], resolution)),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
                                                             paper.enter_auto(o, plan, resolution(o.event, o.market)))),
                         ("ejecución", lambda: execsim.verify(client)),
                         ("cuotas", lambda: live_odds.update(res.clusters)),
                         ("maker", lambda: (makersim.step_value(res.values, golden_value),
                                            makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes))),
+                        # Automático como maker: límite en Polymarket y, al llenarse, precio real de la otra casa
+                        ("maker-auto", lambda: makersim.step(res.opps, poly_quotes, paper.eligible_auto, res.book_quotes,
+                                                             track="auto", book_sources=AUTO_HOUSES,
+                                                             modes=(POLY_FIRST,))),
+                        ("maker-precio", lambda: makersim.finish_auto(client)),
                         ("red", lambda: nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
                                                                                        s.telegram_chat_id, t))),
                         ("vivo", lambda: (autovivo.detect(res.opps, resolution), autovivo.check(client))[1]

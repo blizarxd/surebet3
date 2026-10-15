@@ -31,6 +31,11 @@ C) value_net: "valor con red de seguridad".
   4. si no se llena antes del partido, se cancela y queda la apuesta de valor sola ("se queda como valor").
   Estudio con 81 apuestas oro (oct-2026): con +1 % se llenó ~60 %; comprando al instante (con comisión) solo ~25 %.
 
+D) poly_first AUTOMÁTICO (track "auto", desde 14/10): lo mismo que B pero con las casas que se operan por API
+  (SX Bet, Cloudbet, Kalshi, Azuro) en vez de 1xBet. Cuando se llena la límite de Polymarket, el bot le pide a
+  la otra casa SU PRECIO DE ESE MOMENTO (fresh_odds) y cubre si todavía hay ganancia; si no, deshace vendiendo
+  en Polymarket. Se compara contra comprar al instante (taker_net_pct).
+
 Resultado: ganancia neta de cada intento comparada con la de haber comprado al instante.
 """
 
@@ -75,7 +80,10 @@ MIGRATIONS = {
     "book_odds_fill": "REAL",   # cuota de 1xBet cuando se llenó la límite
     "pnl": "REAL",              # ganancia/pérdida en $ (expuestas: la pérdida real)
     "value_key": "TEXT",        # value_net: señal en value_bets (para su CLV)
+    "track": "TEXT DEFAULT 'manual'",   # manual = 1xBet + Polymarket; auto = casas con API + Polymarket
+    "alt_pnl": "REAL",          # auto: lo que daría deshacer en Polymarket al llenarse la límite
 }
+AUTO_HOUSES = ("sxbet", "cloudbet", "kalshi", "azuro")
 
 
 def value_hedge(v, stake: float, lock_pct: float = VALUE_LOCK_PCT) -> dict | None:
@@ -97,11 +105,12 @@ def value_hedge(v, stake: float, lock_pct: float = VALUE_LOCK_PCT) -> dict | Non
 
 
 def book_ref(q) -> str:
-    return json.dumps([q.source, q.url, q.market, q.label])
+    return json.dumps([q.source, q.ref or q.url, q.market, q.label])   # las casas con API se identifican por ref
 
 
 class MakerSimulator:
-    def __init__(self, db_path: Path, stake: float = 100.0) -> None:
+    def __init__(self, db_path: Path, stake: float = 100.0, cloudbet_key: str = "") -> None:
+        self.cloudbet_key = cloudbet_key
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(maker_sim)")}
@@ -111,20 +120,22 @@ class MakerSimulator:
         self.conn.commit()
         self.stake = stake
 
-    def step(self, opps: list[Opportunity], poly_quotes: dict, eligible, book_quotes: dict | None = None) -> None:
+    def step(self, opps: list[Opportunity], poly_quotes: dict, eligible, book_quotes: dict | None = None,
+             track: str = "manual", book_sources: tuple = ("1xbet", "onexbet"), modes: tuple = (BOOK_FIRST, POLY_FIRST)) -> None:
         """`poly_quotes`: token -> Quote de Polymarket de este ciclo (con asks y mejor bid).
-        `book_quotes`: book_ref -> Quote actual de 1xBet (para la prueba poly_first)."""
+        `book_quotes`: book_ref -> Quote actual de la otra casa (para la prueba poly_first)."""
         now = time.time()
+        prefix = "" if track == "manual" else f"{track}#"
         for o in opps:
             srcs = [l.quote.source for l in o.legs]
-            if len(o.legs) != 2 or POLYMARKET not in srcs or not any(s in ("1xbet", "onexbet") for s in srcs):
+            if len(o.legs) != 2 or POLYMARKET not in srcs or not any(s in book_sources for s in srcs):
                 continue
             if not eligible(o):
                 continue
-            for mode in (BOOK_FIRST, POLY_FIRST):
-                key = o.key if mode == BOOK_FIRST else f"{o.key}#pf"
+            for mode in modes:
+                key = prefix + (o.key if mode == BOOK_FIRST else f"{o.key}#pf")
                 if not self.conn.execute("SELECT 1 FROM maker_sim WHERE key=?", (key,)).fetchone():
-                    self._open(o, key, mode, now)
+                    self._open(o, key, mode, now, track)
         self._advance(poly_quotes, book_quotes or {}, now)
         self.conn.commit()
 
@@ -152,7 +163,7 @@ class MakerSimulator:
                  round(v.ev_pct, 3), VALUE_NET, paper_key, v.quote.odds, v.key))
         self.conn.commit()
 
-    def _open(self, o: Opportunity, key: str, mode: str, now: float) -> None:
+    def _open(self, o: Opportunity, key: str, mode: str, now: float, track: str = "manual") -> None:
         target = min(self.stake, o.max_total_stake) if o.max_total_stake else self.stake
         legs = size_legs([l.quote for l in o.legs], round(target, 2))
         if not legs:
@@ -175,16 +186,16 @@ class MakerSimulator:
         start = o.event.anchor.start.timestamp() if o.event.anchor.start else None
         self.conn.execute(
             "INSERT INTO maker_sim (key, created_ts, title, market, start_ts, book_payout, book_stake, token, shares, "
-            "taker_cost, limit_price, status, taker_net_pct, mode, book_ref, book_odds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?)",
+            "taker_cost, limit_price, status, taker_net_pct, mode, book_ref, book_odds, track) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?)",
             (key, now, o.event.anchor.title, market_label(o.market), start, round(book_payout, 4),
              round(book.stake, 2), q.token_id, round(shares, 4), round(poly.stake, 4), limit, round(taker_net, 3),
-             mode, book_ref(book.quote), book.odds))
+             mode, book_ref(book.quote), book.odds, track))
 
     def _advance(self, poly_quotes: dict, book_quotes: dict, now: float) -> None:
         rows = self.conn.execute("SELECT id, created_ts, start_ts, book_payout, book_stake, token, shares, limit_price, "
-                                 "mode, book_ref FROM maker_sim WHERE status='waiting'").fetchall()
-        for op_id, created, start, payout, bstake, token, shares, limit, mode, ref in rows:
+                                 "mode, book_ref, COALESCE(track,'manual') FROM maker_sim WHERE status='waiting'").fetchall()
+        for op_id, created, start, payout, bstake, token, shares, limit, mode, ref, track in rows:
             q = poly_quotes.get(token)
             deadline = min(created + MAX_WAIT_S, (start or created + MAX_WAIT_S) - 600)
             filled = bool(q and q.asks and q.asks[0].price <= limit + 1e-9)
@@ -197,6 +208,9 @@ class MakerSimulator:
                                                      round(gain, 2), op_id))
                 elif start and now >= start - 600:  # el partido empieza: se cancela y queda la apuesta de valor
                     self.conn.execute("UPDATE maker_sim SET status='kept', done_ts=? WHERE id=?", (now, op_id))
+                continue
+            if mode == POLY_FIRST and track == "auto":
+                self._fill_auto(op_id, q, filled, now >= deadline, shares, limit, now)
                 continue
             if mode == POLY_FIRST:
                 self._advance_poly_first(op_id, q, filled, now >= deadline, shares, limit, book_quotes.get(ref), now)
@@ -215,6 +229,49 @@ class MakerSimulator:
             net = 100 * (min(payout, shares) / total - 1)
             self.conn.execute("UPDATE maker_sim SET status=?, done_ts=?, poly_cost=?, net_pct=?, pnl=? WHERE id=?",
                               (status, now, round(cost, 4), round(net, 3), round(min(payout, shares) - total, 2), op_id))
+
+    def _fill_auto(self, op_id, q, filled, expired, shares, limit, now) -> None:
+        """La límite de Polymarket se llenó (o venció). El resto lo decide finish_auto con el precio real de la otra casa."""
+        if not filled:
+            if expired:
+                self.conn.execute("UPDATE maker_sim SET status='cancelled', done_ts=?, net_pct=0, pnl=0 WHERE id=?",
+                                  (now, op_id))
+            return
+        cost = shares * limit
+        alt = None
+        if q and q.bid:   # deshacer: vender al mejor comprador pagando comisión de taker
+            alt = shares * (q.bid - poly_fee_per_share(q.bid, q.fee_rate, q.fee_exponent)) - cost
+        self.conn.execute("UPDATE maker_sim SET status='filling', done_ts=?, poly_cost=?, alt_pnl=? WHERE id=?",
+                          (now, round(cost, 4), alt, op_id))
+
+    async def finish_auto(self, client) -> None:
+        """Con la límite ya llena, le pide a la otra casa SU precio de ahora y cubre (o deshace) como haría el bot."""
+        from .autovivo import fresh_odds
+        rows = self.conn.execute("SELECT id, shares, poly_cost, book_stake, book_ref, alt_pnl, done_ts FROM maker_sim "
+                                 "WHERE status='filling' ORDER BY done_ts LIMIT 6").fetchall()
+        fetched = []
+        for op_id, shares, cost, bstake, ref, alt, done in rows:      # primero las consultas, después las escrituras
+            src, bref, _m, _l = json.loads(ref)
+            fo = await fresh_odds(client, {"source": src, "stake": bstake, "ref": bref}, self.cloudbet_key)
+            fetched.append((op_id, shares, cost, alt, done, fo))
+        now = time.time()
+        for op_id, shares, cost, alt, done, fo in fetched:
+            options = []
+            if fo:
+                stake_b = shares / fo                                 # mismo cobro en los dos resultados
+                options.append(("covered", shares - (cost + stake_b), cost + stake_b))
+            if alt is not None:
+                options.append(("exposed", alt, cost))
+            if not options:
+                if now - (done or now) < 180:
+                    continue                                          # sin datos: se reintenta en el próximo ciclo
+                options = [("exposed", -0.05 * cost, cost)]           # sin datos tras 3 min: pérdida supuesta del 5 %
+            status, pnl, base = max(options, key=lambda x: x[1])
+            if status == "covered" and pnl < 0:
+                status = "exposed"
+            self.conn.execute("UPDATE maker_sim SET status=?, done_ts=?, net_pct=?, pnl=?, book_odds_fill=? WHERE id=?",
+                              (status, now, round(100 * pnl / base, 3), round(pnl, 2), fo, op_id))
+        self.conn.commit()
 
     def _advance_poly_first(self, op_id, q, filled, expired, shares, limit, bq, now) -> None:
         if not filled:
@@ -242,24 +299,47 @@ class MakerSimulator:
                                          odds_now, op_id))
 
 
+def _mode_summary(conn, mode: str, track: str = "manual") -> dict:
+    rows = [dict(zip(("created_ts", "title", "market", "status", "limit_price", "net_pct", "taker_net_pct",
+                      "book_odds", "book_odds_fill", "pnl", "book_ref"), r))
+            for r in conn.execute("SELECT created_ts, title, market, status, limit_price, net_pct, taker_net_pct, "
+                                  "book_odds, book_odds_fill, pnl, book_ref FROM maker_sim "
+                                  "WHERE COALESCE(mode,'book_first')=? AND COALESCE(track,'manual')=? "
+                                  "ORDER BY created_ts DESC LIMIT 40", (mode, track))]
+    agg = conn.execute(
+        "SELECT COUNT(*), SUM(status IN ('filled','covered')), SUM(status='hedged'), SUM(status='exposed'), "
+        "SUM(status='cancelled'), AVG(CASE WHEN status!='cancelled' THEN net_pct END), "
+        "AVG(CASE WHEN status!='cancelled' THEN taker_net_pct END), SUM(pnl) "
+        "FROM maker_sim WHERE status NOT IN ('waiting','filling') AND COALESCE(mode,'book_first')=? "
+        "AND COALESCE(track,'manual')=?", (mode, track)).fetchone()
+    total, filled, hedged, exposed, cancelled, net, taker, pnl = agg
+    return {"total": total or 0, "filled": filled or 0, "hedged": hedged or 0, "exposed": exposed or 0,
+            "cancelled": cancelled or 0, "pnl": round(pnl or 0, 2),
+            "avg_net": round(net, 3) if net is not None else None,
+            "avg_taker": round(taker, 3) if taker is not None else None, "rows": rows}
+
+
+def auto_summary(conn) -> dict:
+    """Maker con las casas automáticas: por casa que acompaña a Polymarket, más el total."""
+    base = _mode_summary(conn, POLY_FIRST, "auto")
+    by_house: dict[str, dict] = {}
+    for src, ref, status, net, taker, pnl in conn.execute(
+            "SELECT json_extract(book_ref,'$[0]'), book_ref, status, net_pct, taker_net_pct, pnl FROM maker_sim "
+            "WHERE track='auto' AND status NOT IN ('waiting','filling')"):
+        h = by_house.setdefault(src, {"house": src, "total": 0, "filled": 0, "exposed": 0, "cancelled": 0, "pnl": 0.0})
+        h["total"] += 1
+        h["filled"] += status == "covered"
+        h["exposed"] += status == "exposed"
+        h["cancelled"] += status == "cancelled"
+        h["pnl"] += pnl or 0
+    base["by_house"] = sorted(({**h, "pnl": round(h["pnl"], 2)} for h in by_house.values()), key=lambda h: -h["total"])
+    return base
+
+
 def summary(conn) -> dict:
     out = {}
     for mode in (BOOK_FIRST, POLY_FIRST):
-        rows = [dict(zip(("created_ts", "title", "market", "status", "limit_price", "net_pct", "taker_net_pct",
-                          "book_odds", "book_odds_fill", "pnl"), r))
-                for r in conn.execute("SELECT created_ts, title, market, status, limit_price, net_pct, taker_net_pct, "
-                                      "book_odds, book_odds_fill, pnl FROM maker_sim WHERE COALESCE(mode,'book_first')=? "
-                                      "ORDER BY created_ts DESC LIMIT 40", (mode,))]
-        agg = conn.execute(
-            "SELECT COUNT(*), SUM(status IN ('filled','covered')), SUM(status='hedged'), SUM(status='exposed'), "
-            "SUM(status='cancelled'), AVG(CASE WHEN status!='cancelled' THEN net_pct END), "
-            "AVG(CASE WHEN status!='cancelled' THEN taker_net_pct END), SUM(pnl) "
-            "FROM maker_sim WHERE status!='waiting' AND COALESCE(mode,'book_first')=?", (mode,)).fetchone()
-        total, filled, hedged, exposed, cancelled, net, taker, pnl = agg
-        out[mode] = {"total": total or 0, "filled": filled or 0, "hedged": hedged or 0, "exposed": exposed or 0,
-                     "cancelled": cancelled or 0, "pnl": round(pnl or 0, 2),
-                     "avg_net": round(net, 3) if net is not None else None,
-                     "avg_taker": round(taker, 3) if taker is not None else None, "rows": rows}
+        out[mode] = _mode_summary(conn, mode)
     out[VALUE_NET] = _value_net_summary(conn)
     # compatibilidad: el panel viejo lee las claves de book_first en la raíz
     return {**out[BOOK_FIRST], **out}

@@ -114,3 +114,53 @@ def test_value_net_kept_as_value_at_kickoff(tmp_path):
     sim.conn.execute("UPDATE maker_sim SET start_ts = ?", (time.time() + 60,))
     sim.step([], {}, lambda o: True)
     assert sim.conn.execute("SELECT status FROM maker_sim").fetchone()[0] == "kept"
+
+
+def setup_auto():
+    """Polymarket + SX Bet: el automático usa límite en Polymarket y precio real de SX al llenarse."""
+    p = Quote(source="polymarket", feed="polymarket", covers=frozenset({HOME}), odds=poly_odds(0.50, 0.05), label="A",
+              asks=(BookLevel(0.50, 10000),), fee_rate=0.05, min_stake=2.5, market="ml", token_id="tok", bid=0.46)
+    x = Quote(source="sxbet", feed="sxbet", covers=frozenset({AWAY}), odds=2.10, label="B", market="ml",
+              ref="0xhash|2", max_stake=5000, min_stake=1.0, asks=(BookLevel(1 / 2.10, 5000 * 2.10),))
+    pe = SourceEvent(feed="polymarket", event_id="P", sport="soccer", home="A", away="B", start=START,
+                     three_way=False, quotes=[p])
+    xe = SourceEvent(feed="sxbet", event_id="X", sport="soccer", home="A", away="B", start=START,
+                     three_way=False, quotes=[x])
+    m = MatchedEvent(anchor=pe)
+    m.members = [(pe, False), (xe, False)]
+    return find_opportunities(m, ArbConfig()), p, x
+
+
+def run_auto(tmp_path, sx_odds):
+    import asyncio
+
+    import httpx
+    from surebet.makersim import AUTO_HOUSES, POLY_FIRST
+    sim = MakerSimulator(tmp_path / "m.db")
+    opps, p, x = setup_auto()
+    assert opps, "debe haber surebet Polymarket + SX"
+    kw = dict(track="auto", book_sources=AUTO_HOUSES, modes=(POLY_FIRST,))
+    sim.step(opps, {"tok": p}, lambda o: True, {book_ref(x): x}, **kw)
+    sim.step([], {"tok": replace(p, asks=(BookLevel(0.47, 500),), bid=0.44)}, lambda o: True, {}, **kw)
+    assert sim.conn.execute("SELECT status FROM maker_sim").fetchone()[0] == "filling"
+
+    def handler(r):   # SX: libro de ahora
+        pct = int(round(100 * 10 ** 18 / sx_odds)) * 10 ** 18 // 100
+        return httpx.Response(200, json={"status": "success", "data": {"outcomeTwo": [
+            {"percentageOdds": str(int(1 / sx_odds * 10 ** 20)), "size": str(5000 * 10 ** 6)}], "outcomeOne": []}})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            await sim.finish_auto(c)
+    asyncio.run(go())
+    return sim.conn.execute("SELECT status, pnl, track, taker_net_pct FROM maker_sim").fetchone()
+
+
+def test_auto_maker_covers_with_real_price_of_the_other_house(tmp_path):
+    status, pnl, track, taker = run_auto(tmp_path, 2.10)
+    assert status == "covered" and pnl > 0 and track == "auto"
+
+
+def test_auto_maker_exposed_when_other_house_price_dropped(tmp_path):
+    status, pnl, _, _ = run_auto(tmp_path, 1.60)          # SX ya no paga: no se puede cubrir con ganancia
+    assert status == "exposed" and pnl < 0
