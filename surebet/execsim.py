@@ -29,6 +29,7 @@ from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
 
 AUTOMATABLE = {POLYMARKET, "cloudbet", "sxbet", "kalshi", "azuro"}
+MIN_NET_PCT = 0.25      # con los precios reales, si el neto cae de esto no se ejecuta (cada pata puede bajar un poco y juntas ya no hay margen)
 LATENCY_S = 5.0        # Cloudbet (~1-2 s) + Polymarket (1-3 s de demora en deportes) + red
 EXPIRE_S = 90.0
 
@@ -169,6 +170,12 @@ class ExecSimulator:
                 continue
             total = sum(p["stake"] for p in plan)
             net = 100 * (min(p["stake"] * f for p, f in zip(plan, fresh)) / total - 1)
+            if net < MIN_NET_PCT:
+                self.conn.execute("UPDATE exec_sim SET status='rejected', reason=?, checked_ts=?, fresh_json=?, "
+                                  "net_pct=? WHERE id=?", (f"precio real: neto {net:.2f} % < {MIN_NET_PCT} %",
+                                                           time.time(), info, round(net, 3), op_id))
+                self._orig.pop(op_id, None)
+                continue
             self.conn.execute("UPDATE exec_sim SET status='filled', reason=?, checked_ts=?, fresh_json=?, net_pct=? "
                               "WHERE id=?", ("precio real confirmado en cada casa al monto de cada pata",
                                              time.time(), info, round(net, 3), op_id))

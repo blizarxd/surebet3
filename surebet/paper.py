@@ -120,6 +120,7 @@ class PaperBook:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA journal_size_limit=67108864")   # el archivo WAL no pasa de 64 MB
         self.conn.executescript(SCHEMA)
         cols = {r[1] for r in self.conn.execute("PRAGMA table_info(paper_ops)")}
         if "track" not in cols:
@@ -463,7 +464,7 @@ class PaperBook:
                 continue
             legs = json.loads(legs_json)
             if outcome is None:
-                payout, status = total, "void"
+                payout, status = void_payout(legs, total), "void"
             else:
                 payout = sum(l["stake"] * l["odds"] * (sold_at if sold_at and l["source"] == POLYMARKET else 1.0)
                              for l in legs if outcome in l["covers"])
@@ -474,6 +475,14 @@ class PaperBook:
             closed += 1
         self.conn.commit()
         return closed
+
+
+def void_payout(legs: list[dict], total: float) -> float:
+    """Cobro de una surebet ANULADA (partido cancelado): la casa devuelve la apuesta, pero Polymarket resuelve
+    50/50, o sea paga $0,50 por share (no devuelve lo pagado). Antes se contaba como empate exacto ($0)."""
+    if not any(l["source"] == POLYMARKET and l.get("shares") for l in legs):
+        return total
+    return sum(0.5 * l["shares"] if l["source"] == POLYMARKET and l.get("shares") else l["stake"] for l in legs)
 
 
 def _in_play(event, now: float) -> bool:

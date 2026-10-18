@@ -116,7 +116,9 @@ def test_void_when_resolved_50_50(tmp_path):
     pb.consider(find_opportunities(arb_event(), ArbConfig()), [], lambda k, m: RESOLVE)
     assert _settle(pb, None) == 1
     status, pnl = pb.conn.execute("SELECT status, pnl FROM paper_ops").fetchone()
-    assert status == "void" and pnl == 0
+    # la casa devuelve su apuesta pero Polymarket paga 0,50 por share (no devuelve lo pagado): ya no es $0.
+    # Aquí la pata de Polymarket costó ~0,30 por share, así que una anulada da ganancia; a 0,55 daría pérdida.
+    assert status == "void" and pnl > 1
 
 
 def test_value_bets_only_measured_by_default(tmp_path):
@@ -281,3 +283,11 @@ def test_settles_early_when_winner_already_decided(tmp_path):
     assert asyncio.run(run()) == 1
     status, pnl, out = pb.conn.execute("SELECT status, pnl, outcome FROM paper_ops").fetchone()
     assert status == "won" and out == "A" and abs(pnl - (50 * 2.05 * 0.998 - 100)) < 1e-6
+
+
+def test_void_pays_half_a_share_on_polymarket_not_the_stake_back():
+    from surebet.paper import void_payout
+    legs = [{"source": "polymarket", "stake": 54.58, "shares": 81.29},
+            {"source": "1xbet", "stake": 26.31}]
+    assert void_payout(legs, 80.89) == pytest.approx(0.5 * 81.29 + 26.31)     # pierde ~$14 aunque nadie "perdió"
+    assert void_payout([{"source": "1xbet", "stake": 10.0}, {"source": "cloudbet", "stake": 12.0}], 22.0) == 22.0
