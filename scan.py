@@ -41,7 +41,9 @@ from surebet.sources.sxbet import SXBetSource
 from surebet.sources.cloudbet import CloudbetSource
 from surebet.sources.kalshi import KalshiSource
 from surebet.sources.azuro import AzuroSource
-from surebet.safety import blocked, golden_value, risk_flags
+from surebet.safety import blocked, golden_value, observe_only, risk_flags
+from surebet.semaforo import Semaforo
+from surebet.livehedge import LiveHedgeTracker
 from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
@@ -127,8 +129,12 @@ def daily_summary(s: Settings, status_path) -> str:
     a = st["account"]
     lines = ["📊 Resumen del día (papel)",
              f"Cuenta real: ${a['equity']:.2f} ({a['pnl']:+.2f}) · en juego ${a['in_play']:.2f} · "
-             f"{a['won']} ganadas / {a['lost']} perdidas",
-             "", "¿Dónde está la ventaja? (cerradas, $100 por jugada)"]
+             f"{a['won']} ganadas / {a['lost']} perdidas"]
+    sem = st.get("semaforo")
+    if sem:
+        icon = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+        lines.append("Semáforo: " + " · ".join(f"{icon[l['color']]} {l['name']}" for l in sem["lights"]))
+    lines += ["", "¿Dónde está la ventaja? (cerradas, $100 por jugada)"]
     for g in st["measure"]:
         closed = g["won"] + g["lost"] + g.get("void", 0)
         roi = f"{g['roi_pct']:+.1f}%" if g["roi_pct"] is not None else "-"
@@ -314,6 +320,11 @@ async def main() -> None:
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
     nets = ValueNet(buyer)  # red de seguridad de las apuestas de valor (botón 🛟 en el aviso)
+    # Semáforo de riesgo: en rojo no se avisa ni se toma nada NUEVO de esa cuenta o casa (las coberturas siguen)
+    semaforo = Semaforo(s.db_path)
+    buyer.semaforo = semaforo
+    if paper:
+        paper.gate = semaforo
     live_odds = LiveOdds(s.db_path, s.db_path.parent / "live_odds.json")  # cuota de ahora de lo abierto
     status_path = s.db_path.parent / "status.json"
     if not args.no_dashboard:
@@ -366,6 +377,8 @@ async def main() -> None:
             return False   # Kalshi/Azuro: las mide el automático; avisarlas solo satura Telegram
         if o.max_total_stake and o.max_total_stake < s.alert_min_stake:
             return False
+        if semaforo.blocks("real", {l.quote.source for l in o.legs}):
+            return False
         net = paper._net_pct(o) if paper else o.margin_pct
         if net < s.alert_min_net_pct:
             return False
@@ -380,6 +393,8 @@ async def main() -> None:
         if v.quote.source in API_EXCHANGES:
             return False   # Azuro: valor solo medido (CLV), sin avisos
         if not golden_value(v.event.live, v.ev_pct, v.quote.odds, hrs):
+            return False
+        if semaforo.blocks("valor", {v.quote.source, POLYMARKET}):
             return False
         k = f"v#{v.event.key}#{v.market}"
         if k in alerted and time.time() - alerted[k][0] < 3 * 3600:
@@ -401,6 +416,8 @@ async def main() -> None:
                 net_task = asyncio.create_task(  # noqa: F841
                     NetTracker(s.db_path, s.value_bankroll, min_total=s.value_min_total,
                                max_in_play=s.value_max_in_play).run())
+                # Cubrir en vivo (minuto 15) vs asegurar antes del partido: backtest y sombra, nunca ejecuta
+                hedge_task = asyncio.create_task(LiveHedgeTracker(s.db_path).run())  # noqa: F841
         last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
@@ -418,6 +435,11 @@ async def main() -> None:
                 except sqlite3.OperationalError as e:  # base ocupada un momento: se reintenta el próximo ciclo
                     poly.status = f"base ocupada: {e}"[:160]
                     fresh_opps, fresh_values = [], []
+                try:   # antes de avisar: así un rojo nuevo ya frena los avisos de este mismo ciclo
+                    for msg in semaforo.step(sources):
+                        await send_telegram(client, s.telegram_token, s.telegram_chat_id, msg)
+                except Exception as e:  # el semáforo nunca tumba al escáner
+                    poly.status = f"error en semáforo: {e!r}"[:160]
                 for o in fresh_opps:
                     if worth_alert(o):
                         if s.beep:
@@ -426,8 +448,11 @@ async def main() -> None:
                         oid = buyer.offer(o, s.alert_arb_stake)
                         if oid:
                             buttons += [buyer.button(oid), buyer.reject_button("pb", oid)]
+                        observe = ("\n\n⚠ CS2/Dota2: solo observación (fuera del automático y de la cuenta real). "
+                                   "1xBet suele anular estas por cuotas viejas: si la tomas, a mano y con cuidado."
+                                   if observe_only(o.event) else "")
                         await send_telegram(client, s.telegram_token, s.telegram_chat_id,
-                                            format_ready(o, s.alert_arb_stake, s.rotate_books)
+                                            format_ready(o, s.alert_arb_stake, s.rotate_books) + observe
                                             + cap_warning(buyer.in_play(), min(s.alert_arb_stake, o.max_total_stake or s.alert_arb_stake),
                                                           s.value_max_in_play), buttons)
                 for v in fresh_values:

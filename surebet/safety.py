@@ -66,3 +66,12 @@ def golden_value(live: bool, ev_pct: float, odds: float, hours_to_start: float |
 
 def blocked(o: Opportunity) -> bool:
     return any(w.startswith("⛔") for w in o.warnings)
+
+
+# Esports con cuotas viejas en 1xBet que después se anulan (18/10: CS2 30 % anuladas en el automático, Dota2 17 % en
+# la real): no entran al automático ni a la cuenta semi-manual (van a medición) y el aviso de Telegram lo advierte
+OBSERVE_SPORTS = ("esports:cs2", "esports:dota2")
+
+
+def observe_only(event, sports=OBSERVE_SPORTS) -> bool:
+    return bool(sports) and any(m.sport in sports for m, _ in event.members)

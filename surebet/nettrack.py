@@ -223,33 +223,7 @@ class NetTracker:
         return len(rows)
 
     async def _path(self, client, tokens: dict, covers: set, a: float, b: float) -> list[tuple[float, float]]:
-        """Probabilidad de lo apostado minuto a minuto según Polymarket (normalizada entre los resultados)."""
-        if b <= a:
-            return []
-        hs = {}
-        for out, tok in tokens.items():
-            try:
-                r = await client.get(f"{CLOB}/prices-history", params={
-                    "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
-                if r.status_code == 429:
-                    await asyncio.sleep(3)
-                    r = await client.get(f"{CLOB}/prices-history", params={
-                        "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
-                pts = r.json().get("history") or [] if r.status_code == 200 else []
-            except (httpx.HTTPError, ValueError):
-                return []
-            # Polymarket a veces devuelve puntos fuera del rango pedido: se filtran
-            hs[out] = {int(p["t"]) // 60: float(p["p"]) for p in pts if a <= p["t"] <= b}
-            await asyncio.sleep(0.25)  # suave con Polymarket (sin pausa a veces devuelve vacío)
-        if not hs or not all(hs.values()):
-            return []
-        mins = sorted(set.intersection(*(set(h) for h in hs.values())))
-        out = []
-        for m in mins:
-            tot = sum(h[m] for h in hs.values())
-            if tot > 0:
-                out.append((m * 60.0, sum(hs[o][m] for o in covers if o in hs) / tot))
-        return out
+        return await price_path(client, tokens, covers, a, b)
 
     def _settle(self) -> None:
         """Resultado de cada pick: asegurada = ganancia fija; sin red = resultado real de la apuesta (paper_ops)."""
@@ -272,6 +246,36 @@ class NetTracker:
             "UPDATE net_picks SET pnl_no_net = (SELECT CASE p.status WHEN 'won' THEN net_picks.stake*(net_picks.odds-1) "
             "WHEN 'lost' THEN -net_picks.stake WHEN 'void' THEN 0 END FROM paper_ops p WHERE p.key = net_picks.key) "
             "WHERE result='asegurada' AND pnl_no_net IS NULL")
+
+
+async def price_path(client, tokens: dict, covers: set, a: float, b: float) -> list[tuple[float, float]]:
+    """Probabilidad de lo apostado minuto a minuto según Polymarket (normalizada entre los resultados)."""
+    if b <= a:
+        return []
+    hs = {}
+    for out, tok in tokens.items():
+        try:
+            r = await client.get(f"{CLOB}/prices-history", params={
+                "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
+            if r.status_code == 429:
+                await asyncio.sleep(3)
+                r = await client.get(f"{CLOB}/prices-history", params={
+                    "market": tok, "startTs": int(a), "endTs": int(b), "fidelity": 1})
+            pts = r.json().get("history") or [] if r.status_code == 200 else []
+        except (httpx.HTTPError, ValueError):
+            return []
+        # Polymarket a veces devuelve puntos fuera del rango pedido: se filtran
+        hs[out] = {int(p["t"]) // 60: float(p["p"]) for p in pts if a <= p["t"] <= b}
+        await asyncio.sleep(0.25)  # suave con Polymarket (sin pausa a veces devuelve vacío)
+    if not hs or not all(hs.values()):
+        return []
+    mins = sorted(set.intersection(*(set(h) for h in hs.values())))
+    out = []
+    for m in mins:
+        tot = sum(h[m] for h in hs.values())
+        if tot > 0:
+            out.append((m * 60.0, sum(hs[o][m] for o in covers if o in hs) / tot))
+    return out
 
 
 def _lock_gain(stake: float, odds: float, limit: float) -> tuple[float, float]:

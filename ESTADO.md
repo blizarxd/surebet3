@@ -1,6 +1,6 @@
 # surebet3 · ESTADO (leer esto primero en una conversación nueva)
 
-Actualizado: 18/10/2026. Todo es **papel** (simulación): ningún dinero real ni orden enviada.
+Actualizado: 18/10/2026 (tarde). Todo es **papel** (simulación): ningún dinero real ni orden enviada.
 
 ## Dónde está todo
 - **Panel:** http://65.21.243.40/surebet/ (VPS Hetzner, `root@65.21.243.40`, `/opt/apps/surebet3`, servicio `surebet3`).
@@ -36,14 +36,24 @@ Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 
 - **Lección de código:** nunca dejar una escritura sqlite abierta durante un `await` (commit antes). Strings con `\n` en heredocs
   de Python se rompen: usar Write/Edit. `pytest | tail && deploy` esconde fallas.
 
+- **CS2 y Dota2 (18/10, decidido):** fuera del automático; en la cuenta semi-manual van a medición (observación). Telegram
+  los sigue avisando con ⚠ (a mano, con cuidado). Lista en `safety.OBSERVE_SPORTS`.
+- **Tiers de EV (18/10, decidido):** NO subir montos con EV > 7 % hasta tener más datos (suelen ser mapeo malo o cuota congelada).
+- **Semáforo de riesgo** (`surebet/semaforo.py`, arriba en el panel): 🟢 caída < 10 % y CLV a favor · 🟡 caída 10–20 % o CLV
+  negativo 3 días · 🔴 caída > 20 %, cuenta bloqueada o API caída 5 min. En rojo pausa solo entradas NUEVAS (avisos y papel);
+  las coberturas ✅/🛟 siguen. Caída > 20 % queda pausada hasta `/reanudar`; API se levanta sola. Telegram: `/semaforo`,
+  `/bloqueada <casa>`, `/reanudar`.
+- **Cubrir en vivo al minuto 15** (`surebet/livehedge.py`, pestaña Valor + red): backtest y sombra sobre los picks de valor + red;
+  compara 7 formas de cubrir (esperado sin suerte y real). Solo mide.
+
 ## Banderas de `.env` (VPS) que importan
 `AUTO_MAX_STAKE=1500`, `ALERT_ARB_STAKE=50`, `PAPER_REAL_MAX_HOURS=6`, `MY_BOOKS=...,kalshi,azuro`,
 `ODDSPAPI_BOOKMAKERS=rushbet.co,betplay,pinnacle`, `AUTOVIVO_ENABLED=0`, `LP_ENABLED=0`, `MAKER_AUTO_ENABLED=0`.
 
 ## Pendiente
-1. **Decidir:** ¿sacar CS2 y Dota2 del automático (y saltarlos en lo manual)? Sin ellos el auto da +$234 vs +$221.
-2. **Construir:** semáforo de riesgo (verde/amarillo/rojo con pausa), backtest de "cubrir en vivo" con prices-history.
-3. **Pinnacle en sombra** (pestaña Valor): esperar 1–2 semanas; ver si su EV acierta más que Polymarket y cuántas señales tienen a 1xBet a ≤1,5 %.
+1. **Leer el backtest del minuto 15** cuando se llene (de a 20 picks por minuto, ~470 picks): si esperar da más que asegurar antes.
+2. **Pinnacle en sombra** (pestaña Valor): esperar 1–2 semanas; ver si su EV acierta más que Polymarket y cuántas señales tienen a 1xBet a ≤1,5 %.
+3. Ver la hipótesis "sin CS2 ni Dota2" en el panel (antes/después) en unos días.
 4. **Usuario:** 25 toques de botones (✅ ❌ 🛟) para el semáforo de la fase 1 (lleva 5/30); luego Fase 1 real a $50 por surebet.
 5. **Antes de real automático:** programar el envío de órdenes (Polymarket, SX, Cloudbet, Kalshi, Azuro), protección de pata suelta, topes
    diarios, pausa por Telegram. Capital ~$3.000-4.000 repartido; empezar con $10-20 por surebet.

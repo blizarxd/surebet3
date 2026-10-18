@@ -36,7 +36,7 @@ import httpx
 from .arb import POLYMARKET, ValueBet, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
-from .safety import golden_value
+from .safety import OBSERVE_SPORTS, golden_value, observe_only
 from .staking import net_limit, value_stake
 
 CLOB = "https://clob.polymarket.com"
@@ -113,6 +113,8 @@ class PaperConfig:
     value_account: bool = True
     value_bankroll: float = 1000.0
     value_min_total: float = 0.0     # mínimo entre casa + red (ver surebet/staking.py)
+    # Solo observación (medición), nunca en la real ni en el automático: CS2 y Dota2 (ver safety.OBSERVE_SPORTS)
+    observe_sports: tuple = OBSERVE_SPORTS
 
 
 class PaperBook:
@@ -138,6 +140,7 @@ class PaperBook:
         self.conn.execute("INSERT OR IGNORE INTO paper_meta VALUES ('valor_started', ?)", (str(time.time()),))
         self.conn.commit()
         self.initial = float(self.conn.execute("SELECT v FROM paper_meta WHERE k='initial'").fetchone()[0])
+        self.gate = None   # semáforo de riesgo (surebet/semaforo.py): en rojo no entra nada nuevo a esa cuenta
         self._seen: dict[str, float] = {}
         self._last_settle = 0.0
 
@@ -212,7 +215,9 @@ class PaperBook:
         start = o.event.anchor.start
         return (self.cfg.min_margin_pct <= o.margin_pct < self.cfg.suspicious_margin_pct
                 and not _in_play(o.event, now) and start is not None and start.timestamp() - now <= max_hours * 3600
-                and not any(w.startswith("⛔") for w in o.warnings))
+                and not any(w.startswith("⛔") for w in o.warnings)
+                and not observe_only(o.event, self.cfg.observe_sports)
+                and not (self.gate and self.gate.blocks("auto", {l.quote.source for l in o.legs})))
 
     def _ready(self, key: str, now: float, in_play: bool, book_ts: float) -> bool:
         """¿Un humano llegaría a tiempo? Prepartido: que dure unos segundos. En vivo: aceptación diferida."""
@@ -244,6 +249,9 @@ class PaperBook:
             in_play = _in_play(o.event, now)
             risky = any(w.startswith("⛔") for w in o.warnings)  # ver surebet/safety.py
             track = "medicion" if (in_play and not self.cfg.include_live) or not self._soon(o.event, now) or risky else "real"
+            if track == "real" and (observe_only(o.event, self.cfg.observe_sports)
+                                    or (self.gate and self.gate.blocks("real", {l.quote.source for l in o.legs}))):
+                track = "medicion"   # CS2/Dota2 o semáforo en rojo: se sigue midiendo, sin tocar el saldo
             if track == "medicion" and not self.cfg.measure:
                 continue
             book_ts = min((l.quote.ts for l in o.legs if l.quote.source != POLYMARKET), default=now)
@@ -265,7 +273,8 @@ class PaperBook:
                 in_play = _in_play(v.event, now)
                 resolve = None
                 vkey = "valor#" + key[len("value#"):]
-                if self.cfg.value_account and not in_play and not self._taken(vkey):
+                if (self.cfg.value_account and not in_play and not self._taken(vkey)
+                        and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
                     st = v.event.anchor.start
                     hrs = (st.timestamp() - now) / 3600 if st else None
                     # la cuenta de valor: solo lo que se avisa (filtro "oro"), con Kelly/4

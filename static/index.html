@@ -65,6 +65,11 @@
   a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; }
   .empty { color: var(--muted); padding: 16px 4px; }
   footer { color: var(--muted); font-size: 12px; max-width: 1500px; margin: 0 auto; padding: 0 20px 30px; }
+  .sem-wrap { padding: 12px 20px 0; max-width: 1500px; margin: 0 auto; }
+  .sem-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+  .sem { background: var(--panel2); border-radius: 7px; padding: 8px 10px; border-left: 4px solid var(--green); }
+  .sem.yellow { border-left-color: var(--amber); } .sem.red { border-left-color: var(--red); } .sem.stale { border-left-color: var(--muted); }
+  .sem .small { margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -81,6 +86,7 @@
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
+<div class="sem-wrap"><section class="card" id="semaforo"><h2>⚪ Semáforo de riesgo <span class="count">cargando…</span></h2></section></div>
 <main id="tab-valor" hidden>
   <section class="card"><div class="small muted">Cuenta en papel <b>solo de apuestas de valor "oro"</b>: las mismas que te llegan por Telegram
     (prepartido, EV 2–7 %, cuota 1.6–4, empieza en ≤ 6 h). Un solo lado en la casa, sin cubrir en Polymarket. Monto: Kelly/4 con tope de 3 % del capital.
@@ -168,6 +174,20 @@
       contrario al entrar: más abajo se llena menos, pero cuando se llena asegura más. Si no se llena, queda la apuesta de valor sola.
       <b>Esperado</b> = sin suerte (las que quedan como valor cuentan su valor según el precio de cierre de Polymarket); <b>real</b> = con los resultados de los partidos.</div>
     <div class="scroll"><table id="red-levels"></table></div>
+  </section>
+  <section class="card">
+    <h2>¿Cubrir en vivo al minuto 15? <span class="count" id="lh-sum"></span></h2>
+    <div class="small muted">Backtest con los mismos picks de arriba y el precio de Polymarket minuto a minuto: lo apostado <b>justo antes del
+      inicio</b> (cierre) y <b>al minuto 15</b>. Cubrir en vivo es comprar el lado contrario como taker (medio spread de 1¢ + comisión de
+      Polymarket): deja fijo lo que valga lo apostado en ese momento. "Vamos ganando" = lo apostado subió 8 puntos o más (en fútbol, un gol).
+      <b>Esperado</b> = sin suerte (lo que queda sin cubrir vale según el último precio con el que se decidió); <b>real</b> = con los
+      resultados. "Peor pick" muestra cuánto se puede perder en uno solo. Solo mide: no ejecuta nada.</div>
+    <div class="small" id="lh-verdict" style="margin:8px 0"></div>
+    <div class="scroll"><table id="lh-all"></table></div>
+    <h2 style="margin-top:12px">Solo fútbol <span class="count" id="lh-soccer-sum"></span></h2>
+    <div class="scroll"><table id="lh-soccer"></table></div>
+    <h2 style="margin-top:12px">Últimos picks <span class="count">(cierre → minuto 15 y cuánto aseguraba cubrir en cada momento)</span></h2>
+    <div class="scroll"><table id="lh-rows"></table></div>
   </section>
   <section class="grid2">
     <div class="card"><h2>Curva de capital (con red)</h2><div class="chart-box"><canvas id="curve-red"></canvas></div></div>
@@ -953,6 +973,46 @@ function renderRed(n) {
   if (!redChart) redChart = new Chart($("curve-red"), {type: "line", data, options: {maintainAspectRatio: false, plugins: {legend: {display: false}}}});
   else { redChart.data = data; redChart.update("none"); }
 }
+function renderLiveHedge(h) {
+  if (!h) return;
+  const c = h.counts || {};
+  $("lh-sum").textContent = `(${h.all.picks} picks con cierre y minuto 15 · ${c.pendiente || 0} por revisar · ${c["sin datos"] || 0} sin historial)`;
+  $("lh-verdict").innerHTML = h.all.verdict ? `<b>${esc(h.all.verdict)}</b><br><span class="muted">Precio de lo apostado del cierre al minuto 15: ${pct(h.all.avg_move)} puntos de media
+    · subió ≥ 8 puntos en ${h.all.up} · bajó ≥ 8 en ${h.all.down}.</span>` : `<span class="muted">Todavía sin picks completos (se van llenando de a 20 por minuto).</span>`;
+  const table = (b) => `<tr><th>Estrategia</th><th class="num">Picks</th><th class="num">Cubiertas</th><th class="num">Esperado</th><th class="num">ROI esperado</th>
+    <th class="num">Real</th><th class="num">ROI real</th><th class="num">Peor pick</th></tr>` +
+    b.strategies.map((s) => `<tr><td><b>${s.id}</b> · ${esc(s.name)}</td><td class="num">${s.picks}</td><td class="num">${s.hedge_rate == null ? "-" : s.hedge_rate + "%"}</td>
+      <td class="num ${cls(s.exp)}">${money(s.exp, true)}</td><td class="num ${cls(s.exp_roi)}">${s.exp_roi == null ? "-" : pct(s.exp_roi)}</td>
+      <td class="num ${cls(s.real)}">${money(s.real, true)}</td><td class="num ${cls(s.real_roi)}">${s.real_roi == null ? "-" : pct(s.real_roi)}</td>
+      <td class="num ${cls(s.worst)}">${money(s.worst, true)}</td></tr>`).join("");
+  $("lh-all").innerHTML = h.all.picks ? table(h.all) : `<tr><td class="empty">Sin datos todavía.</td></tr>`;
+  $("lh-soccer-sum").textContent = h.soccer.picks ? `(${h.soccer.picks} picks · ${h.soccer.verdict || ""})` : "";
+  $("lh-soccer").innerHTML = h.soccer.picks ? table(h.soccer) : `<tr><td class="empty">Sin datos todavía.</td></tr>`;
+  const c100 = (p) => (100 * p).toFixed(0) + "¢";
+  $("lh-rows").innerHTML = (h.rows || []).length ? `<tr><th>Partido</th><th>Apuesta</th><th class="num">Cierre</th><th class="num">Minuto 15</th>
+    <th>Red antes</th><th class="num">Cubrir al cierre</th><th class="num">Cubrir al 15'</th><th class="num">Sin red</th></tr>` +
+    h.rows.map((r) => `<tr><td>${esc(r.title)}<div class="small muted">${when(r.start_ts)}</div></td>
+      <td class="small">${esc(r.house)}: ${money(r.stake)} @ ${Number(r.odds).toFixed(2)}</td>
+      <td class="num">${c100(r.p_pre)}</td><td class="num ${cls(r.p15 - r.p_pre)}">${c100(r.p15)}</td>
+      <td class="small">${r.red === "asegurada" ? `<span class="tag won">🔒 ${money(r.red_pnl, true)}</span>` : `<span class="tag void">no se llenó</span>`}</td>
+      <td class="num ${cls(r.lock_pre)}">${money(r.lock_pre, true)}</td><td class="num ${cls(r.lock15)}">${money(r.lock15, true)}</td>
+      <td class="num ${cls(r.no_net)}">${money(r.no_net, true)}</td></tr>`).join("") : `<tr><td class="empty">Sin picks todavía.</td></tr>`;
+}
+
+function renderSemaforo(s, now) {
+  const box = $("semaforo");
+  if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
+  const icon = {green: "🟢", yellow: "🟡", red: "🔴"}, word = {green: "verde", yellow: "amarillo", red: "rojo"};
+  const stale = now - s.ts > 300;
+  box.innerHTML = `<h2>${stale ? "⚪" : icon[s.color]} Semáforo de riesgo <span class="count">${stale
+      ? `sin actualizar desde ${when(s.ts)}: ¿escáner parado?` : `${word[s.color]} · ${esc(s.rules)}`}</span></h2>
+    <div class="sem-grid">${s.lights.map((l) => `<div class="sem ${stale ? "stale" : l.color}"><b>${icon[l.color]} ${esc(l.name)}</b>${l.paused ? ` <span class="tag lost">⏸ en pausa</span>` : ""}
+      <div class="small">${l.reasons.map(esc).join("<br>")}</div>
+      ${l.clv_days && l.clv_days.length ? `<div class="small muted">CLV por día: ${l.clv_days.slice(-5).map((d) => `${d.day} <span class="${cls(d.clv)}">${pct(d.clv, 1)}</span> (${d.n})`).join(" · ")}</div>` : ""}</div>`).join("")}</div>
+    <div class="small muted" style="margin-top:6px">En rojo no se avisa ni se toma nada nuevo de esa cuenta o casa; las coberturas (✅ / 🛟) de lo ya apostado siguen.
+      Telegram: /semaforo · /bloqueada &lt;casa&gt; (si te limitan o cierran una cuenta) · /reanudar.</div>`;
+}
+
 document.addEventListener("click", (e) => {
   const b = e.target.closest("#red-filters button"); if (!b) return;
   redFilter = b.dataset.f; document.querySelectorAll("#red-filters button").forEach((x) => x.classList.toggle("active", x === b));
@@ -1039,7 +1099,7 @@ function renderTab(tab) {
   } else if (tab === "valor") {
     renderValor(state.valor, state.value_measure); renderRefShadow(state.refshadow); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
   } else if (tab === "red") {
-    renderRed(state.netpaper);
+    renderRed(state.netpaper); renderLiveHedge(state.livehedge);
   } else if (tab === "lp") {
     renderLp(state.lp);
   } else if (tab === "co") {
@@ -1059,6 +1119,7 @@ async function refresh() {
     const alive = st.ts && state.now - st.ts < 60;
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
+    renderSemaforo(state.semaforo, state.now);
     renderTab(activeTab);
   } catch (e) {
     $("updated").textContent = "sin conexión con el panel (" + e.message + ")";

@@ -59,6 +59,13 @@ EXPERIMENTS = [
                    "minutos). Ahora se le pide el libro a cada casa a los 5 s. Si se siguen llenando ≥ 2 de cada 3 y "
                    "el neto real queda ≥ 1 %, el automático está listo para probar en real con montos chicos.",
      "kind": "auto"},
+    {"id": "auto-sin-cs2-dota2",
+     "ts": 1792338000,   # 2026-10-18: CS2 y Dota2 fuera del automático y de la cuenta semi-manual (solo medición)
+     "name": "Automático y cuenta semi-manual sin CS2 ni Dota2 (solo observación)",
+     "hypothesis": "Casi todas las anuladas y pérdidas eran esports (CS2: 30 % anuladas en el automático). Sin ellos el "
+                   "automático debería quedar con 0 anuladas y ganancia por día igual o mayor (re-calculado: +$234 vs +$221). "
+                   "Si baja mucho el volumen sin mejorar el neto, revisar.",
+     "kind": "auto"},
 ]
 
 

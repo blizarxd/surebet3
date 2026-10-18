@@ -13,6 +13,8 @@ Seguridad:
   - En real: orden límite FOK (se llena entera ya o se cancela) con precio tope = el peor nivel que
     todavía deja ganancia. Topes POLY_MAX_ORDER_USD por orden y POLY_MAX_DAILY_USD por día.
   - /pausa apaga las compras (interruptor), /activar las vuelve a encender, /estado muestra el modo.
+  - Semáforo de riesgo (surebet/semaforo.py): /semaforo lo muestra, /bloqueada <casa> marca una cuenta bloqueada
+    (pausa todo lo que la usa) y /reanudar levanta las pausas del rojo.
   - Un botón vale OFFER_TTL_S (10 min) y se usa una sola vez.
   - La clave privada vive solo en .env (POLY_PRIVATE_KEY); nunca se escribe en logs ni en la base.
 """
@@ -31,6 +33,7 @@ import httpx
 from .arb import POLYMARKET, size_legs
 from .models import BookLevel, Opportunity, market_label
 from .pricing import poly_cost_per_share, poly_fee_per_share
+from .semaforo import ICON
 
 CLOB = "https://clob.polymarket.com"
 OFFER_TTL_S = 10 * 60
@@ -84,6 +87,7 @@ class PolyBuyer:
         self._offset = 0
         self._clob = None
         self.nets = None   # ValueNet (red de seguridad de las apuestas de valor), si está activa
+        self.semaforo = None   # Semaforo (riesgo): sus comandos llegan por este mismo bot
         self.status = "demo (no envía órdenes)" if not self.live else "REAL"
 
     # ------------------------------------------------------------------ oferta (al avisar)
@@ -198,8 +202,15 @@ class PolyBuyer:
                               json={"callback_query_id": cq["id"], "text": text[:190]})
             await self._say(client, text)
         elif msg and (msg.get("text") or "").startswith("/"):
-            cmd = msg["text"].split()[0].lower()
-            if cmd == "/pausa":
+            words = msg["text"].split()
+            cmd = words[0].lower().split("@")[0]
+            if cmd in ("/semaforo", "/semáforo") and self.semaforo:
+                await self._say(client, self.semaforo.text())
+            elif cmd == "/reanudar" and self.semaforo:
+                await self._say(client, self.semaforo.resume())
+            elif cmd == "/bloqueada" and self.semaforo:
+                await self._say(client, self.semaforo.block(" ".join(words[1:])))
+            elif cmd == "/pausa":
                 self._set_paused(True)
                 await self._say(client, "⏸ Compras en Polymarket PAUSADAS. /activar para volver.")
             elif cmd == "/activar":
@@ -210,7 +221,9 @@ class PolyBuyer:
                 await self._say(client, f"Modo: {'REAL' if self.live else 'DEMO (no envía órdenes)'}\n"
                                         f"Pausado: {'sí' if self._paused() else 'no'}\n"
                                         f"Hoy: ${spent:,.2f} de ${self.max_daily:,.0f} · máx ${self.max_order:,.0f} por orden"
-                                        + (f"\nRedes esperando: {self.nets.resting()}" if self.nets else ""))
+                                        + (f"\nRedes esperando: {self.nets.resting()}" if self.nets else "")
+                                        + (f"\nSemáforo: {ICON.get(self.semaforo.state.get('color'), '⚪')} (/semaforo)"
+                                           if self.semaforo else ""))
 
     async def _say(self, client: httpx.AsyncClient, text: str) -> None:
         try:

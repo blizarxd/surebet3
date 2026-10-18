@@ -294,6 +294,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         colombia = _colombia(conn)
     except sqlite3.OperationalError:
         colombia = None
+    from .livehedge import summary as livehedge_summary
+    livehedge = livehedge_summary(conn)
     buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
     for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
                    ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
@@ -391,6 +393,10 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         status = json.loads(status_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
+    try:   # semáforo de riesgo: lo calcula el escáner cada minuto (surebet/semaforo.py)
+        semaforo = json.loads(meta.get("semaforo") or "null")
+    except ValueError:
+        semaforo = None
 
     return {
         "now": time.time(),
@@ -430,6 +436,8 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "polybuy": polybuy,
         "nets": nets,
         "netpaper": netpaper,
+        "semaforo": semaforo,
+        "livehedge": livehedge,
         "valor": {**_auto_account(valor_ops, float(meta.get("valor_initial", 1000)),
                                   float(meta.get("valor_started", time.time()))),
                   "groups": _value_groups(valor_ops)},
@@ -455,7 +463,7 @@ def _category(o: dict) -> str:
             return "Surebet en vivo"
         if o["track"] == "real":
             return "Surebet prepartido"
-        return "Surebet prepartido (lejana o sin saldo, solo medida)"
+        return "Surebet prepartido (lejana, sin saldo, CS2/Dota2 o semáforo: solo medida)"
     return "Valor en vivo" if o["live"] else "Valor prepartido"
 
 
@@ -489,7 +497,7 @@ def _measure(ops: list[dict]) -> list[dict]:
                 g["staked"] += o["total_stake"]
                 g["pnl"] += o["pnl"] or 0
         out[g["name"]] = g
-    order = ["Surebet prepartido", "Surebet prepartido (lejana o sin saldo, solo medida)", "Surebet en vivo",
+    order = ["Surebet prepartido", "Surebet prepartido (lejana, sin saldo, CS2/Dota2 o semáforo: solo medida)", "Surebet en vivo",
              "Valor prepartido", "Valor prepartido FILTRADO (oro)", "Valor en vivo"]
     rows = sorted(out.values(), key=lambda g: order.index(g["name"]) if g["name"] in order else 99)
     return [{**g, "staked": round(g["staked"], 2), "pnl": round(g["pnl"], 2), "expected": round(g["expected"], 2),
