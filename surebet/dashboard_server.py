@@ -295,7 +295,9 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     except sqlite3.OperationalError:
         colombia = None
     from .livehedge import summary as livehedge_summary
+    from .sxshadow import summary as sxshadow_summary
     livehedge = livehedge_summary(conn)
+    sxshadow = sxshadow_summary(conn)
     buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
     for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
                    ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
@@ -438,6 +440,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "netpaper": netpaper,
         "semaforo": semaforo,
         "livehedge": livehedge,
+        "sxshadow": sxshadow,
         "valor": {**_auto_account(valor_ops, float(meta.get("valor_initial", 1000)),
                                   float(meta.get("valor_started", time.time()))),
                   "groups": _value_groups(valor_ops)},

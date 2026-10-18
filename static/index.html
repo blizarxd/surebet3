@@ -40,7 +40,7 @@
   th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
   td.num, th.num { text-align: right; white-space: nowrap; }
   .scroll { overflow-x: auto; }
-  .tabs { display: flex; gap: 8px; padding: 10px 16px 0; max-width: 1400px; margin: 0 auto; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 0; max-width: 1400px; margin: 0 auto; }
   .tabs button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
                  padding: 8px 14px; font-weight: 600; cursor: pointer; }
   .tabs button.active { border-color: var(--blue); color: var(--blue); }
@@ -83,6 +83,7 @@
   <button data-tab="valor">Valor (apuestas simples)</button>
   <button data-tab="red">🔒 Valor + red (papel)</button>
   <button data-tab="auto">Automático (simulado)</button>
+  <button data-tab="sx">🤖 Valor auto SX (sombra)</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
@@ -202,6 +203,23 @@
       </span></h2>
     <div class="scroll"><table id="red-picks"></table></div>
   </section>
+</main>
+<main id="tab-sx" hidden>
+  <section class="card"><div class="small muted">¿El oro de SX es real o es cuota vieja? Con cada señal de valor <b>oro</b> (de cualquier casa) el bot
+    buscaría la misma selección en <b>SX Bet</b>, pediría su libro <b>en ese momento</b> (5 s después, como lo haría de verdad) y calcularía
+    la cuota real al monto (Kelly/4, mínimo $30 entre casa y red, con la comisión de SX). Si con esa cuota el EV contra Polymarket sigue
+    ≥ 2 %, <b>se habría llenado</b> y el bot apostaría solo; si no, la señal queda para 1xBet a mano. De las llenadas se mide el
+    <b>CLV con la cuota real</b> y el resultado (sin red; la red de Polymarket iría igual que hoy). <b>Sombra: nunca envía nada.</b>
+    Para probar en real: ≥ 100 llenadas, se llena ≥ 50 % de las que tienen SX y CLV real ≥ +1,5 %.</div>
+    <div class="small" id="sx-verdict" style="margin-top:8px"></div></section>
+  <section class="kpis" id="kpis-sx"></section>
+  <section class="grid2">
+    <div class="card"><h2>Por qué no se llenan</h2><div class="scroll"><table id="sx-reasons"></table></div></div>
+    <div class="card"><h2>Según la casa de la señal</h2><div class="scroll"><table id="sx-by-signal"></table></div>
+      <h2 style="margin-top:12px">Por deporte</h2><div class="scroll"><table id="sx-by-sport"></table></div></div>
+  </section>
+  <section class="card"><h2>Señal por señal <span class="count" id="sx-count"></span></h2>
+    <div class="scroll"><table id="sx-rows"></table></div></section>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -611,7 +629,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -999,6 +1017,45 @@ function renderLiveHedge(h) {
       <td class="num ${cls(r.no_net)}">${money(r.no_net, true)}</td></tr>`).join("") : `<tr><td class="empty">Sin picks todavía.</td></tr>`;
 }
 
+function renderSX(x) {
+  if (!x) { $("kpis-sx").innerHTML = kpi("Señales oro", "-", "todavía sin datos: arranca con el escáner nuevo"); return; }
+  const secs = (s) => s == null ? "-" : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
+  const a = x.approve;
+  $("sx-verdict").innerHTML = a.ok ? `<b class="pos">🟢 Cumple para probar en real con montos chicos.</b>`
+    : `<b class="warn">⏳ Todavía no: ${x.fills} de ${a.fills} llenadas · se llena ${x.fill_rate == null ? "-" : x.fill_rate + " %"} (meta ≥ ${a.fill_rate} %)
+       · CLV real ${x.clv == null ? "-" : pct(x.clv)} (meta ≥ +${a.clv} %).</b>`;
+  $("kpis-sx").innerHTML = [
+    kpi("Señales oro", x.signals, `${x.with_sx} con la misma selección en SX · ${x.no_sx} sin SX · ${x.pending} revisando`),
+    kpi("Se llenarían en SX", x.fill_rate == null ? "-" : x.fill_rate + "%", `${x.fills} de ${x.with_sx} con el libro real al monto`, x.fill_rate >= a.fill_rate ? "pos" : "warn"),
+    kpi("EV visto → real", `${x.ev_seen == null ? "-" : pct(x.ev_seen, 1)} → ${x.ev_real == null ? "-" : pct(x.ev_real, 1)}`, "visto: cuota de SX del escáner · real: las llenadas"),
+    kpi("Caída de la cuota de SX", x.drop_pct == null ? "-" : pct(-x.drop_pct, 1), `mediana al releer el libro · el libro del escáner tenía ${secs(x.age_med_s)}`, x.drop_pct > 1 ? "neg" : ""),
+    kpi("CLV con cuota real", x.clv == null ? "-" : pct(x.clv), x.clv_n ? `${x.clv_n} llenadas · mediana ${pct(x.clv_med)} · ${x.clv_pos} % a favor` : "cuando empiecen los partidos", cls(x.clv)),
+    kpi("Resultado sin red", money(x.pnl, true), `${x.settled} cerradas · ROI ${x.roi == null ? "-" : pct(x.roi)}`, cls(x.pnl)),
+    kpi("Aguante del libro", x.cap_med == null ? "-" : money(x.cap_med), "mediana de USDC en SX con EV ≥ 2 % (llenadas)"),
+  ].join("");
+  $("sx-reasons").innerHTML = x.reasons.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` +
+    x.reasons.map((r) => `<tr><td>${esc(r.reason)}</td><td class="num">${r.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna rechazada todavía.</td></tr>`;
+  const grp = (rows) => rows.length ? `<tr><th></th><th class="num">Con SX</th><th class="num">Llenadas</th><th class="num">CLV real</th></tr>` +
+    rows.map((g) => `<tr><td>${esc(g.name)}</td><td class="num">${g.n}</td><td class="num">${g.fills} (${g.fill_rate}%)</td>
+      <td class="num ${cls(g.clv)}">${g.clv == null ? "-" : pct(g.clv) + ` (${g.clv_n})`}</td></tr>`).join("") : `<tr><td class="empty">Sin datos.</td></tr>`;
+  $("sx-by-signal").innerHTML = grp(x.by_signal); $("sx-by-sport").innerHTML = grp(x.by_sport);
+  $("sx-count").textContent = `(últimas ${x.rows.length})`;
+  const tag = {llenada: "won", rechazada: "lost", "sin SX": "void", pendiente: "open"};
+  const res = {ganada: "won", perdida: "lost", anulada: "void", pendiente: "open"};
+  $("sx-rows").innerHTML = x.rows.length ? `<tr><th>Señal</th><th>Partido</th><th>Señal oro</th><th>SX en el escáner</th><th>SX real al monto</th>
+    <th class="num">Aguante</th><th>Qué pasó</th><th class="num">CLV real</th><th>Resultado</th></tr>` +
+    x.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td>
+      <td>${esc(r.title)}<div class="small muted">${esc(r.sport)} · ${esc(r.market)} · ${esc(r.label)} · empieza ${when(r.start_ts)}</div></td>
+      <td class="small">${esc(r.signal_source)} @ <b>${Number(r.signal_odds).toFixed(2)}</b><div class="muted">EV ${pct(r.signal_ev, 1)}</div></td>
+      <td class="small">${r.sx_seen_odds ? `@ <b>${Number(r.sx_seen_odds).toFixed(3)}</b><div class="muted">libro de ${secs(r.sx_seen_age_s)}</div>` : "-"}</td>
+      <td class="small">${r.fill_odds ? `${money(r.stake)} @ <b>${Number(r.fill_odds).toFixed(3)}</b><div class="${cls(r.ev_real)}">EV ${pct(r.ev_real, 1)}</div>` : r.stake ? `${money(r.stake)}: -` : "-"}</td>
+      <td class="num">${r.capacity == null ? "-" : money(r.capacity)}</td>
+      <td><span class="tag ${tag[r.status] || "open"}">${esc(r.status)}</span><div class="small muted">${esc(r.reason || "")}</div></td>
+      <td class="num ${cls(r.clv_real)}">${r.clv_real == null ? "-" : pct(r.clv_real, 1)}</td>
+      <td>${r.result ? `<span class="tag ${res[r.result] || "open"}">${esc(r.result)}</span>${r.pnl != null ? `<div class="small ${cls(r.pnl)}">${money(r.pnl, true)}</div>` : ""}` : "-"}</td></tr>`).join("")
+    : `<tr><td class="empty">Todavía sin señales oro.</td></tr>`;
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1100,6 +1157,8 @@ function renderTab(tab) {
     renderValor(state.valor, state.value_measure); renderRefShadow(state.refshadow); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
   } else if (tab === "red") {
     renderRed(state.netpaper); renderLiveHedge(state.livehedge);
+  } else if (tab === "sx") {
+    renderSX(state.sxshadow);
   } else if (tab === "lp") {
     renderLp(state.lp);
   } else if (tab === "co") {

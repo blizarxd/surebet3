@@ -44,6 +44,7 @@ from surebet.sources.azuro import AzuroSource
 from surebet.safety import blocked, golden_value, observe_only, risk_flags
 from surebet.semaforo import Semaforo
 from surebet.livehedge import LiveHedgeTracker
+from surebet.sxshadow import SXShadow
 from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
@@ -316,6 +317,8 @@ async def main() -> None:
     autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake, cloudbet_key=s.cloudbet_api_key) if paper else None
     refshadow = RefShadow(s.db_path) if paper else None   # Pinnacle en sombra: solo mide, no decide nada
+    # Valor automático en SX en sombra: cada señal oro con el libro de SX leído al ejecutar (nunca envía nada)
+    sxshadow = SXShadow(s.db_path, s.value_bankroll, s.value_min_total) if paper else None
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
@@ -506,6 +509,9 @@ async def main() -> None:
                                                                 book_sources=AUTO_HOUSES, modes=(POLY_FIRST,))),
                            ("maker-precio", lambda: makersim.finish_auto(client))] if s.maker_auto_enabled else []),
                         ("sombra-pinnacle", lambda: refshadow.record(res.values)),
+                        ("sombra-sx", lambda: sxshadow.step(res.values, golden_value)),
+                        ("sombra-sx-precio", lambda: sxshadow.verify(client)),
+                        ("sombra-sx-cierre", lambda: sxshadow.settle(client)),
                         ("red", lambda: nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
                                                                                        s.telegram_chat_id, t))),
                         ("vivo", lambda: (autovivo.detect(res.opps, resolution), autovivo.check(client))[1]
@@ -519,7 +525,7 @@ async def main() -> None:
                                 await out
                         except Exception as e:  # el papel nunca debe tumbar el escáner
                             poly.status = f"error en papel ({name}): {e!r}"[:160]
-                            for conn in (paper.conn, execsim.conn):
+                            for conn in (paper.conn, execsim.conn, sxshadow.conn):
                                 try:
                                     conn.rollback()
                                 except sqlite3.Error:

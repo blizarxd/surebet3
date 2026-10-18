@@ -44,14 +44,19 @@ Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 
   las coberturas ✅/🛟 siguen. Caída > 20 % queda pausada hasta `/reanudar`; API se levanta sola. Telegram: `/semaforo`,
   `/bloqueada <casa>`, `/reanudar`.
 - **Cubrir en vivo al minuto 15** (`surebet/livehedge.py`, pestaña Valor + red): backtest y sombra sobre los picks de valor + red;
-  compara 7 formas de cubrir (esperado sin suerte y real). Solo mide.
+  compara 7 formas de cubrir (esperado sin suerte y real). Solo mide. **Resultado 18/10 (385 picks): NO da más plata.** Del cierre
+  al 15' el precio se mueve +0,4 puntos de media; cubrir en vivo como taker cuesta ~5 % del monto (D −0,2 %, C −1,2 % esperado);
+  red actual +2,1 %; red + minuto 15 si vamos ganando +2,5 % (+$19 en 385 picks, ruido). Se deja la red como está.
+- **Valor automático en SX en sombra** (`surebet/sxshadow.py`, pestaña 🤖): cada señal oro se prueba contra el libro de SX leído al
+  ejecutar (5 s), al monto. Motivo: el escáner refresca SX cada 5 min (1–6 h antes) y en el automático 15 de 20 intentos con SX
+  fallaron por cuota real ~5 % más baja. Aprobar si ≥ 100 llenadas, ≥ 50 % llenadas y CLV real ≥ +1,5 %.
 
 ## Banderas de `.env` (VPS) que importan
 `AUTO_MAX_STAKE=1500`, `ALERT_ARB_STAKE=50`, `PAPER_REAL_MAX_HOURS=6`, `MY_BOOKS=...,kalshi,azuro`,
 `ODDSPAPI_BOOKMAKERS=rushbet.co,betplay,pinnacle`, `AUTOVIVO_ENABLED=0`, `LP_ENABLED=0`, `MAKER_AUTO_ENABLED=0`.
 
 ## Pendiente
-1. **Leer el backtest del minuto 15** cuando se llene (de a 20 picks por minuto, ~470 picks): si esperar da más que asegurar antes.
+1. **Sombra de SX** (pestaña 🤖): revisar en 1–2 semanas si cumple para probar en real con montos chicos.
 2. **Pinnacle en sombra** (pestaña Valor): esperar 1–2 semanas; ver si su EV acierta más que Polymarket y cuántas señales tienen a 1xBet a ≤1,5 %.
 3. Ver la hipótesis "sin CS2 ni Dota2" en el panel (antes/después) en unos días.
 4. **Usuario:** 25 toques de botones (✅ ❌ 🛟) para el semáforo de la fase 1 (lleva 5/30); luego Fase 1 real a $50 por surebet.
