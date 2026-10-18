@@ -142,6 +142,15 @@ class Settings:
     auto_max_stake: float = field(default_factory=lambda: _f("AUTO_MAX_STAKE", 500))
     # Monto por surebet en los avisos de Telegram y el botón ✅ (fase en real); el papel sigue con PAPER_ARB_STAKE
     alert_arb_stake: float = field(default_factory=lambda: _f("ALERT_ARB_STAKE", _f("PAPER_ARB_STAKE", 100)))
+    # Ejecutor REAL de Azuro + Polymarket (surebet/executor.py): off | dry (anota lo que haría, sin enviar) | live
+    auto_exec: str = field(default_factory=lambda: os.getenv("AUTO_EXEC", "dry").strip().lower())
+    auto_max_per_op: float = field(default_factory=lambda: _f("AUTO_MAX_PER_OP", 30))   # Azuro + Polymarket por jugada
+    auto_max_daily: float = field(default_factory=lambda: _f("AUTO_MAX_DAILY", 150))
+    auto_max_open: int = field(default_factory=lambda: int(_f("AUTO_MAX_OPEN", 6)))
+    # Wallet de Azuro (Polygon, USDT): si no se pone, la misma clave que Polymarket. Solo en el .env del VPS.
+    azuro_private_key: str = field(default_factory=lambda: os.getenv("AZURO_PRIVATE_KEY", "") or os.getenv("POLY_PRIVATE_KEY", ""),
+                                   repr=False)
+    azuro_affiliate: str = field(default_factory=lambda: os.getenv("AZURO_AFFILIATE", ""))
     # Tope de dinero en juego a la vez en valor + red (1xBet + órdenes de Polymarket) mientras se resuelven
     value_max_in_play: float = field(default_factory=lambda: _f("VALUE_MAX_IN_PLAY", 1000))
     alert_min_margin_pct: float = field(default_factory=lambda: _f("ALERT_MIN_MARGIN_PCT", 1.0))

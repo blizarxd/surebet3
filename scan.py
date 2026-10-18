@@ -45,6 +45,7 @@ from surebet.safety import blocked, golden_value, observe_only, risk_flags
 from surebet.semaforo import Semaforo
 from surebet.livehedge import LiveHedgeTracker
 from surebet.sxshadow import SXShadow
+from surebet.executor import Executor
 from surebet.dashboard_server import build_state
 from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
@@ -328,6 +329,18 @@ async def main() -> None:
     buyer.semaforo = semaforo
     if paper:
         paper.gate = semaforo
+    # Ejecutor real Azuro + Polymarket: por defecto "dry" (anota lo que haría); "live" solo con AUTO_EXEC=live y claves
+    executor = (Executor(s.db_path, buyer, nets, semaforo, s.auto_exec, s.auto_max_per_op, s.auto_max_daily,
+                         s.auto_max_open, s.azuro_private_key, s.azuro_affiliate,
+                         (s.telegram_token, s.telegram_chat_id)) if paper and s.auto_exec != "off" else None)
+    if executor and sxshadow:
+        sxshadow.on_fill = executor.queue_value
+
+    def on_auto_fill(o, plan):
+        """El automático confirmó la surebet con el precio real: cuenta en papel y, si es Azuro + Polymarket, al ejecutor."""
+        paper.enter_auto(o, plan, resolution(o.event, o.market))
+        if executor:
+            executor.queue_arb(o, plan)
     live_odds = LiveOdds(s.db_path, s.db_path.parent / "live_odds.json")  # cuota de ahora de lo abierto
     status_path = s.db_path.parent / "status.json"
     if not args.no_dashboard:
@@ -411,6 +424,9 @@ async def main() -> None:
     async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         if not args.once and not args.cycles:
             await send_telegram(client, s.telegram_token, s.telegram_chat_id, format_startup(sources, s))
+            if executor and executor.mode == "live":
+                await send_telegram(client, s.telegram_token, s.telegram_chat_id,
+                                    f"🤖 Ejecutor REAL de Azuro + Polymarket ACTIVO · {executor.status}. /pausa lo frena.")
             bot_task = asyncio.create_task(buyer.run())  # botones y comandos de Telegram  # noqa: F841
             if paper:  # "Valor + red" en papel: backtest de lo anotado y seguimiento pick por pick
                 # Recompensas Polymarket: apagado el 13/10 (base −$42, protegida −$16: las llenadas se comen lo cobrado)
@@ -421,6 +437,8 @@ async def main() -> None:
                                max_in_play=s.value_max_in_play).run())
                 # Cubrir en vivo (minuto 15) vs asegurar antes del partido: backtest y sombra, nunca ejecuta
                 hedge_task = asyncio.create_task(LiveHedgeTracker(s.db_path).run())  # noqa: F841
+                # Ejecutor de Azuro + Polymarket (dry por defecto): su propia tarea, las confirmaciones tardan segundos
+                exec_task = asyncio.create_task(executor.run()) if executor else None  # noqa: F841
         last_clv = time.time()
         last_beat = 0.0
         with nullcontext() if args.headless else Live(console=console, auto_refresh=False, transient=False) as live:
@@ -497,8 +515,7 @@ async def main() -> None:
                         ("papel", lambda: paper.consider([o for o in res.opps if not any(
                             l.quote.source in API_EXCHANGES for l in o.legs)],
                             [v for v in res.values if v.quote.source not in API_EXCHANGES - {"azuro"}], resolution)),
-                        ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, lambda o, plan:
-                                                            paper.enter_auto(o, plan, resolution(o.event, o.market)))),
+                        ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, on_auto_fill)),
                         ("ejecución", lambda: execsim.verify(client)),
                         ("cuotas", lambda: live_odds.update(res.clusters)),
                         ("maker", lambda: (makersim.step_value(res.values, golden_value),

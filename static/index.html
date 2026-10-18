@@ -249,6 +249,14 @@
   <section class="card"><h2>Apuestas de valor en casas colombianas <span class="count" id="co-vb-sum"></span></h2><div class="scroll"><table id="co-vb"></table></div></section>
 </main>
 <main id="tab-auto" hidden>
+  <section class="card"><h2>🤖 Ejecutor real Azuro + Polymarket <span class="count" id="ex-sum"></span></h2>
+    <div class="small muted">Sin clics: (A) surebets Azuro + Polymarket confirmadas con el precio real — primero Azuro y, si la acepta,
+      Polymarket con las shares que igualan su cobro; si Polymarket no se llena reintenta cada minuto y cubre aunque cueste hasta 1 %, y si no
+      queda como apuesta de valor —, y (B) valor + red en Azuro: la apuesta en Azuro y la red 🛟 en Polymarket. En <b>dry</b> solo anota lo que
+      haría (lee los precios reales, no firma ni envía); en <b>live</b> apuesta de verdad. Frenos: semáforo en rojo, /pausa, mismo partido una vez,
+      nada a menos de 10 min del inicio, topes por jugada y por día.</div>
+    <div class="kpis" id="ex-kpis" style="margin-top:10px"></div>
+    <div class="scroll" style="margin-top:10px"><table id="ex-rows"></table></div></section>
   <section class="card"><h2>⚡ Automático EN VIVO (simulado) <span class="count" id="av-sum"></span></h2>
     <div class="small muted">Surebets en juego con todas las patas por API (Polymarket, Cloudbet, SX). El bot espera el retraso real de
       aceptación de la casa más lenta y <b>vuelve a pedir el precio de cada pata a cada casa</b>; solo cuenta como llenada si todas siguen en su
@@ -577,6 +585,31 @@ function renderRefShadow(r) {
       <td class="num">${x.odds.toFixed(2)}</td><td class="num">${x.pin_odds.toFixed(2)}</td><td class="num ${x.dist <= 1.5 ? "pos" : ""}">${pct(x.dist)}</td>
       <td class="num ${cls(x.ev_pol)}">${pct(x.ev_pol)}</td><td class="num ${cls(x.ev_pin)}">${pct(x.ev_pin)}</td>
       <td class="num ${cls(x.clv)}">${x.clv == null ? "-" : pct(x.clv)}</td></tr>`).join("");
+}
+
+function renderExecutor(x) {
+  if (!x) { $("ex-sum").textContent = "(todavía sin datos)"; return; }
+  const c = x.config || {};
+  $("ex-sum").textContent = `(modo ${c.mode || "-"}${c.wallet ? " · wallet " + c.wallet : ""})`;
+  const mode = c.mode || "dry";
+  const mine = (x.by[mode] || []);
+  const sum = (f) => mine.filter(f).reduce((a, g) => a + g.n, 0);
+  $("ex-kpis").innerHTML = [
+    kpi("Modo", mode === "live" ? "🔴 LIVE" : mode === "dry" ? "🧪 dry" : "apagado", esc(c.status || ""), mode === "live" ? "neg" : ""),
+    kpi("Comprometido hoy", money(x.today[mode] || 0), `tope $${c.max_per_op ?? "-"} por jugada · $${c.max_daily ?? "-"} por día`),
+    kpi("Surebets", sum((g) => g.kind === "arb" && ["covered", "dry"].includes(g.status)), `cubiertas · ${sum((g) => g.kind === "arb" && g.status === "loose")} patas sueltas · ${sum((g) => g.kind === "arb" && g.status === "rejected")} no entraron`),
+    kpi("Valor + red", sum((g) => g.kind === "value" && ["value", "dry"].includes(g.status)), `apostadas · ${sum((g) => g.kind === "value" && g.status === "rejected")} no entraron`),
+  ].join("");
+  const tag = {covered: "won", value: "won", dry: "open", loose: "lost", rejected: "void", error: "lost", placing: "open"};
+  $("ex-rows").innerHTML = x.rows.length ? `<tr><th>Cuándo</th><th>Jugada</th><th>Partido</th><th>Azuro</th><th>Polymarket</th><th class="num">Total</th>
+    <th class="num">Neto / EV</th><th>Estado</th></tr>` + x.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}<div class="muted">${esc(r.mode)}</div></td>
+      <td class="small">${r.kind === "arb" ? "surebet" : "valor + red"}</td>
+      <td>${esc(r.title)}<div class="small muted">${esc(r.market)} · empieza ${when(r.start_ts)}</div></td>
+      <td class="small">${money(r.az_stake)} a «${esc(r.label)}» @ ${r.az_odds ? Number(r.az_odds).toFixed(3) : "-"}<div class="muted">mínima ${Number(r.az_min_odds || 0).toFixed(3)} · ${esc(r.az_state || "")}${r.az_fee ? ` · comisión $${r.az_fee}` : ""}</div></td>
+      <td class="small">${r.poly_label ? `${esc(r.poly_label)}: ${r.poly_shares ?? "-"} shares${r.poly_spent ? ` por ${money(r.poly_spent)}` : ""}<div class="muted">${esc(r.poly_status || "")}</div>` : "-"}</td>
+      <td class="num">${money(r.total)}</td><td class="num ${cls(r.net_pct)}">${r.net_pct == null ? "-" : pct(r.net_pct)}</td>
+      <td><span class="tag ${tag[r.status] || "open"}">${esc(r.status)}</span><div class="small muted">${esc(r.reason || "")}</div></td></tr>`).join("")
+    : `<tr><td class="empty">Todavía no hubo jugadas aptas.</td></tr>`;
 }
 
 function renderAutoBreakdown(b) {
@@ -1200,7 +1233,7 @@ function renderTab(tab) {
   } else if (tab === "co") {
     renderCo(state.colombia, st);
   } else if (tab === "auto") {
-    renderAutoVivo(state.autovivo); renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
+    renderExecutor(state.executor); renderAutoVivo(state.autovivo); renderExec(state.execsim); renderAuto(state.auto); renderFunnel(state.funnel);
     renderMaker(state.maker && (state.maker.book_first || state.maker)); renderMakerPF(state.maker && state.maker.poly_first);
   }
 }

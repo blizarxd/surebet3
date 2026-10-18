@@ -24,6 +24,7 @@ import time
 
 import httpx
 
+from .alerts import BOOK_NAMES
 from .makersim import TICK, VALUE_LOCK_PCT, value_hedge
 from .models import BookLevel, market_label
 from .polybuy import CLOB, PolyBuyer, walk_shares
@@ -86,11 +87,12 @@ class ValueNet:
     # ------------------------------------------------------------------ al tocar el botón
     async def click(self, client: httpx.AsyncClient, net_id: int) -> str:
         row = self.conn.execute("SELECT created_ts, title, start_ts, token, label, fee_rate, fee_exp, shares, limit_price, "
-                                "book_label, book_odds, book_stake, status FROM value_nets WHERE id=?",
+                                "book_label, book_odds, book_stake, status, book_source FROM value_nets WHERE id=?",
                                 (net_id,)).fetchone()
         if not row:
             return "No encontré esa apuesta."
-        created, title, start, token, label, fee_rate, fee_exp, shares, limit, blabel, bodds, bstake, status = row
+        created, title, start, token, label, fee_rate, fee_exp, shares, limit, blabel, bodds, bstake, status, house = row
+        house = BOOK_NAMES.get(house, house or "1xBet")
         now = time.time()
 
         def done(st: str, reason: str, **kw) -> str:
@@ -122,7 +124,8 @@ class ValueNet:
                       key=lambda l: l.price)
         tick = float(book.get("tick_size") or TICK)
         payout = bstake * bodds
-        intro = f"{title}: apostaste ${bstake:,.2f} a «{blabel}» @ {bodds:.2f} en 1xBet (si fue otro monto, avísame)."
+        intro = (f"{title}: apostaste ${bstake:,.2f} a «{blabel}» @ {bodds:.2f} en {house}"
+                 + (" (si fue otro monto, avísame)." if house in ("1xBet", "1xbet") else "."))
 
         # ¿El precio ya llegó? Entonces comprar al instante, si aun con comisión queda ganancia segura
         if asks and asks[0].price <= limit + 1e-9:

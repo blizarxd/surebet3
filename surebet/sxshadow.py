@@ -138,6 +138,9 @@ class SXShadow:
         self.cloudbet_key = cloudbet_key
         self.houses = tuple(h for h in HOUSES if h != "cloudbet" or cloudbet_key)
         self._last_settle = 0.0
+        # El ejecutor real (surebet/executor.py) recibe las llenadas: on_fill(señal, cuota de la casa, monto, cuota real, p)
+        self.on_fill = None
+        self._orig: dict[str, tuple] = {}   # clave -> (señal, cuota de la casa) mientras se revisa
 
     # ------------------------------------------------------------------ cada ciclo
     def step(self, values, is_gold) -> int:
@@ -170,6 +173,7 @@ class SXShadow:
                                           min_total=self.min_total, limit=net_limit(q.odds)), 2)
                 rows.append((f"{sel}#{house}", *common, house, q.ref, round(q.odds, 4), round(now - q.ts, 1), stake,
                              "pendiente", None, *polys))
+                self._orig[f"{sel}#{house}"] = (v, q)
         self.conn.executemany(
             "INSERT OR IGNORE INTO sx_shadow (key, created_ts, start_ts, title, sport, market, label, covers, signal_source, "
             "signal_odds, signal_ev, fair_prob, house, sx_ref, sx_seen_odds, sx_seen_age_s, stake, status, reason, tokens, "
@@ -204,6 +208,13 @@ class SXShadow:
         self.conn.executemany("UPDATE sx_shadow SET status=?, reason=?, fill_odds=?, ev_real=?, capacity=?, result=?, "
                               "checked_ts=? WHERE key=?", updates)
         self.conn.commit()
+        for status, _reason, odds, _ev, _cap, _res, _ts, key in updates:
+            orig = self._orig.pop(key, None)
+            if status == "llenada" and orig and self.on_fill:
+                stake, fair = next((s, f) for k, _h, _r, s, f, _sg in rows if k == key)
+                self.on_fill(orig[0], orig[1], stake, odds, fair)
+        live = {k for (k,) in self.conn.execute("SELECT key FROM sx_shadow WHERE status='pendiente'")}
+        self._orig = {k: v for k, v in self._orig.items() if k in live}
         return len(rows)
 
     async def settle(self, client: httpx.AsyncClient, every_s: float = SETTLE_EVERY_S) -> int:

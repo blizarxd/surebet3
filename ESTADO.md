@@ -55,6 +55,19 @@ Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 
   +$110 (2 de $940–1.060 con margen 4–5,6 %). Con tope $30 por surebet: +$6,83 (+$15,88 sin CS2/Dota2, ~$2/día); $100: ~$6/día;
   $300: ~$15/día. 8 de las 9 anuladas eran CS2. Desglose en la pestaña Automático.
 
+- **Ejecutor REAL Azuro + Polymarket** (`surebet/executor.py`, `surebet/azuro_exec.py`; tarjeta arriba en la pestaña Automático):
+  (A) surebets Azuro + Polymarket confirmadas con precio real: primero Azuro, si la acepta Polymarket FOK con shares enteras;
+  pata suelta → reintenta cada minuto, cubre si pierde ≤ 1 %, si no queda como valor y avisa. (B) valor + red en Azuro (lo que
+  la sombra da por llenado): Azuro + red 🛟. Modo `AUTO_EXEC=dry` por defecto (lee precios reales, no firma ni envía).
+  Firma EIP-712 verificada contra @azuro-org/toolkit 7.2.0. Topes: `AUTO_MAX_PER_OP=30`, `AUTO_MAX_DAILY=150`, `AUTO_MAX_OPEN=6`.
+  **Para pasar a live:** wallet nueva solo para el bot (Polygon) con USDT (Azuro), USDC en Polymarket y ~0,5 POL; el usuario
+  pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
+  `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente
+  de herramienta; se puede desde bookmaker.xyz con la misma wallet).
+- **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
+  +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
+  +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.
+
 ## Banderas de `.env` (VPS) que importan
 `AUTO_MAX_STAKE=1500`, `ALERT_ARB_STAKE=50`, `PAPER_REAL_MAX_HOURS=6`, `MY_BOOKS=...,kalshi,azuro`,
 `ODDSPAPI_BOOKMAKERS=rushbet.co,betplay,pinnacle`, `AUTOVIVO_ENABLED=0`, `LP_ENABLED=0`, `MAKER_AUTO_ENABLED=0`.

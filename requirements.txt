@@ -3,3 +3,5 @@ rapidfuzz>=3.9
 rich>=13.7
 python-dotenv>=1.0
 pytest>=8.0
+# Solo para operar en real (botón ✅/🛟 y ejecutor de Azuro + Polymarket): trae eth-account para firmar
+py-clob-client>=0.17
