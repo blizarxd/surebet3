@@ -161,18 +161,21 @@ def evaluate(rows: list[dict]) -> list[dict]:
             for s in out.values()]
 
 
+def _usd(x: float) -> str:
+    return f"{'+' if x >= 0 else '−'}${abs(x):,.2f}"
+
+
 def _block(rows: list[dict]) -> dict:
     moves = [r["p15"] - r["p_pre"] for r in rows]
     strat = evaluate(rows)
     by = {s["id"]: s for s in strat}
     verdict = None
-    if rows:
-        now_best = max((by["B"], by["C"]), key=lambda s: s["exp"])
-        wait_best = max((by[k] for k in "DEFG"), key=lambda s: s["exp"])
-        diff = wait_best["exp"] - now_best["exp"]
-        verdict = (f"Esperar al minuto 15 (mejor variante: {wait_best['id']}) da {'+' if diff >= 0 else '−'}${abs(diff):,.2f} "
-                   f"esperados vs asegurar antes del partido ({now_best['id']}) en {len(rows)} picks: "
-                   + ("MÁS plata." if diff > 0 else "MENOS plata: conviene seguir asegurando antes."))
+    if rows:   # se compara lo comparable: cubrir siempre (C vs D) y la red actual con o sin el minuto 15 (B vs F)
+        avg = 100 * sum(moves) / len(moves)
+        verdict = (f"Cubrir siempre: al minuto 15 (D) {_usd(by['D']['exp'])} vs justo antes del inicio (C) "
+                   f"{_usd(by['C']['exp'])} esperados. Sumar el minuto 15 a la red actual (F) da {_usd(by['F']['exp'] - by['B']['exp'])} "
+                   f"vs solo la red (B) en {len(rows)} picks. Del cierre al minuto 15 lo apostado se movió {avg:+.1f} puntos de "
+                   "media: esperar no crea plata por sí solo, y E rinde como no cubrir (A) porque casi nunca cubre.")
     return {"picks": len(rows), "strategies": strat, "verdict": verdict,
             "avg_move": round(100 * sum(moves) / len(moves), 2) if moves else None,
             "up": sum(m >= JUMP for m in moves), "down": sum(m <= -JUMP for m in moves)}
