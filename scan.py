@@ -47,6 +47,7 @@ from surebet.dashboard_server import serve as serve_dashboard
 from surebet.paper import PaperBook, PaperConfig
 from surebet.execsim import ExecSimulator
 from surebet.makersim import AUTO_HOUSES, MakerSimulator, POLY_FIRST, book_ref
+from surebet.pinnacle import RefShadow
 from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
 from surebet.nettrack import NetTracker
@@ -308,6 +309,7 @@ async def main() -> None:
     # automático en vivo (simulado): descartado, solo corre con AUTOVIVO_ENABLED=1
     autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake, cloudbet_key=s.cloudbet_api_key) if paper else None
+    refshadow = RefShadow(s.db_path) if paper else None   # Pinnacle en sombra: solo mide, no decide nada
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)
@@ -473,11 +475,12 @@ async def main() -> None:
                         ("cuotas", lambda: live_odds.update(res.clusters)),
                         ("maker", lambda: (makersim.step_value(res.values, golden_value),
                                            makersim.step(res.opps, poly_quotes, paper.eligible_real, res.book_quotes))),
-                        # Automático como maker: límite en Polymarket y, al llenarse, precio real de la otra casa
-                        ("maker-auto", lambda: makersim.step(res.opps, poly_quotes, paper.eligible_auto, res.book_quotes,
-                                                             track="auto", book_sources=AUTO_HOUSES,
-                                                             modes=(POLY_FIRST,))),
-                        ("maker-precio", lambda: makersim.finish_auto(client)),
+                        # Automático como maker (apagado por defecto: perdía; se enciende con MAKER_AUTO_ENABLED=1)
+                        *([("maker-auto", lambda: makersim.step(res.opps, poly_quotes, paper.eligible_auto,
+                                                                res.book_quotes, track="auto",
+                                                                book_sources=AUTO_HOUSES, modes=(POLY_FIRST,))),
+                           ("maker-precio", lambda: makersim.finish_auto(client))] if s.maker_auto_enabled else []),
+                        ("sombra-pinnacle", lambda: refshadow.record(res.values)),
                         ("red", lambda: nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
                                                                                        s.telegram_chat_id, t))),
                         ("vivo", lambda: (autovivo.detect(res.opps, resolution), autovivo.check(client))[1]

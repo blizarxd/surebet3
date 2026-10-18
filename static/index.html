@@ -87,6 +87,13 @@
     Cada apuesta muestra la cuota tomada, la cuota justa de Polymarket al entrar, el <b>CLV</b> (si la cuota que tomaste era mejor que el precio de cierre:
     es la mejor señal de ventaja real) y el resultado. Puede perder apuestas sueltas: se gana a largo plazo si el CLV es positivo.</div></section>
   <section class="kpis" id="kpis-valor"></section>
+  <section class="card"><h2>Referencia: Polymarket vs Pinnacle <span class="count">(en sombra, no cambia ninguna apuesta)</span></h2>
+    <div class="small muted">En cada señal de valor de 1xBet donde Pinnacle también tiene cuotas, se calcula el EV con las dos referencias.
+      <b>Si Pinnacle está de acuerdo</b> (EV ≥ 1 %) el CLV debería ser mejor que cuando <b>no lo está</b> (EV &lt; 0): así se ve cuál referencia acierta.
+      «Distancia» = cuánto más paga 1xBet que Pinnacle por lo mismo. Overtime toma sus cuotas de Pinnacle y les resta su margen, así que
+      si Pinnacle ya está a más de 1,5 % de 1xBet, Overtime no sirve como reemplazo.</div>
+    <div class="kpis" id="ref-kpis"></div>
+    <div class="scroll" style="max-height:320px;overflow-y:auto"><table id="ref-rows"></table></div></section>
   <section class="card"><h2>Entradas activas <span class="count" id="act-valor-sum"></span></h2>
     <div class="small muted">Si la cuota de ahora es más baja que la de entrada, entraste a mejor precio que el mercado (buena señal: CLV a favor).
       Si sigue igual o más alta, todavía se puede apostar.</div>
@@ -239,7 +246,7 @@
     <div class="small muted">Apuesta de valor en esa casa + orden límite de red en Polymarket. «Con $50» = lo que habría dado con un
       mínimo de $50 entre casa y red (hoy se mide con $30). Sin red = si solo se hubiera dejado la apuesta de valor.</div>
     <div class="scroll"><table id="valor-house"></table></div></section>
-  <section class="card"><h2>Automático como maker en Polymarket <span class="count">(desde 14/10)</span></h2>
+  <section class="card"><h2>Automático como maker en Polymarket <span class="count">(APAGADO 18/10: −$26 en 148 intentos; solo Azuro y Cloudbet daban ganancia)</span></h2>
     <div class="small muted">En vez de comprar en Polymarket al precio que está (pagando comisión), el bot deja una orden límite y espera;
       cuando se llena, le pide a la otra casa su precio de ese momento y cubre. Si ya no se puede cubrir, deshace vendiendo.
       Se compara con comprar al instante.</div>
@@ -507,6 +514,24 @@ document.addEventListener("click", (e) => {
 });
 
 let autoChart = null;
+function renderRefShadow(r) {
+  if (!r || !r.n) { $("ref-kpis").innerHTML = `<div class="card empty">Esperando señales de valor donde Pinnacle tenga cuota (OddsPapi: solo fútbol y cada pocas horas).</div>`; $("ref-rows").innerHTML = ""; return; }
+  const g = (x) => x && x.with_clv ? `${pct(x.clv)} · ${x.clv_pos}% a favor (${x.with_clv})` : `sin CLV todavía (${x ? x.n : 0})`;
+  $("ref-kpis").innerHTML = [
+    kpi("Señales comparadas", String(r.n), r.coverage_of ? `de ${r.coverage_of} de 1xBet (Pinnacle cubre las de fútbol de cada ronda)` : ""),
+    kpi("EV medio", `Polymarket ${pct(r.avg_ev_pol)} · Pinnacle ${pct(r.avg_ev_pin)}`, `diferencia media ${pct(r.avg_divergence)}`),
+    kpi("Error vs cierre", r.closed ? `Pol ${r.err_pol} pts · Pin ${r.err_pin} pts` : "-", `${r.closed} con cierre medido (el cierre es de Polymarket: lo favorece)`),
+    kpi("CLV si Pinnacle está de acuerdo", g(r.agree), "EV de Pinnacle ≥ 1 %", cls(r.agree && r.agree.clv)),
+    kpi("CLV si NO está de acuerdo", g(r.disagree), "EV de Pinnacle < 0 %", cls(r.disagree && r.disagree.clv)),
+    kpi("¿Overtime serviría?", `${r.apt} de ${r.n}`, `1xBet a ≤ 1,5 % de Pinnacle · distancia media ${pct(r.avg_dist)}`),
+  ].join("");
+  $("ref-rows").innerHTML = `<tr><th>Cuándo</th><th>Partido</th><th class="num">1xBet</th><th class="num">Pinnacle</th><th class="num">Distancia</th><th class="num">EV Polymarket</th><th class="num">EV Pinnacle</th><th class="num">CLV</th></tr>` +
+    r.rows.map((x) => `<tr><td class="small nowrap">${when(x.ts)}</td><td>${esc(x.title)}<div class="muted small">${esc(x.selection)}</div></td>
+      <td class="num">${x.odds.toFixed(2)}</td><td class="num">${x.pin_odds.toFixed(2)}</td><td class="num ${x.dist <= 1.5 ? "pos" : ""}">${pct(x.dist)}</td>
+      <td class="num ${cls(x.ev_pol)}">${pct(x.ev_pol)}</td><td class="num ${cls(x.ev_pin)}">${pct(x.ev_pin)}</td>
+      <td class="num ${cls(x.clv)}">${x.clv == null ? "-" : pct(x.clv)}</td></tr>`).join("");
+}
+
 function renderAuto(au) {
   if (!au) return;
   renderKpis(au.account, "kpis-auto"); renderRisk("risk-auto", au.risk); activeTable("act-auto", au.ops);
@@ -650,7 +675,7 @@ function isGold(o) {  // mismo filtro que surebet/safety.py:golden_value
 document.addEventListener("click", (e) => {
   const b = e.target.closest("#vm-filters button"); if (!b) return;
   vmFilter = b.dataset.f; document.querySelectorAll("#vm-filters button").forEach((x) => x.classList.toggle("active", x === b));
-  if (state) renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net);
+  if (state) renderValor(state.valor, state.value_measure); renderRefShadow(state.refshadow); renderValueNet(state.maker && state.maker.value_net);
 });
 
 function renderValueNet(v) {
@@ -1012,7 +1037,7 @@ function renderTab(tab) {
     $("sources").innerHTML = (st.sources || []).map((s) => `<div><b>${esc(s.name)}</b>: ${esc(s.status)}</div>`).join("") || '<span class="muted">sin datos</span>';
     $("skips").innerHTML = state.skips.length ? `<tr><th>Motivo</th><th class="num">Veces</th></tr>` + state.skips.map((s) => `<tr><td>${esc(s.reason)}</td><td class="num">${s.n}</td></tr>`).join("") : `<tr><td class="empty">Ninguna.</td></tr>`;
   } else if (tab === "valor") {
-    renderValor(state.valor, state.value_measure); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
+    renderValor(state.valor, state.value_measure); renderRefShadow(state.refshadow); renderValueNet(state.maker && state.maker.value_net); renderNets(state.nets);
   } else if (tab === "red") {
     renderRed(state.netpaper);
   } else if (tab === "lp") {

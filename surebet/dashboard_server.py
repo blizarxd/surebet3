@@ -269,6 +269,11 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     except sqlite3.OperationalError:
         valor_house = []
     try:
+        from .pinnacle import summary as refshadow_summary
+        refshadow = refshadow_summary(conn)
+    except sqlite3.OperationalError:
+        refshadow = {"n": 0}
+    try:
         funnel = _auto_funnel(conn)
     except sqlite3.OperationalError:
         funnel = None
@@ -414,6 +419,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
                  "resim": _resim_totals(auto_ops) if resim else None,
                  "maker_auto": maker_auto, "valor_house": valor_house},
         "funnel": funnel,
+        "refshadow": refshadow,
         "lp": lp,
         "colombia": colombia,
         "autovivo": {**_auto_account(autovivo_ops, float(meta.get("autovivo_initial", 1000)),
