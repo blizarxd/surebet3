@@ -317,8 +317,8 @@ async def main() -> None:
     autovivo = LiveAutoSimulator(s.db_path, s.cloudbet_api_key) if paper and s.autovivo_enabled else None
     makersim = MakerSimulator(s.db_path, s.paper_arb_stake, cloudbet_key=s.cloudbet_api_key) if paper else None
     refshadow = RefShadow(s.db_path) if paper else None   # Pinnacle en sombra: solo mide, no decide nada
-    # Valor automático en SX en sombra: cada señal oro con el libro de SX leído al ejecutar (nunca envía nada)
-    sxshadow = SXShadow(s.db_path, s.value_bankroll, s.value_min_total) if paper else None
+    # Valor automático en sombra (SX, Azuro, Cloudbet): cada señal oro con el precio leído al ejecutar (nunca envía nada)
+    sxshadow = SXShadow(s.db_path, s.value_bankroll, s.value_min_total, s.cloudbet_api_key) if paper else None
     buyer = PolyBuyer(s.db_path, s.telegram_token, s.telegram_chat_id, live=s.poly_live,
                       private_key=s.poly_private_key, funder=s.poly_funder, signature_type=s.poly_signature_type,
                       max_order_usd=s.poly_max_order_usd, max_daily_usd=s.poly_max_daily_usd)

@@ -1,18 +1,21 @@
 """
-Valor automático en SX Bet, EN SOMBRA (nunca envía nada): ¿el oro de SX es real o es cuota vieja?
+Valor automático EN SOMBRA (nunca envía nada) en las casas que se operan por API: SX Bet, Azuro y Cloudbet.
+¿El oro de esas casas es real o es cuota vieja? ¿Alguna puede reemplazar a 1xBet en valor + red sin clics?
 
 El escáner refresca los libros de SX cada 5 min para partidos a 1–6 h y la apuesta de valor usa solo el mejor nivel;
 el automático de surebets vio que al releer el libro la cuota de SX salía ~5 % más baja (15 de 20 intentos). Esta
 sombra hace lo que haría el bot de verdad con cada señal de valor ORO (de cualquier casa):
-  1. busca la misma selección en SX (mismo mercado y lo que cubre); si no está → "sin SX" (queda el aviso manual);
-  2. pasados LATENCY_S pide el libro de SX en ese momento y calcula la cuota real al monto (Kelly/4, mínimo
-     VALUE_MIN_TOTAL entre casa y red, como valor + red), con la comisión de SX;
-  3. si con esa cuota el EV contra Polymarket sigue ≥ MIN_EV → "llenada" (el bot apostaría solo en SX);
+  1. busca la misma selección (mismo mercado y lo que cubre) en cada casa con API; si no está en ninguna →
+     "sin casa API" (queda el aviso manual de 1xBet);
+  2. pasados LATENCY_S pide el precio en ese momento al monto (Kelly/4, mínimo VALUE_MIN_TOTAL entre casa y red,
+     como valor + red): SX su libro con comisión, Azuro la cuota y el máximo que acepta, Cloudbet la selección;
+  3. si con esa cuota el EV contra Polymarket sigue ≥ MIN_EV → "llenada" (el bot apostaría solo);
      si no → "rechazada" con el motivo, y la señal queda para 1xBet a mano (si era de 1xBet) o se pierde.
 De las llenadas se mide el CLV con la cuota REAL (contra el cierre de Polymarket) y el resultado del partido.
-También se guarda cuánto aguantaba el libro de SX con EV ≥ MIN_EV (para saber hasta qué monto se puede crecer).
+También se guarda cuánto aguantaba la casa con EV ≥ MIN_EV (para saber hasta qué monto se puede crecer).
 La red de Polymarket iría igual que hoy (orden límite del lado contrario): su efecto ya se mide en valor + red.
-Aprobado para probar en real si: ≥ 100 llenadas, se llena ≥ 50 % de las señales con SX y CLV real ≥ +1,5 %.
+Aprobada una casa para probar en real si: ≥ 100 llenadas, se llena ≥ 50 % de sus señales y CLV real ≥ +1,5 %.
+(El archivo se llama sxshadow porque empezó solo con SX; las columnas sx_* son de la casa con API de cada fila.)
 """
 
 from __future__ import annotations
@@ -26,35 +29,39 @@ import httpx
 
 from .nettrack import price_path
 from .pricing import fill_detail
+from .sources.azuro import API as AZURO_API, ENV as AZURO_ENV
 from .sources.sxbet import API as SX_API, book_levels
 from .staking import net_limit, value_stake
 
+HOUSES = ("sxbet", "azuro", "cloudbet")
 LATENCY_S = 5.0
 MIN_EV = 2.0
 EXPIRE_S = 120.0
-PER_VERIFY = 8
+PER_VERIFY = 10
 SETTLE_EVERY_S = 300.0
 EARLY_PRICE, EARLY_AFTER_S = 0.997, 2 * 3600     # partido decidido: como en paper.py
 CLOB = "https://clob.polymarket.com"
 MANUAL = {"1xbet", "onexbet"}
 APPROVE = {"fills": 100, "fill_rate": 50.0, "clv": 1.5}
+NAMES = {"sxbet": "SX", "azuro": "Azuro", "cloudbet": "Cloudbet"}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sx_shadow (
-    key TEXT PRIMARY KEY,       -- partido#mercado#lo que cubre (una fila por selección)
+    key TEXT PRIMARY KEY,       -- partido#mercado#lo que cubre#casa (una fila por selección y casa con API)
     created_ts REAL, start_ts REAL, title TEXT, sport TEXT, market TEXT, label TEXT, covers TEXT,
     signal_source TEXT, signal_odds REAL, signal_ev REAL,   -- la señal oro que la disparó (casa, cuota, EV)
     fair_prob REAL,             -- probabilidad justa de Polymarket al detectar
-    sx_ref TEXT,                -- marketHash|lado
-    sx_seen_odds REAL,          -- cuota de SX que tenía el escáner
-    sx_seen_age_s REAL,         -- antigüedad de ese libro de SX al detectar
+    house TEXT,                 -- casa con API donde se prueba (sxbet | azuro | cloudbet; NULL = ninguna la tiene)
+    sx_ref TEXT,                -- referencia de la casa para apostar (SX marketHash|lado, Azuro condición|resultado...)
+    sx_seen_odds REAL,          -- cuota de esa casa que tenía el escáner
+    sx_seen_age_s REAL,         -- antigüedad de ese precio al detectar
     stake REAL,
-    status TEXT,                -- pendiente | llenada | rechazada | sin SX
+    status TEXT,                -- pendiente | llenada | rechazada | sin casa API
     reason TEXT,
     checked_ts REAL,
-    fill_odds REAL,             -- cuota real al monto, leída en SX al ejecutar (neta de comisión)
+    fill_odds REAL,             -- cuota real al monto, leída en la casa al ejecutar (neta de comisión)
     ev_real REAL,               -- EV con esa cuota contra Polymarket
-    capacity REAL,              -- USDC que aguantaba el libro con EV ≥ MIN_EV
+    capacity REAL,              -- USDC que aguantaba la casa con EV ≥ MIN_EV
     tokens TEXT, conds TEXT,    -- Polymarket {resultado: token / condition_id} (CLV y resultado)
     p_close REAL, clv_real REAL,
     result TEXT,                -- pendiente | ganada | perdida | anulada
@@ -78,17 +85,63 @@ def fill_odds(levels, stake: float) -> float | None:
     return fd["shares"] / fd["spent"] if fd["spent"] >= stake * 0.999 else None
 
 
+async def real_price(client: httpx.AsyncClient, house: str, ref: str, stake: float, fair: float,
+                     cloudbet_key: str = "") -> tuple[float | None, float | None, str | None]:
+    """(cuota real al monto, cuánto aguanta con EV ≥ MIN_EV, motivo si no se puede) leído en la casa AHORA."""
+    name = NAMES.get(house, house)
+    try:
+        if house == "sxbet":
+            market_hash, _, side = ref.partition("|")
+            r = await client.get(f"{SX_API}/orderbook-v3/snapshot", timeout=8,
+                                 params={"marketHash": market_hash, "showTakerPerspective": "true"})
+            data = (r.json() or {}).get("data") or {} if r.status_code == 200 else None
+            if data is None:
+                return None, None, "no se pudo leer el libro de SX"
+            levels = book_levels(data.get("outcomeOne" if side == "1" else "outcomeTwo") or [])
+            odds = fill_odds(levels, stake)
+            return odds, round(capacity(levels, fair), 2), None if odds else f"el libro de SX no llega a ${stake:,.2f}"
+        if house == "azuro":
+            cid, _, oid = ref.partition("|")
+            r = await client.post(f"{AZURO_API}/market-manager/condition-batch", timeout=8,
+                                  json={"conditionIds": [cid], "environment": AZURO_ENV})
+            cond = ((r.json() or {}).get("conditions") or [None])[0] if r.status_code in (200, 201) else None
+            out = next((x for x in (cond or {}).get("outcomes") or [] if str(x.get("outcomeId")) == oid), None)
+            if not cond or cond.get("state") != "Active" or not out or out.get("state") not in (None, "Active"):
+                return None, None, "Azuro ya no acepta apuestas en esa selección"
+            odds = float(out.get("odds") or 0) or None
+            lim = await client.post(f"{AZURO_API}/bet/calculation", timeout=8, json={
+                "bets": [{"conditionId": cid, "outcomeId": int(oid)}], "environment": AZURO_ENV})
+            max_bet = float(((lim.json() or {}).get("response") or {}).get("maxBet") or 0)
+            cap = max_bet if odds and ev_at(odds, fair) >= MIN_EV else 0.0
+            if not odds or stake > max_bet:
+                return None, round(cap, 2), f"Azuro acepta como máximo ${max_bet:,.2f}"
+            return odds, round(cap, 2), None
+        if house == "cloudbet":
+            from .autovivo import fresh_odds
+            odds = await fresh_odds(client, {"source": "cloudbet", "stake": stake, "ref": ref}, cloudbet_key)
+            return odds, None, None if odds else "Cloudbet cerró la selección o no acepta ese monto"
+    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        return None, None, f"no se pudo leer {name}"
+    return None, None, f"{name}: sin lector de precio"
+
+
 class SXShadow:
-    def __init__(self, db_path: Path, bankroll: float = 1000.0, min_total: float = 30.0) -> None:
+    def __init__(self, db_path: Path, bankroll: float = 1000.0, min_total: float = 30.0, cloudbet_key: str = "") -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(sx_shadow)")}
+        if "house" not in cols:   # versión de una hora solo con SX y claves sin casa: se empieza de cero
+            self.conn.execute("ALTER TABLE sx_shadow ADD COLUMN house TEXT")
+            self.conn.execute("DELETE FROM sx_shadow")
         self.conn.commit()
         self.bankroll, self.min_total = bankroll, min_total
+        self.cloudbet_key = cloudbet_key
+        self.houses = tuple(h for h in HOUSES if h != "cloudbet" or cloudbet_key)
         self._last_settle = 0.0
 
     # ------------------------------------------------------------------ cada ciclo
     def step(self, values, is_gold) -> int:
-        """Anota cada selección con señal oro nueva (la de mejor EV del ciclo) y su par en SX si existe."""
+        """Anota cada selección con señal oro nueva (la de mejor EV del ciclo) en cada casa con API que la tenga."""
         now = time.time()
         rows = []
         seen: set[str] = set()
@@ -97,68 +150,56 @@ class SXShadow:
             if st is None or not is_gold(v.event.live, v.ev_pct, v.quote.odds, (st.timestamp() - now) / 3600):
                 continue
             covers = "".join(sorted(v.quote.covers))
-            key = f"{v.event.key}#{v.market}#{covers}"
-            if key in seen or self.conn.execute("SELECT 1 FROM sx_shadow WHERE key=?", (key,)).fetchone():
+            sel = f"{v.event.key}#{v.market}#{covers}"
+            if sel in seen or self.conn.execute("SELECT 1 FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'",
+                                                (sel.replace("%", "\\%").replace("_", "\\_") + "#%",)).fetchone():
                 continue
-            seen.add(key)
-            sx = next((q for q in v.event.quotes_for(v.market)
-                       if q.source == "sxbet" and q.covers == v.quote.covers and q.ref), None)
-            stake = None
-            if sx:
-                ev_sx = max(ev_at(sx.odds, v.fair_prob), MIN_EV)
-                stake = round(value_stake(sx.odds, ev_sx, self.bankroll, min_total=self.min_total,
-                                          limit=net_limit(sx.odds)), 2)
-            rows.append((key, now, st.timestamp(), v.event.anchor.title, v.event.anchor.sport, v.market, v.quote.label,
-                         covers, v.quote.source, round(v.quote.odds, 4), round(v.ev_pct, 3), round(v.fair_prob, 5),
-                         sx.ref if sx else None, round(sx.odds, 4) if sx else None,
-                         round(now - sx.ts, 1) if sx else None, stake,
-                         "pendiente" if sx else "sin SX",
-                         None if sx else "SX no tiene esta selección: queda el aviso manual",
-                         json.dumps(v.poly_tokens), json.dumps(v.poly_conditions)))
+            seen.add(sel)
+            best: dict = {}
+            for q in v.event.quotes_for(v.market):
+                if q.source in self.houses and q.covers == v.quote.covers and q.ref and q.odds > best.get(q.source, (0,))[0]:
+                    best[q.source] = (q.odds, q)
+            common = (now, st.timestamp(), v.event.anchor.title, v.event.anchor.sport, v.market, v.quote.label, covers,
+                      v.quote.source, round(v.quote.odds, 4), round(v.ev_pct, 3), round(v.fair_prob, 5))
+            polys = (json.dumps(v.poly_tokens), json.dumps(v.poly_conditions))
+            if not best:
+                rows.append((f"{sel}#-", *common, None, None, None, None, None, "sin casa API",
+                             "ninguna casa con API tiene esta selección: queda el aviso manual", *polys))
+            for house, (_, q) in best.items():
+                stake = round(value_stake(q.odds, max(ev_at(q.odds, v.fair_prob), MIN_EV), self.bankroll,
+                                          min_total=self.min_total, limit=net_limit(q.odds)), 2)
+                rows.append((f"{sel}#{house}", *common, house, q.ref, round(q.odds, 4), round(now - q.ts, 1), stake,
+                             "pendiente", None, *polys))
         self.conn.executemany(
             "INSERT OR IGNORE INTO sx_shadow (key, created_ts, start_ts, title, sport, market, label, covers, signal_source, "
-            "signal_odds, signal_ev, fair_prob, sx_ref, sx_seen_odds, sx_seen_age_s, stake, status, reason, tokens, conds) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            "signal_odds, signal_ev, fair_prob, house, sx_ref, sx_seen_odds, sx_seen_age_s, stake, status, reason, tokens, "
+            "conds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         self.conn.execute("UPDATE sx_shadow SET status='rechazada', reason='sin revisar a tiempo' "
                           "WHERE status='pendiente' AND created_ts < ?", (now - EXPIRE_S,))
         self.conn.commit()
         return len(rows)
 
     async def verify(self, client: httpx.AsyncClient) -> int:
-        """Pasada la latencia, el libro de SX en ese momento: cuota real al monto, EV y cuánto aguanta."""
+        """Pasada la latencia, el precio de la casa en ese momento: cuota real al monto, EV y cuánto aguanta."""
         now = time.time()
         rows = self.conn.execute(
-            "SELECT key, sx_ref, stake, fair_prob, signal_source FROM sx_shadow WHERE status='pendiente' "
+            "SELECT key, house, sx_ref, stake, fair_prob, signal_source FROM sx_shadow WHERE status='pendiente' "
             "AND created_ts <= ? ORDER BY created_ts LIMIT ?", (now - LATENCY_S, PER_VERIFY)).fetchall()
         fetched = []
-        for key, ref, stake, fair, signal in rows:      # primero todas las consultas, después las escrituras
-            market_hash, _, side = ref.partition("|")
-            try:
-                r = await client.get(f"{SX_API}/orderbook-v3/snapshot", timeout=8,
-                                     params={"marketHash": market_hash, "showTakerPerspective": "true"})
-                data = (r.json() or {}).get("data") or {} if r.status_code == 200 else None
-            except (httpx.HTTPError, ValueError):
-                data = None
-            fetched.append((key, side, stake, fair, signal, data))
+        for key, house, ref, stake, fair, signal in rows:      # primero todas las consultas, después las escrituras
+            fetched.append((key, stake, fair, signal, await real_price(client, house, ref, stake, fair, self.cloudbet_key)))
         updates = []
-        for key, side, stake, fair, signal, data in fetched:
+        for key, stake, fair, signal, (odds, cap, err) in fetched:
             manual = " · queda el aviso manual de 1xBet" if signal in MANUAL else ""
-            if data is None:
-                updates.append(("rechazada", "no se pudo leer el libro de SX" + manual, None, None, None, None, now, key))
-                continue
-            levels = book_levels(data.get("outcomeOne" if side == "1" else "outcomeTwo") or [])
-            odds = fill_odds(levels, stake)
-            cap = round(capacity(levels, fair), 2)
             if odds is None:
-                updates.append(("rechazada", f"el libro de SX no llega a ${stake:,.2f}" + manual, None, None, cap, None,
-                                now, key))
+                updates.append(("rechazada", (err or "sin precio") + manual, None, None, cap, None, now, key))
                 continue
             ev = ev_at(odds, fair)
             if ev < MIN_EV:
                 updates.append(("rechazada", f"cuota real {odds:.3f}: EV {ev:+.2f} % < {MIN_EV:g} %" + manual,
                                 round(odds, 4), round(ev, 3), cap, None, now, key))
                 continue
-            updates.append(("llenada", f"SX aceptaba ${stake:,.2f} a {odds:.3f} (EV {ev:+.2f} %)", round(odds, 4),
+            updates.append(("llenada", f"aceptaba ${stake:,.2f} a {odds:.3f} (EV {ev:+.2f} %)", round(odds, 4),
                             round(ev, 3), cap, "pendiente", now, key))
         self.conn.executemany("UPDATE sx_shadow SET status=?, reason=?, fill_odds=?, ev_real=?, capacity=?, result=?, "
                               "checked_ts=? WHERE key=?", updates)
@@ -176,12 +217,16 @@ class SXShadow:
             "AND result='pendiente' AND start_ts < ? AND (last_check IS NULL OR last_check < ?) "
             "ORDER BY COALESCE(last_check, 0) LIMIT 30", (now - 120, now - 600)).fetchall()
         markets: dict[str, dict | None] = {}
+        closes: dict[tuple, float | None] = {}
         prepared = []
         for key, start, covers, odds, stake, tokens_json, conds_json, p_close in rows:
             tokens, conds = json.loads(tokens_json or "{}"), json.loads(conds_json or "{}")
-            if p_close is None:
-                path = await price_path(client, tokens, set(covers), start - 3 * 3600, start)
-                p_close = path[-1][1] if path else None
+            if p_close is None:   # la misma selección en dos casas comparte el cierre: se pide una vez
+                ck = (tokens_json, covers, start)
+                if ck not in closes:
+                    path = await price_path(client, tokens, set(covers), start - 3 * 3600, start)
+                    closes[ck] = path[-1][1] if path else None
+                p_close = closes[ck]
             if now - start >= 45 * 60:
                 for cid in set(conds.values()):
                     if cid and cid not in markets:
@@ -226,61 +271,63 @@ def _outcome(tokens: dict, conds: dict, markets: dict, early: bool) -> tuple[str
     return outcome, void and outcome is None, outcome is not None or (all_closed and void)
 
 
+def _stats(rs: list[dict]) -> dict:
+    """Llenado, caída de cuota, CLV real y resultado de un grupo de filas con casa API."""
+    fills = [r for r in rs if r["status"] == "llenada"]
+    clvs = sorted(r["clv_real"] for r in fills if r["clv_real"] is not None)
+    settled = [r for r in fills if r["result"] in ("ganada", "perdida", "anulada")]
+    drops = sorted(100 * (1 - r["fill_odds"] / r["sx_seen_odds"]) for r in rs if r["fill_odds"] and r["sx_seen_odds"])
+    ages = sorted(r["sx_seen_age_s"] for r in rs if r["sx_seen_age_s"] is not None)
+    caps = sorted(r["capacity"] for r in fills if r["capacity"] is not None)
+    staked = sum(r["stake"] for r in settled)
+    fill_rate = round(100 * len(fills) / len(rs), 1) if rs else None
+    clv = round(sum(clvs) / len(clvs), 2) if clvs else None
+    return {"n": len(rs), "fills": len(fills), "fill_rate": fill_rate,
+            "ev_seen": round(sum(ev_at(r["sx_seen_odds"], r["fair_prob"]) for r in rs) / len(rs), 2) if rs else None,
+            "ev_real": round(sum(r["ev_real"] for r in fills) / len(fills), 2) if fills else None,
+            "drop_pct": round(drops[len(drops) // 2], 2) if drops else None,
+            "age_med_s": ages[len(ages) // 2] if ages else None, "cap_med": caps[len(caps) // 2] if caps else None,
+            "clv": clv, "clv_med": clvs[len(clvs) // 2] if clvs else None, "clv_n": len(clvs),
+            "clv_pos": round(100 * sum(c > 0 for c in clvs) / len(clvs)) if clvs else None,
+            "settled": len(settled), "pnl": round(sum(r["pnl"] or 0 for r in settled), 2),
+            "roi": round(100 * sum(r["pnl"] or 0 for r in settled) / staked, 2) if staked else None,
+            "ok": (len(fills) >= APPROVE["fills"] and fill_rate is not None and fill_rate >= APPROVE["fill_rate"]
+                   and clv is not None and clv >= APPROVE["clv"])}
+
+
 def summary(conn) -> dict | None:
     try:
         cols = ("key", "created_ts", "start_ts", "title", "sport", "market", "label", "signal_source", "signal_odds",
-                "signal_ev", "fair_prob", "sx_seen_odds", "sx_seen_age_s", "stake", "status", "reason", "fill_odds",
-                "ev_real", "capacity", "clv_real", "result", "pnl")
+                "signal_ev", "fair_prob", "house", "sx_seen_odds", "sx_seen_age_s", "stake", "status", "reason",
+                "fill_odds", "ev_real", "capacity", "clv_real", "result", "pnl")
         rows = [dict(zip(cols, r)) for r in conn.execute(
             f"SELECT {', '.join(cols)} FROM sx_shadow ORDER BY created_ts DESC")]
     except sqlite3.OperationalError:
         return None
     done = [r for r in rows if r["status"] != "pendiente"]
-    with_sx = [r for r in done if r["status"] != "sin SX"]
-    fills = [r for r in with_sx if r["status"] == "llenada"]
-    clvs = sorted(r["clv_real"] for r in fills if r["clv_real"] is not None)
-    settled = [r for r in fills if r["result"] in ("ganada", "perdida", "anulada")]
-    drops = [100 * (1 - r["fill_odds"] / r["sx_seen_odds"]) for r in with_sx if r["fill_odds"] and r["sx_seen_odds"]]
-    ages = sorted(r["sx_seen_age_s"] for r in with_sx if r["sx_seen_age_s"] is not None)
-    caps = sorted(r["capacity"] for r in fills if r["capacity"] is not None)
-    fill_rate = round(100 * len(fills) / len(with_sx), 1) if with_sx else None
-    clv = round(sum(clvs) / len(clvs), 2) if clvs else None
+    api = [r for r in done if r["house"]]
+    selections = {r["key"].rsplit("#", 1)[0] for r in done}
+    covered = {r["key"].rsplit("#", 1)[0] for r in api}
+    filled_sel = {r["key"].rsplit("#", 1)[0] for r in api if r["status"] == "llenada"}
     reasons: dict[str, int] = {}
-    for r in with_sx:
+    for r in api:
         if r["status"] == "rechazada":
-            k = (r["reason"] or "").split(":")[0].split(" · ")[0]
+            k = (r["reason"] or "").split(" · ")[0]
             k = "cuota real con EV menor al mínimo" if k.startswith("cuota real") else k
-            k = "el libro no llega al monto" if k.startswith("el libro de SX no llega") else k
-            reasons[k] = reasons.get(k, 0) + 1
+            k = "el libro no llega al monto" if "no llega a $" in k else k
+            k = "la casa no acepta ese monto" if "como máximo $" in k or "no acepta ese monto" in k else k
+            reasons[f"{NAMES.get(r['house'], r['house'])}: {k}"] = reasons.get(f"{NAMES.get(r['house'], r['house'])}: {k}", 0) + 1
 
     def by(field: str) -> list[dict]:
-        out: dict[str, dict] = {}
-        for r in with_sx:
-            g = out.setdefault(r[field] or "?", {"name": r[field] or "?", "n": 0, "fills": 0, "clv": []})
-            g["n"] += 1
-            g["fills"] += r["status"] == "llenada"
-            if r["status"] == "llenada" and r["clv_real"] is not None:
-                g["clv"].append(r["clv_real"])
-        return [{"name": g["name"], "n": g["n"], "fills": g["fills"], "fill_rate": round(100 * g["fills"] / g["n"], 1),
-                 "clv": round(sum(g["clv"]) / len(g["clv"]), 2) if g["clv"] else None, "clv_n": len(g["clv"])}
-                for g in sorted(out.values(), key=lambda g: -g["n"])]
+        groups: dict[str, list] = {}
+        for r in api:
+            groups.setdefault(r[field] or "?", []).append(r)
+        return [{"name": NAMES.get(k, k), **_stats(v)} for k, v in sorted(groups.items(), key=lambda kv: -len(kv[1]))]
 
-    staked = sum(r["stake"] for r in settled)
-    ok = (len(fills) >= APPROVE["fills"] and fill_rate is not None and fill_rate >= APPROVE["fill_rate"]
-          and clv is not None and clv >= APPROVE["clv"])
     return {
-        "signals": len(done), "with_sx": len(with_sx), "no_sx": len(done) - len(with_sx), "fills": len(fills),
-        "pending": len(rows) - len(done), "fill_rate": fill_rate,
-        "ev_seen": round(sum(ev_at(r["sx_seen_odds"], r["fair_prob"]) for r in with_sx) / len(with_sx), 2) if with_sx else None,
-        "ev_real": round(sum(r["ev_real"] for r in fills) / len(fills), 2) if fills else None,
-        "drop_pct": round(sorted(drops)[len(drops) // 2], 2) if drops else None,
-        "age_med_s": ages[len(ages) // 2] if ages else None,
-        "cap_med": caps[len(caps) // 2] if caps else None,
-        "clv": clv, "clv_med": clvs[len(clvs) // 2] if clvs else None, "clv_n": len(clvs),
-        "clv_pos": round(100 * sum(c > 0 for c in clvs) / len(clvs)) if clvs else None,
-        "settled": len(settled), "pnl": round(sum(r["pnl"] or 0 for r in settled), 2),
-        "roi": round(100 * sum(r["pnl"] or 0 for r in settled) / staked, 2) if staked else None,
+        "selections": len(selections), "covered": len(covered), "no_api": len(selections) - len(covered),
+        "filled_sel": len(filled_sel), "pending": len(rows) - len(done), **_stats(api),
+        "approve": APPROVE, "by_house": by("house"), "by_signal": by("signal_source"), "by_sport": by("sport"),
         "reasons": sorted(({"reason": k, "n": v} for k, v in reasons.items()), key=lambda x: -x["n"]),
-        "by_signal": by("signal_source"), "by_sport": by("sport"),
-        "approve": {**APPROVE, "ok": ok}, "rows": rows[:150],
+        "rows": rows[:150],
     }

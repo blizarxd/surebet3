@@ -47,9 +47,13 @@ Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 
   compara 7 formas de cubrir (esperado sin suerte y real). Solo mide. **Resultado 18/10 (385 picks): NO da más plata.** Del cierre
   al 15' el precio se mueve +0,4 puntos de media; cubrir en vivo como taker cuesta ~5 % del monto (D −0,2 %, C −1,2 % esperado);
   red actual +2,1 %; red + minuto 15 si vamos ganando +2,5 % (+$19 en 385 picks, ruido). Se deja la red como está.
-- **Valor automático en SX en sombra** (`surebet/sxshadow.py`, pestaña 🤖): cada señal oro se prueba contra el libro de SX leído al
-  ejecutar (5 s), al monto. Motivo: el escáner refresca SX cada 5 min (1–6 h antes) y en el automático 15 de 20 intentos con SX
-  fallaron por cuota real ~5 % más baja. Aprobar si ≥ 100 llenadas, ≥ 50 % llenadas y CLV real ≥ +1,5 %.
+- **Valor automático en sombra** (`surebet/sxshadow.py`, pestaña 🤖): cada señal oro se prueba en SX, Azuro y Cloudbet con el precio
+  leído al ejecutar (5 s), al monto. Motivo: el escáner refresca SX cada 5 min (1–6 h antes) y en el automático 15 de 20 intentos con
+  SX fallaron por cuota real ~5 % más baja. Candidata a reemplazar a 1xBet: **Azuro** (CLV oro +5,6 a +6,6 %, ~16 señales/día).
+  Aprobar una casa si ≥ 100 llenadas, ≥ 50 % llenadas y CLV real ≥ +1,5 %.
+- **Automático por casa (18/10, 90 cerradas):** las 10 mejores hacen el 80 % de la ganancia (montos de $400–1.400); Kalshi: 6 ops,
+  +$110 (2 de $940–1.060 con margen 4–5,6 %). Con tope $30 por surebet: +$6,83 (+$15,88 sin CS2/Dota2, ~$2/día); $100: ~$6/día;
+  $300: ~$15/día. 8 de las 9 anuladas eran CS2. Desglose en la pestaña Automático.
 
 ## Banderas de `.env` (VPS) que importan
 `AUTO_MAX_STAKE=1500`, `ALERT_ARB_STAKE=50`, `PAPER_REAL_MAX_HOURS=6`, `MY_BOOKS=...,kalshi,azuro`,

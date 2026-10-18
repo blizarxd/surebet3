@@ -1,6 +1,7 @@
-"""Sombra del valor automático en SX: la señal oro se prueba contra el libro de SX leído al ejecutar."""
+"""Sombra del valor automático (SX, Azuro, Cloudbet): la señal oro se prueba contra el precio leído al ejecutar."""
 
 import asyncio
+import json
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +16,7 @@ TOKENS = {HOME: "tH", DRAW: "tD", AWAY: "tA"}
 CONDS = {HOME: "cH", DRAW: "cD", AWAY: "cA"}
 
 
-def value(with_sx=True, sx_odds=2.30):
+def value(sx_odds=2.30, azuro_odds=None, with_sx=True):
     one = Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=2.20, label="Arsenal", market="1x2")
     poly = SourceEvent(feed="polymarket", event_id="E1", sport="soccer", home="Arsenal", away="Leeds", start=START,
                        three_way=True, quotes=[])
@@ -28,6 +29,11 @@ def value(with_sx=True, sx_odds=2.30):
                    market="1x2", ref="0xabc|1", ts=time.time() - 240)
         ev.members.append((SourceEvent(feed="sxbet", event_id="S1", sport="soccer", home="Arsenal", away="Leeds",
                                        start=START, three_way=True, quotes=[sx]), False))
+    if azuro_odds:
+        az = Quote(source="azuro", feed="azuro", covers=frozenset({HOME}), odds=azuro_odds, label="Arsenal",
+                   market="1x2", ref="777|29", ts=time.time() - 30)
+        ev.members.append((SourceEvent(feed="azuro", event_id="Z1", sport="soccer", home="Arsenal", away="Leeds",
+                                       start=START, three_way=True, quotes=[az]), False))
     return ValueBet(ev, one, 0.48, TOKENS, "1x2", CONDS)   # EV 1xBet = 2.20 × 0.48 − 1 = +5,6 %
 
 
@@ -47,6 +53,10 @@ def run(coro_fn, handler):
     return asyncio.run(go())
 
 
+def aged(sh):
+    sh.conn.execute("UPDATE sx_shadow SET created_ts = created_ts - 10")
+
+
 def test_book_math():
     levels = [BookLevel(0.44, 50), BookLevel(0.475, 1000)]      # 50 shares a 0.44 = $22; a 0.475 el EV es +1 %
     assert 0 < capacity(levels, 0.48) < 30                        # solo el primer nivel deja EV ≥ 2 %
@@ -56,9 +66,9 @@ def test_book_math():
 def test_fills_when_real_book_keeps_the_value(tmp_path):
     sh = SXShadow(tmp_path / "p.db")
     assert sh.step([value()], gold) == 1
-    st, age, stake = sh.conn.execute("SELECT status, sx_seen_age_s, stake FROM sx_shadow").fetchone()
-    assert st == "pendiente" and age >= 239 and stake >= 10
-    sh.conn.execute("UPDATE sx_shadow SET created_ts = created_ts - 10")
+    key, st, age, stake = sh.conn.execute("SELECT key, status, sx_seen_age_s, stake FROM sx_shadow").fetchone()
+    assert key.endswith("#sxbet") and st == "pendiente" and age >= 239 and stake >= 10
+    aged(sh)
     run(sh.verify, lambda r: httpx.Response(200, json=snapshot(0.44)))    # cuota real ~2.26 → EV ~+8 %
     st, odds, ev, res = sh.conn.execute("SELECT status, fill_odds, ev_real, result FROM sx_shadow").fetchone()
     assert st == "llenada" and 2.2 < odds < 2.3 and ev > 2 and res == "pendiente"
@@ -68,25 +78,48 @@ def test_fills_when_real_book_keeps_the_value(tmp_path):
 def test_rejected_when_sx_odds_dropped(tmp_path):
     sh = SXShadow(tmp_path / "p.db")
     sh.step([value()], gold)
-    sh.conn.execute("UPDATE sx_shadow SET created_ts = created_ts - 10")
+    aged(sh)
     run(sh.verify, lambda r: httpx.Response(200, json=snapshot(0.48)))    # ~2.07: EV negativo
     st, reason = sh.conn.execute("SELECT status, reason FROM sx_shadow").fetchone()
     assert st == "rechazada" and "cuota real" in reason and "manual" in reason
     s = summary(sh.conn)
-    assert s["fill_rate"] == 0 and s["drop_pct"] > 5 and s["reasons"][0]["n"] == 1
+    assert s["fill_rate"] == 0 and s["drop_pct"] > 5 and s["reasons"][0]["reason"].startswith("SX:")
 
 
-def test_no_sx_selection_stays_manual(tmp_path):
+def test_no_api_house_stays_manual(tmp_path):
     sh = SXShadow(tmp_path / "p.db")
     sh.step([value(with_sx=False)], gold)
-    assert sh.conn.execute("SELECT status FROM sx_shadow").fetchone()[0] == "sin SX"
-    assert summary(sh.conn)["no_sx"] == 1
+    assert sh.conn.execute("SELECT status, house FROM sx_shadow").fetchone() == ("sin casa API", None)
+    s = summary(sh.conn)
+    assert s["no_api"] == 1 and s["selections"] == 1 and s["n"] == 0
+
+
+def test_azuro_uses_its_odds_and_max_bet(tmp_path):
+    sh = SXShadow(tmp_path / "p.db")
+    assert sh.step([value(azuro_odds=2.40)], gold) == 2            # la misma selección en SX y en Azuro
+
+    def handler(r):
+        if "orderbook" in r.url.path:
+            return httpx.Response(200, json=snapshot(0.48))         # SX ya no tiene el valor
+        if "condition-batch" in r.url.path:
+            return httpx.Response(200, json={"conditions": [{"state": "Active", "outcomes": [
+                {"outcomeId": 29, "odds": "2.35", "state": "Active"}]}]})
+        return httpx.Response(200, json={"response": {"maxBet": "80"}})   # /bet/calculation
+
+    aged(sh)
+    run(sh.verify, handler)
+    got = dict(sh.conn.execute("SELECT house, status FROM sx_shadow").fetchall())
+    assert got == {"sxbet": "rechazada", "azuro": "llenada"}
+    cap, odds = sh.conn.execute("SELECT capacity, fill_odds FROM sx_shadow WHERE house='azuro'").fetchone()
+    assert cap == 80 and odds == 2.35
+    s = summary(sh.conn)
+    assert s["filled_sel"] == 1 and {h["name"]: h["fills"] for h in s["by_house"]} == {"SX": 0, "Azuro": 1}
 
 
 def test_clv_and_result_of_filled(tmp_path):
     sh = SXShadow(tmp_path / "p.db")
     sh.step([value()], gold)
-    sh.conn.execute("UPDATE sx_shadow SET created_ts = created_ts - 10")
+    aged(sh)
     run(sh.verify, lambda r: httpx.Response(200, json=snapshot(0.44)))
     start = time.time() - 3 * 3600
     sh.conn.execute("UPDATE sx_shadow SET start_ts=?", (start,))
@@ -105,3 +138,17 @@ def test_clv_and_result_of_filled(tmp_path):
     assert clv > 10 and res == "ganada" and pnl > 0               # cerró a 0.50: CLV = cuota × 0.50 − 1
     s = summary(sh.conn)
     assert s["clv"] == clv and s["settled"] == 1 and s["pnl"] == pnl
+
+
+def test_old_sx_only_table_is_migrated(tmp_path):
+    import sqlite3
+    from surebet.sxshadow import SCHEMA
+    old = "\n".join(l for l in SCHEMA.splitlines() if not l.strip().startswith("house TEXT"))
+    c = sqlite3.connect(tmp_path / "p.db")
+    c.executescript(old)                       # la tabla de la primera versión (solo SX, sin columna house)
+    c.execute("INSERT INTO sx_shadow (key, status) VALUES ('vieja', 'sin SX')")
+    c.commit()
+    sh = SXShadow(tmp_path / "p.db")
+    assert sh.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 0
+    s = summary(sh.conn)
+    assert isinstance(s, dict) and s["selections"] == 0 and json.dumps(s)

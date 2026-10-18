@@ -78,6 +78,56 @@ def _resim_totals(auto_ops: list[dict]) -> dict:
     return {"before": round(before, 2), "after": round(after, 2), "changed": n, "ops": len(auto_ops)}
 
 
+CAPS = (30, 100, 300)   # topes por surebet simulados en el desglose del automático
+OBSERVED = ("esports:cs2", "esports:dota2")
+
+
+def _auto_breakdown(ops: list[dict]) -> dict:
+    """Automático por par de casas y operación por operación, con lo que habría dado con un tope por surebet.
+    El tope escala la ganancia en proporción (a menos monto el libro da igual o mejor precio: es conservador)."""
+    closed = [o for o in ops if o["status"] != "open"]
+    days = max(((max(o["settled_ts"] or 0 for o in closed) - min(o["created_ts"] for o in closed)) / 86400)
+               if closed else 0.0, 0.5)
+
+    def capped(o, cap):
+        return (o["pnl"] or 0) * min(1.0, cap / o["total_stake"]) if o["total_stake"] else 0.0
+
+    pairs: dict[str, dict] = {}
+    for o in ops:
+        pair = " + ".join(sorted({l["source"] for l in o["legs"]}))
+        p = pairs.setdefault(pair, {"pair": pair, "ops": 0, "open": 0, "won": 0, "lost": 0, "void": 0, "staked": 0.0,
+                                    "pnl": 0.0, "margin": 0.0, **{f"cap{c}": 0.0 for c in CAPS}})
+        p["ops"] += 1
+        p["margin"] += o["edge_pct"] or 0
+        if o["status"] == "open":
+            p["open"] += 1
+            continue
+        p[o["status"]] = p.get(o["status"], 0) + 1
+        p["staked"] += o["total_stake"]
+        p["pnl"] += o["pnl"] or 0
+        for c in CAPS:
+            p[f"cap{c}"] += capped(o, c)
+    rows = sorted(({**p, "margin": round(p["margin"] / p["ops"], 2), "staked": round(p["staked"]),
+                    "pnl": round(p["pnl"], 2), "avg_stake": round(p["staked"] / max(1, p["ops"] - p["open"])),
+                    **{f"cap{c}": round(p[f"cap{c}"], 2) for c in CAPS}} for p in pairs.values()), key=lambda p: -p["pnl"])
+    totals = {}
+    for label, sel in (("todo", closed), ("sin CS2/Dota2", [o for o in closed if o["sport"] not in OBSERVED])):
+        totals[label] = {"ops": len(sel), "pnl": round(sum(o["pnl"] or 0 for o in sel), 2),
+                         **{f"cap{c}": round(sum(capped(o, c) for o in sel), 2) for c in CAPS}}
+        totals[label]["per_day"] = {k: round(v / days, 2) for k, v in totals[label].items() if k != "ops"}
+    top = sorted(closed, key=lambda o: -(o["pnl"] or 0))[:10]
+    picks = [{"ts": o["created_ts"], "title": o["title"], "sport": o["sport"], "market": o["market_name"],
+              "pair": " + ".join(sorted({l["source"] for l in o["legs"]})), "margin": o["edge_pct"],
+              "stake": o["total_stake"], "status": o["status"], "pnl": o["pnl"],
+              "cap30": round(capped(o, 30), 2) if o["status"] != "open" else None,
+              "net": round(100 * (o["pnl"] or 0) / o["total_stake"], 2) if o["status"] != "open" and o["total_stake"] else None,
+              "legs": [{"source": l["source"], "label": l["label"], "stake": l["stake"], "odds": l["odds"]} for l in o["legs"]]}
+             for o in ops]
+    return {"days": round(days, 1), "caps": list(CAPS), "pairs": rows, "totals": totals,
+            "top10_share": round(100 * sum(o["pnl"] or 0 for o in top) / sum(o["pnl"] or 0 for o in closed), 1)
+            if closed and sum(o["pnl"] or 0 for o in closed) > 0 else None, "picks": picks}
+
+
 def _value_by_house(conn) -> list[dict]:
     """Valor + red por casa (picks ya resueltos), con lo que habría dado con un mínimo de $50 entre casa y red."""
     rows = conn.execute(
@@ -424,7 +474,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "execsim": execsim,
         "maker": maker,
         "auto": {**_auto_account(auto_ops, float(meta.get("auto_initial", initial)), float(meta.get("started", time.time()))),
-                 "resim": _resim_totals(auto_ops) if resim else None,
+                 "resim": _resim_totals(auto_ops) if resim else None, "breakdown": _auto_breakdown(auto_ops),
                  "maker_auto": maker_auto, "valor_house": valor_house},
         "funnel": funnel,
         "refshadow": refshadow,
