@@ -84,6 +84,7 @@
   <button data-tab="red">🔒 Valor + red (papel)</button>
   <button data-tab="auto">Automático (simulado)</button>
   <button data-tab="sx">🤖 Valor automático (sombra)</button>
+  <button data-tab="az">🟦 Azuro</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
@@ -221,6 +222,37 @@
   </section>
   <section class="card"><h2>Señal por señal <span class="count" id="sx-count"></span></h2>
     <div class="scroll"><table id="sx-rows"></table></div></section>
+</main>
+<main id="tab-az" hidden>
+  <section class="card"><div class="small muted"><b>Azuro</b> es una casa de apuestas en la blockchain (Polygon, USDT): no pide cuenta, no limita
+    a los que ganan y se apuesta por API (el bot firma con la wallet). Bookmaker.xyz, DexWin, Pinwin y las demás son vitrinas de la misma
+    liquidez. El <b>valor</b> está en que sus cuotas a veces quedan atrasadas frente al precio de Polymarket: si Polymarket dice 50 % (cuota justa
+    2,00) y Azuro paga 2,10, la apuesta tiene +5 % a favor. Todo acá está recalculado a <b>$30 por pick</b>; CS2 y Dota2 se muestran pero el bot no los
+    juega (solo observación). <b>Esperado</b> = sin suerte, por el CLV (precio de cierre de Polymarket); <b>real</b> = con los resultados.</div>
+    <div class="small" id="az-note" style="margin-top:6px"></div></section>
+  <section class="kpis" id="az-kpis"></section>
+  <section class="card"><h2>Día por día <span class="count">(valor simple sin red, $30 por pick, lo que haría el bot · hora de Colombia)</span></h2>
+    <div class="scroll"><table id="az-days"></table></div>
+    <div class="small muted" id="az-days-all" style="margin-top:6px"></div></section>
+  <section class="grid2">
+    <div class="card"><h2>Con red vs sin red <span class="count">(los mismos picks de valor + red en Azuro, a $30)</span></h2>
+      <div class="small muted">Con red se deja una orden límite del lado contrario en Polymarket: si se llena, la ganancia queda fija. Rinde menos pero
+        cae mucho menos. Sin red solo hace falta saldo en Azuro.</div>
+      <div class="scroll" style="margin-top:8px"><table id="az-red"></table></div></div>
+    <div class="card"><h2>Precio real al apostar <span class="count">(sombra: cuota de Azuro 5 s después, al monto)</span></h2>
+      <div class="scroll"><table id="az-shadow"></table></div>
+      <h2 style="margin-top:12px">Ejecutor <span class="count" id="az-ex-sum"></span></h2>
+      <div class="scroll"><table id="az-ex"></table></div></div>
+  </section>
+  <section class="card"><h2>¿Qué limita la cantidad de picks? <span class="count">(CLV de todas las señales de valor de Azuro, sin esports)</span></h2>
+    <div class="small muted">Hoy el bot toma solo EV 2–7 %, cuota 1,6–4 y partidos que empiezan en menos de 6 h, y Azuro se lee solo en 1X2 y ganador.
+      Estas tablas muestran si aflojar cada filtro mantiene el CLV positivo (más picks con ventaja) o no.</div>
+    <div class="grid2" style="margin-top:8px"><div><h2>Por EV al detectar</h2><table id="az-lim-ev"></table></div>
+      <div><h2>Por horas antes del partido</h2><table id="az-lim-hours"></table><h2 style="margin-top:10px">Por cuota</h2><table id="az-lim-odds"></table></div></div></section>
+  <section class="card"><h2>Surebets Azuro + otra casa <span class="count">(automático simulado, a los montos que entró y con tope $30)</span></h2>
+    <div class="scroll"><table id="az-arb"></table></div></section>
+  <section class="card"><h2>Pick por pick <span class="count" id="az-rows-sum"></span></h2>
+    <div class="scroll"><table id="az-rows"></table></div></section>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -693,7 +725,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "sx", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "az", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -1125,6 +1157,64 @@ function renderSX(x) {
     : `<tr><td class="empty">Todavía sin señales oro.</td></tr>`;
 }
 
+function renderAzuro(az, sx, ex, br) {
+  if (!az) { $("az-kpis").innerHTML = kpi("Azuro", "-", "todavía sin datos"); return; }
+  const c = az.clv, r = az.red;
+  $("az-note").innerHTML = `Datos desde ${when(az.since)} (${az.days} días). Con tan pocos días el resultado real es casi todo ruido (cada pick de $30 varía ±$37):
+    lo que manda es el CLV.`;
+  $("az-kpis").innerHTML = [
+    kpi("Picks del bot", az.bot_picks, `${az.per_day}/día sin esports · ${az.picks} con esports`),
+    kpi("CLV (ventaja real)", c.median == null ? "-" : pct(c.median), `mediana · media sin raros ${c.mean == null ? "-" : pct(c.mean)} · ${c.pos ?? "-"} % a favor (${c.n})`, cls(c.median)),
+    kpi("Sin red a $30: real", money(az.pnl, true), `${az.won} ganadas / ${az.lost} perdidas · ${az.open} abiertas`, cls(az.pnl)),
+    kpi("Sin red a $30: esperado", money(az.exp, true), `${money(az.exp / Math.max(az.days, 0.5), true)}/día sin suerte`, cls(az.exp)),
+    kpi("Con red a $30: esperado", r.n ? money(r.exp_net, true) : "-", r.n ? `real ${money(r.real_net, true)} · red media ${money(r.net_avg)} en Polymarket` : "", cls(r.exp_net)),
+  ].join("");
+  const day = (d) => `<tr><td><b>${esc(d.day)}</b></td><td class="num">${d.n}</td><td class="num">${d.won} / ${d.lost} / ${d.void}${d.open ? ` · ${d.open} abiertas` : ""}</td>
+    <td class="num">${money(d.staked)}</td><td class="num ${cls(d.pnl)}"><b>${money(d.pnl, true)}</b></td><td class="num ${cls(d.acc)}">${money(d.acc, true)}</td>
+    <td class="num muted">${d.low == null ? "-" : money(d.low, true)} / ${d.high == null ? "-" : money(d.high, true)}</td><td class="num ${cls(d.exp)}">${money(d.exp, true)}</td></tr>`;
+  $("az-days").innerHTML = `<tr><th>Día</th><th class="num">Picks</th><th class="num">Gan. / perd. / anul.</th><th class="num">Apostado</th><th class="num">Resultado</th>
+    <th class="num">Acumulado</th><th class="num">Mínimo / máximo del acumulado</th><th class="num">Esperado (CLV)</th></tr>` + az.days_bot.map(day).join("");
+  const all = az.days_all, tot = all.length ? all[all.length - 1].acc : 0;
+  $("az-days-all").textContent = `Contando también CS2/Dota2 (que el bot no juega): ${all.reduce((a, d) => a + d.n, 0)} picks, acumulado ${money(tot, true)}.`;
+  $("az-red").innerHTML = r.n ? `<tr><th></th><th class="num">Real</th><th class="num">Esperado</th></tr>
+    <tr><td>Sin red (solo Azuro)</td><td class="num ${cls(r.real_no)}">${money(r.real_no, true)}</td><td class="num ${cls(r.exp_no)}">${money(r.exp_no, true)}</td></tr>
+    <tr><td>Con red (Azuro + Polymarket)</td><td class="num ${cls(r.real_net)}">${money(r.real_net, true)}</td><td class="num ${cls(r.exp_net)}">${money(r.exp_net, true)}</td></tr>
+    <tr><td class="muted small" colspan="3">${r.n} picks · la red se llenó en ${r.locked} (${Math.round(100 * r.locked / r.n)} %) · la red cuesta ~${money(r.net_avg)} por pick en Polymarket</td></tr>`
+    : `<tr><td class="empty">Sin picks cerrados todavía.</td></tr>`;
+  const h = (sx && sx.by_house || []).find((x) => x.name === "Azuro");
+  const secs = (s) => s == null ? "-" : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
+  $("az-shadow").innerHTML = h ? `<tr><th>Intentos</th><th class="num">Se llenan</th><th class="num">EV visto → real</th><th class="num">Precio del escáner</th><th class="num">Aguante</th><th class="num">CLV real</th></tr>
+    <tr><td>${h.n}</td><td class="num">${h.fills} (${h.fill_rate}%)</td><td class="num">${pct(h.ev_seen, 1)} → ${h.ev_real == null ? "-" : pct(h.ev_real, 1)}</td><td class="num">${secs(h.age_med_s)} de viejo</td>
+      <td class="num">${h.cap_med == null ? "-" : money(h.cap_med)}</td><td class="num ${cls(h.clv)}">${h.clv == null ? "-" : pct(h.clv) + ` (${h.clv_n})`}</td></tr>
+    <tr><td colspan="6" class="small muted">Las señales que nacen en Azuro se prueban contra su cuota de ese momento; las de 1xBet casi nunca tienen valor en Azuro.</td></tr>`
+    : `<tr><td class="empty">Todavía sin intentos en Azuro.</td></tr>`;
+  const cfg = (ex && ex.config) || {};
+  $("az-ex-sum").textContent = `(${cfg.status || "-"})`;
+  const exRows = (ex && ex.rows || []).slice(0, 15);
+  $("az-ex").innerHTML = exRows.length ? `<tr><th>Cuándo</th><th>Partido</th><th class="num">Azuro</th><th>Estado</th></tr>` + exRows.map((x) => `<tr>
+    <td class="small nowrap">${when(x.created_ts)}<div class="muted">${esc(x.mode)}</div></td><td>${esc(x.title)}<div class="small muted">${esc(x.label || "")}</div></td>
+    <td class="num">${money(x.az_stake)} @ ${x.az_odds ? Number(x.az_odds).toFixed(2) : "-"}</td><td class="small"><span class="tag ${x.status === "rejected" ? "void" : "open"}">${esc(x.status)}</span>
+    <div class="muted">${esc(x.reason || "")}</div></td></tr>`).join("") : `<tr><td class="empty">Todavía no hubo jugadas.</td></tr>`;
+  const lim = (rows) => `<tr><th></th><th class="num">Señales</th><th class="num">CLV mediana</th><th class="num">Media sin raros</th><th class="num">A favor</th></tr>` +
+    rows.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${x.n}</td><td class="num ${cls(x.median)}">${x.median == null ? "-" : pct(x.median)}</td>
+      <td class="num ${cls(x.mean)}">${x.mean == null ? "-" : pct(x.mean)}</td><td class="num">${x.pos ?? "-"}%</td></tr>`).join("");
+  $("az-lim-ev").innerHTML = lim(az.limits.ev); $("az-lim-hours").innerHTML = lim(az.limits.hours); $("az-lim-odds").innerHTML = lim(az.limits.odds);
+  const pairs = ((br && br.pairs) || []).filter((p) => p.pair.includes("azuro"));
+  $("az-arb").innerHTML = pairs.length ? `<tr><th>Casas</th><th class="num">Ops</th><th class="num">Gan. / perd. / anul.</th><th class="num">Monto medio</th><th class="num">Ganancia</th><th class="num">Con tope $30</th></tr>` +
+    pairs.map((p) => `<tr><td>${esc(p.pair)}</td><td class="num">${p.ops}</td><td class="num">${p.won} / ${p.lost} / ${p.void}</td><td class="num">${money(p.avg_stake)}</td>
+      <td class="num ${cls(p.pnl)}">${money(p.pnl, true)}</td><td class="num ${cls(p.cap30)}">${money(p.cap30, true)}</td></tr>`).join("") : `<tr><td class="empty">Sin surebets con Azuro todavía.</td></tr>`;
+  const tag = {won: "won", lost: "lost", void: "void", open: "open"};
+  $("az-rows-sum").textContent = `(${az.rows.length} más recientes · $30 por pick, sin red)`;
+  $("az-rows").innerHTML = az.rows.length ? `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th>
+    <th class="num">A $30</th><th class="num">Acumulado (bot)</th></tr>` + az.rows.map((p) => `<tr style="${p.bot ? "" : "opacity:.55"}">
+      <td class="small nowrap">${when(p.ts)}<div class="muted">empieza ${when(p.start)}</div></td>
+      <td>${esc(p.title)}<div class="small muted">${esc(p.sport)} · ${esc(p.market)}${p.bot ? "" : " · solo observación"}</div></td>
+      <td class="small">${esc(p.label)} @ <b>${Number(p.odds).toFixed(2)}</b></td><td class="num">${pct(p.ev, 1)}</td>
+      <td class="num ${cls(p.clv)}">${p.clv == null ? "-" : pct(p.clv, 1)}</td><td><span class="tag ${tag[p.status]}">${esc(p.status)}</span></td>
+      <td class="num ${cls(p.pnl)}">${p.pnl == null ? "-" : money(p.pnl, true)}</td><td class="num ${cls(p.acc)}">${p.acc == null ? "-" : money(p.acc, true)}</td></tr>`).join("")
+    : `<tr><td class="empty">Sin picks de Azuro todavía.</td></tr>`;
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1228,6 +1318,8 @@ function renderTab(tab) {
     renderRed(state.netpaper); renderLiveHedge(state.livehedge);
   } else if (tab === "sx") {
     renderSX(state.sxshadow);
+  } else if (tab === "az") {
+    renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
   } else if (tab === "lp") {
     renderLp(state.lp);
   } else if (tab === "co") {
