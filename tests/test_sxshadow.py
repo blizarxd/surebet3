@@ -152,3 +152,26 @@ def test_old_sx_only_table_is_migrated(tmp_path):
     assert sh.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 0
     s = summary(sh.conn)
     assert isinstance(s, dict) and s["selections"] == 0 and json.dumps(s)
+
+
+def test_wide_tier_is_measured_apart_and_never_sent_to_executor(tmp_path):
+    from surebet.safety import golden_value, wide_value
+    sh = SXShadow(tmp_path / "p.db")
+    sent = []
+    sh.on_fill = lambda *a: sent.append(a)
+    v = value(sx_odds=2.30)
+    v = ValueBet(v.event, replace_odds(v.quote, 2.12), 0.48, TOKENS, "1x2", CONDS)   # EV 2.12 × 0.48 − 1 = +1,8 %
+    assert not golden_value(False, v.ev_pct, 2.12, 3) and wide_value(False, v.ev_pct, 2.12, 3)
+    assert sh.step([v], golden_value, wide_value) == 1
+    key, tier = sh.conn.execute("SELECT key, tier FROM sx_shadow").fetchone()
+    assert key.endswith("#sxbet#amplio") and tier == "amplio"
+    aged(sh)
+    run(sh.verify, lambda r: httpx.Response(200, json=snapshot(0.475)))   # cuota real ~2.10: EV ~+1 %… < 1,5 %
+    assert sh.conn.execute("SELECT status FROM sx_shadow").fetchone()[0] == "rechazada"
+    s = summary(sh.conn)
+    assert s["n"] == 0 and s["wide"]["n"] == 1 and sent == []          # el oro no se mezcla con el amplio
+
+
+def replace_odds(q, odds):
+    from dataclasses import replace
+    return replace(q, odds=odds)

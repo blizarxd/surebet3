@@ -15,6 +15,8 @@ De las llenadas se mide el CLV con la cuota REAL (contra el cierre de Polymarket
 También se guarda cuánto aguantaba la casa con EV ≥ MIN_EV (para saber hasta qué monto se puede crecer).
 La red de Polymarket iría igual que hoy (orden límite del lado contrario): su efecto ya se mide en valor + red.
 Aprobada una casa para probar en real si: ≥ 100 llenadas, se llena ≥ 50 % de sus señales y CLV real ≥ +1,5 %.
+Nivel "amplio" (19/10): las señales con EV 1,5–2 % se prueban igual (llenada si el EV real sigue ≥ 1,5 %) en filas aparte
+(tier='amplio'); no van al ejecutor real ni cuentan en la aprobación del oro.
 (El archivo se llama sxshadow porque empezó solo con SX; las columnas sx_* son de la casa con API de cada fila.)
 """
 
@@ -36,6 +38,7 @@ from .staking import net_limit, value_stake
 HOUSES = ("sxbet", "azuro", "cloudbet")
 LATENCY_S = 5.0
 MIN_EV = 2.0
+WIDE_MIN_EV = 1.5
 EXPIRE_S = 120.0
 PER_VERIFY = 10
 SETTLE_EVERY_S = 300.0
@@ -52,6 +55,7 @@ CREATE TABLE IF NOT EXISTS sx_shadow (
     signal_source TEXT, signal_odds REAL, signal_ev REAL,   -- la señal oro que la disparó (casa, cuota, EV)
     fair_prob REAL,             -- probabilidad justa de Polymarket al detectar
     house TEXT,                 -- casa con API donde se prueba (sxbet | azuro | cloudbet; NULL = ninguna la tiene)
+    tier TEXT,                  -- oro (EV 2–7 %) | amplio (EV 1,5–2 %, solo medición)
     sx_ref TEXT,                -- referencia de la casa para apostar (SX marketHash|lado, Azuro condición|resultado...)
     sx_seen_odds REAL,          -- cuota de esa casa que tenía el escáner
     sx_seen_age_s REAL,         -- antigüedad de ese precio al detectar
@@ -133,6 +137,9 @@ class SXShadow:
         if "house" not in cols:   # versión de una hora solo con SX y claves sin casa: se empieza de cero
             self.conn.execute("ALTER TABLE sx_shadow ADD COLUMN house TEXT")
             self.conn.execute("DELETE FROM sx_shadow")
+            cols.add("house")
+        if "tier" not in cols:
+            self.conn.execute("ALTER TABLE sx_shadow ADD COLUMN tier TEXT DEFAULT 'oro'")
         self.conn.commit()
         self.bankroll, self.min_total = bankroll, min_total
         self.cloudbet_key = cloudbet_key
@@ -143,21 +150,30 @@ class SXShadow:
         self._orig: dict[str, tuple] = {}   # clave -> (señal, cuota de la casa) mientras se revisa
 
     # ------------------------------------------------------------------ cada ciclo
-    def step(self, values, is_gold) -> int:
-        """Anota cada selección con señal oro nueva (la de mejor EV del ciclo) en cada casa con API que la tenga."""
+    def step(self, values, is_gold, is_wide=None) -> int:
+        """Anota cada selección con señal oro nueva (la de mejor EV del ciclo) en cada casa con API que la tenga.
+        Con `is_wide`, también las de nivel amplio (EV 1,5–2 %), en filas aparte (clave terminada en #amplio)."""
         now = time.time()
         rows = []
         seen: set[str] = set()
         for v in sorted(values, key=lambda v: v.ev_pct, reverse=True):
             st = v.event.anchor.start
-            if st is None or not is_gold(v.event.live, v.ev_pct, v.quote.odds, (st.timestamp() - now) / 3600):
+            if st is None:
                 continue
+            hrs = (st.timestamp() - now) / 3600
+            gold = is_gold(v.event.live, v.ev_pct, v.quote.odds, hrs)
+            if not gold and not (is_wide and is_wide(v.event.live, v.ev_pct, v.quote.odds, hrs)):
+                continue
+            tier, suffix = ("oro", "") if gold else ("amplio", "#amplio")
             covers = "".join(sorted(v.quote.covers))
             sel = f"{v.event.key}#{v.market}#{covers}"
-            if sel in seen or self.conn.execute("SELECT 1 FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'",
-                                                (sel.replace("%", "\\%").replace("_", "\\_") + "#%",)).fetchone():
+            like = sel.replace("%", "\\%").replace("_", "\\_") + "#%"
+            # oro: una vez por selección; amplio: solo si la selección no se anotó antes (ni como oro ni como amplio)
+            taken = self.conn.execute("SELECT 1 FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'" + (
+                " AND COALESCE(tier,'oro')='oro'" if gold else ""), (like,)).fetchone()
+            if sel + tier in seen or (not gold and sel + "oro" in seen) or taken:
                 continue
-            seen.add(sel)
+            seen.add(sel + tier)
             best: dict = {}
             for q in v.event.quotes_for(v.market):
                 if q.source in self.houses and q.covers == v.quote.covers and q.ref and q.odds > best.get(q.source, (0,))[0]:
@@ -166,18 +182,19 @@ class SXShadow:
                       v.quote.source, round(v.quote.odds, 4), round(v.ev_pct, 3), round(v.fair_prob, 5))
             polys = (json.dumps(v.poly_tokens), json.dumps(v.poly_conditions))
             if not best:
-                rows.append((f"{sel}#-", *common, None, None, None, None, None, "sin casa API",
+                rows.append((f"{sel}#-{suffix}", *common, None, tier, None, None, None, None, "sin casa API",
                              "ninguna casa con API tiene esta selección: queda el aviso manual", *polys))
             for house, (_, q) in best.items():
                 stake = round(value_stake(q.odds, max(ev_at(q.odds, v.fair_prob), MIN_EV), self.bankroll,
                                           min_total=self.min_total, limit=net_limit(q.odds)), 2)
-                rows.append((f"{sel}#{house}", *common, house, q.ref, round(q.odds, 4), round(now - q.ts, 1), stake,
-                             "pendiente", None, *polys))
-                self._orig[f"{sel}#{house}"] = (v, q)
+                rows.append((f"{sel}#{house}{suffix}", *common, house, tier, q.ref, round(q.odds, 4), round(now - q.ts, 1),
+                             stake, "pendiente", None, *polys))
+                if gold:
+                    self._orig[f"{sel}#{house}"] = (v, q)
         self.conn.executemany(
             "INSERT OR IGNORE INTO sx_shadow (key, created_ts, start_ts, title, sport, market, label, covers, signal_source, "
-            "signal_odds, signal_ev, fair_prob, house, sx_ref, sx_seen_odds, sx_seen_age_s, stake, status, reason, tokens, "
-            "conds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            "signal_odds, signal_ev, fair_prob, house, tier, sx_ref, sx_seen_odds, sx_seen_age_s, stake, status, reason, "
+            "tokens, conds) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         self.conn.execute("UPDATE sx_shadow SET status='rechazada', reason='sin revisar a tiempo' "
                           "WHERE status='pendiente' AND created_ts < ?", (now - EXPIRE_S,))
         self.conn.commit()
@@ -187,20 +204,22 @@ class SXShadow:
         """Pasada la latencia, el precio de la casa en ese momento: cuota real al monto, EV y cuánto aguanta."""
         now = time.time()
         rows = self.conn.execute(
-            "SELECT key, house, sx_ref, stake, fair_prob, signal_source FROM sx_shadow WHERE status='pendiente' "
-            "AND created_ts <= ? ORDER BY created_ts LIMIT ?", (now - LATENCY_S, PER_VERIFY)).fetchall()
+            "SELECT key, house, sx_ref, stake, fair_prob, signal_source, COALESCE(tier,'oro') FROM sx_shadow "
+            "WHERE status='pendiente' AND created_ts <= ? ORDER BY created_ts LIMIT ?", (now - LATENCY_S, PER_VERIFY)).fetchall()
         fetched = []
-        for key, house, ref, stake, fair, signal in rows:      # primero todas las consultas, después las escrituras
-            fetched.append((key, stake, fair, signal, await real_price(client, house, ref, stake, fair, self.cloudbet_key)))
+        for key, house, ref, stake, fair, signal, tier in rows:   # primero todas las consultas, después las escrituras
+            fetched.append((key, stake, fair, signal, tier,
+                            await real_price(client, house, ref, stake, fair, self.cloudbet_key)))
         updates = []
-        for key, stake, fair, signal, (odds, cap, err) in fetched:
+        for key, stake, fair, signal, tier, (odds, cap, err) in fetched:
+            min_ev = MIN_EV if tier == "oro" else WIDE_MIN_EV
             manual = " · queda el aviso manual de 1xBet" if signal in MANUAL else ""
             if odds is None:
                 updates.append(("rechazada", (err or "sin precio") + manual, None, None, cap, None, now, key))
                 continue
             ev = ev_at(odds, fair)
-            if ev < MIN_EV:
-                updates.append(("rechazada", f"cuota real {odds:.3f}: EV {ev:+.2f} % < {MIN_EV:g} %" + manual,
+            if ev < min_ev:
+                updates.append(("rechazada", f"cuota real {odds:.3f}: EV {ev:+.2f} % < {min_ev:g} %" + manual,
                                 round(odds, 4), round(ev, 3), cap, None, now, key))
                 continue
             updates.append(("llenada", f"aceptaba ${stake:,.2f} a {odds:.3f} (EV {ev:+.2f} %)", round(odds, 4),
@@ -211,7 +230,7 @@ class SXShadow:
         for status, _reason, odds, _ev, _cap, _res, _ts, key in updates:
             orig = self._orig.pop(key, None)
             if status == "llenada" and orig and self.on_fill:
-                stake, fair = next((s, f) for k, _h, _r, s, f, _sg in rows if k == key)
+                stake, fair = next((s, f) for k, _h, _r, s, f, _sg, _t in rows if k == key)
                 self.on_fill(orig[0], orig[1], stake, odds, fair)
         live = {k for (k,) in self.conn.execute("SELECT key FROM sx_shadow WHERE status='pendiente'")}
         self._orig = {k: v for k, v in self._orig.items() if k in live}
@@ -310,11 +329,16 @@ def summary(conn) -> dict | None:
     try:
         cols = ("key", "created_ts", "start_ts", "title", "sport", "market", "label", "signal_source", "signal_odds",
                 "signal_ev", "fair_prob", "house", "sx_seen_odds", "sx_seen_age_s", "stake", "status", "reason",
-                "fill_odds", "ev_real", "capacity", "clv_real", "result", "pnl")
-        rows = [dict(zip(cols, r)) for r in conn.execute(
-            f"SELECT {', '.join(cols)} FROM sx_shadow ORDER BY created_ts DESC")]
+                "fill_odds", "ev_real", "capacity", "clv_real", "result", "pnl", "tier")
+        everything = [dict(zip(cols, r)) for r in conn.execute(
+            f"SELECT {', '.join(cols[:-1])}, COALESCE(tier,'oro') FROM sx_shadow ORDER BY created_ts DESC")]
     except sqlite3.OperationalError:
         return None
+    rows = [r for r in everything if r["tier"] == "oro"]
+    wide = [r for r in everything if r["tier"] == "amplio" and r["status"] != "pendiente" and r["house"]]
+    wide_by: dict[str, list] = {}
+    for r in wide:
+        wide_by.setdefault(r["house"], []).append(r)
     done = [r for r in rows if r["status"] != "pendiente"]
     api = [r for r in done if r["house"]]
     selections = {r["key"].rsplit("#", 1)[0] for r in done}
@@ -340,5 +364,7 @@ def summary(conn) -> dict | None:
         "filled_sel": len(filled_sel), "pending": len(rows) - len(done), **_stats(api),
         "approve": APPROVE, "by_house": by("house"), "by_signal": by("signal_source"), "by_sport": by("sport"),
         "reasons": sorted(({"reason": k, "n": v} for k, v in reasons.items()), key=lambda x: -x["n"]),
+        "wide": {**_stats(wide), "by_house": [{"name": NAMES.get(k, k), **_stats(v)}
+                                              for k, v in sorted(wide_by.items(), key=lambda kv: -len(kv[1]))]},
         "rows": rows[:150],
     }

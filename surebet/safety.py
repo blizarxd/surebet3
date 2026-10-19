@@ -64,6 +64,16 @@ def golden_value(live: bool, ev_pct: float, odds: float, hours_to_start: float |
             and GOLD_EV[0] <= ev_pct < GOLD_EV[1] and GOLD_ODDS[0] <= odds < GOLD_ODDS[1])
 
 
+# Valor "amplio": como el oro pero con EV 1,5–2 % (19/10: el CLV de esa franja es positivo, +1,7 a +2,7 %). Solo se
+# MIDE en la sombra del valor automático; el bot real y los avisos siguen solo con oro hasta que los datos lo confirmen.
+WIDE_EV = (1.5, 2.0)
+
+
+def wide_value(live: bool, ev_pct: float, odds: float, hours_to_start: float | None) -> bool:
+    return (not live and hours_to_start is not None and 0 < hours_to_start <= GOLD_MAX_HOURS
+            and WIDE_EV[0] <= ev_pct < WIDE_EV[1] and GOLD_ODDS[0] <= odds < GOLD_ODDS[1])
+
+
 def blocked(o: Opportunity) -> bool:
     return any(w.startswith("⛔") for w in o.warnings)
 

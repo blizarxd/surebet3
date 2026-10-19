@@ -70,6 +70,10 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   Interruptores: `AUTO_VALUE_NET=0` = valor en Azuro SIN red; `AUTO_ARB=0` = sin surebets Azuro+Poly (con los dos en 0 solo
   hace falta saldo en Azuro y no exige POLY_LIVE). Cobra solo las ganadas/anuladas cada 15 min (LP.withdrawPayouts, gas POL).
   Capital solo Azuro sin red con $30: ~$300 (pico ~$270 cobrando al instante) + ~0,5 POL.
+- **Más picks de Azuro (19/10):** Azuro ahora lee también más/menos goles (1,5–4,5), 1X2 del 1er tiempo y más/menos 1T
+  (0,5–2,5): ~3× más precios de Azuro para comparar (límites de esos mercados solo para partidos a < 8 h). Además el nivel
+  "amplio" (EV 1,5–2 %, `safety.wide_value`) se mide en la sombra aparte; el bot real y los avisos siguen solo con oro.
+  Pestaña 🟦 Azuro: todo el valor de Azuro a $30 (día por día, con/sin red, por mercado, precio real, ejecutor).
 - **Mini prueba real (19/10, decidida):** solo Azuro, valor SIN red, $5 por pick, ~$50 USDT + ~1 POL en una wallet NUEVA
   (clave en `AZURO_PRIVATE_KEY`, la pone el usuario). VPS ya con `AUTO_VALUE_NET=0`, `AUTO_ARB=0`, `AUTO_AZURO_STAKE=5`,
   `AUTO_MAX_DAILY=100` (respaldo del .env en /root/surebet3.env.bak3/bak4). Falta: clave + fondos → `azuro_wallet.py --approve 100`

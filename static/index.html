@@ -214,6 +214,7 @@
     la red de Polymarket iría igual que hoy). <b>Sombra: nunca envía nada.</b> Una casa queda aprobada para probar en real con ≥ 100 llenadas,
     ≥ 50 % de sus señales llenadas y CLV real ≥ +1,5 %.</div></section>
   <section class="kpis" id="kpis-sx"></section>
+  <section class="card small" id="sx-wide"></section>
   <section class="card"><h2>Por casa con API</h2><div class="scroll"><table id="sx-by-house"></table></div></section>
   <section class="grid2">
     <div class="card"><h2>Por qué no se llenan</h2><div class="scroll"><table id="sx-reasons"></table></div></div>
@@ -248,7 +249,9 @@
     <div class="small muted">Hoy el bot toma solo EV 2–7 %, cuota 1,6–4 y partidos que empiezan en menos de 6 h, y Azuro se lee solo en 1X2 y ganador.
       Estas tablas muestran si aflojar cada filtro mantiene el CLV positivo (más picks con ventaja) o no.</div>
     <div class="grid2" style="margin-top:8px"><div><h2>Por EV al detectar</h2><table id="az-lim-ev"></table></div>
-      <div><h2>Por horas antes del partido</h2><table id="az-lim-hours"></table><h2 style="margin-top:10px">Por cuota</h2><table id="az-lim-odds"></table></div></div></section>
+      <div><h2>Por horas antes del partido</h2><table id="az-lim-hours"></table><h2 style="margin-top:10px">Por cuota</h2><table id="az-lim-odds"></table></div></div>
+    <h2 style="margin-top:12px">Por mercado <span class="count">(picks del bot; desde el 19/10 Azuro también se lee en más/menos, 1er tiempo y más/menos 1T)</span></h2>
+    <div class="scroll"><table id="az-mk"></table></div></section>
   <section class="card"><h2>Surebets Azuro + otra casa <span class="count">(automático simulado, a los montos que entró y con tope $30)</span></h2>
     <div class="scroll"><table id="az-arb"></table></div></section>
   <section class="card"><h2>Pick por pick <span class="count" id="az-rows-sum"></span></h2>
@@ -1117,6 +1120,9 @@ function renderSX(x) {
   if (!x) { $("kpis-sx").innerHTML = kpi("Señales oro", "-", "todavía sin datos: arranca con el escáner nuevo"); return; }
   const secs = (s) => s == null ? "-" : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
   const a = x.approve;
+  const wd = x.wide || {};
+  $("sx-wide").innerHTML = wd.n ? `<b>Nivel amplio (EV 1,5–2 %, solo medición; el bot real sigue con oro):</b> ${wd.n} intentos · se llenan ${wd.fills} (${wd.fill_rate}%)
+    · EV real ${wd.ev_real == null ? "-" : pct(wd.ev_real, 1)} · CLV real ${wd.clv == null ? "-" : pct(wd.clv) + ` (${wd.clv_n})`} · sin red ${money(wd.pnl, true)}` : "Nivel amplio (EV 1,5–2 %): todavía sin intentos.";
   $("kpis-sx").innerHTML = [
     kpi("Señales oro", x.selections, `${x.covered} están en alguna casa con API · ${x.no_api} solo en 1xBet (manual) · ${x.pending} revisando`),
     kpi("Automatizables", x.selections ? Math.round(100 * x.filled_sel / x.selections) + "%" : "-", `${x.filled_sel} señales se habrían llenado en alguna casa con API`, x.filled_sel ? "pos" : ""),
@@ -1188,6 +1194,12 @@ function renderAzuro(az, sx, ex, br) {
       <td class="num">${h.cap_med == null ? "-" : money(h.cap_med)}</td><td class="num ${cls(h.clv)}">${h.clv == null ? "-" : pct(h.clv) + ` (${h.clv_n})`}</td></tr>
     <tr><td colspan="6" class="small muted">Las señales que nacen en Azuro se prueban contra su cuota de ese momento; las de 1xBet casi nunca tienen valor en Azuro.</td></tr>`
     : `<tr><td class="empty">Todavía sin intentos en Azuro.</td></tr>`;
+  const wh = ((sx && sx.wide && sx.wide.by_house) || []).find((x) => x.name === "Azuro");
+  if (wh) $("az-shadow").innerHTML += `<tr><td colspan="6" class="small"><b>Nivel amplio (EV 1,5–2 %, solo medición):</b> ${wh.n} intentos ·
+    se llenan ${wh.fills} (${wh.fill_rate}%) · CLV real ${wh.clv == null ? "-" : pct(wh.clv) + ` (${wh.clv_n})`} · sin red ${money(wh.pnl, true)}</td></tr>`;
+  $("az-mk").innerHTML = (az.by_market || []).length ? `<tr><th>Mercado</th><th class="num">Picks</th><th class="num">CLV mediana</th><th class="num">A favor</th><th class="num">A $30 sin red</th></tr>` +
+    az.by_market.map((m) => `<tr><td>${esc(m.name)}</td><td class="num">${m.n}</td><td class="num ${cls(m.clv_median)}">${m.clv_median == null ? "-" : pct(m.clv_median)}</td>
+      <td class="num">${m.clv_pos ?? "-"}%</td><td class="num ${cls(m.pnl)}">${money(m.pnl, true)}</td></tr>`).join("") : `<tr><td class="empty">Sin datos.</td></tr>`;
   const cfg = (ex && ex.config) || {};
   $("az-ex-sum").textContent = `(${cfg.status || "-"})`;
   const exRows = (ex && ex.rows || []).slice(0, 15);

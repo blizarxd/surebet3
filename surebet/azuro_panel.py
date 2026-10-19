@@ -137,13 +137,23 @@ def summary(conn) -> dict | None:
         return [{"name": k, **_clv_stats(v)} for k, v in sorted(g.items(), key=lambda kv: order.get(kv[0], 99))]
 
     bot_clv = _clv_stats([p["clv"] for p in bot if p["clv"] is not None])
+
+    def family(m: str) -> str:   # mercados nuevos desde el 19/10: más/menos, 1er tiempo
+        return ("Más/Menos 1T" if m.startswith("Más/Menos 1T") else "Más/Menos" if m.startswith("Más/Menos")
+                else "1X2 1er tiempo" if m == "1X2 1er tiempo" else m)
+    mk: dict[str, list] = {}
+    for p in bot:
+        mk.setdefault(family(p["market"] or "?"), []).append(p)
+    by_market = [{"name": k, "n": len(v), "pnl": round(sum(p["pnl"] or 0 for p in v), 2),
+                  **{f"clv_{k2}": v2 for k2, v2 in _clv_stats([p["clv"] for p in v if p["clv"] is not None]).items()}}
+                 for k, v in sorted(mk.items(), key=lambda kv: -len(kv[1]))]
     return {
         "stake": STAKE, "since": t0, "days": round(n_days, 1), "picks": len(picks), "bot_picks": len(bot),
         "per_day": round(len(bot) / n_days, 1), "clv": bot_clv,
         "pnl": round(sum(p["pnl"] for p in closed), 2), "exp": round(sum(p["exp"] or 0 for p in bot), 2),
         "won": sum(p["status"] == "won" for p in bot), "lost": sum(p["status"] == "lost" for p in bot),
         "open": sum(p["status"] == "open" for p in bot),
-        "days_bot": days(True), "days_all": days(False), "red": red,
+        "days_bot": days(True), "days_all": days(False), "red": red, "by_market": by_market,
         "limits": {"ev": by(lambda r: r[1], [0, 1, 1.5, 2, 3, 5, 7, 10]),
                    "odds": by(lambda r: r[2], [1.2, 1.4, 1.6, 2, 3, 4, 6]),
                    "hours": by(lambda r: (r[3] - r[4]) / 3600, [0, 1, 3, 6, 12, 24])},

@@ -68,7 +68,7 @@ def test_azuro_main_market_outcomes_and_limits():
     src = AzuroSource()
     src._games["g1"] = {"id": "g1", "sport": "soccer", "start": datetime.now(timezone.utc) + timedelta(hours=3),
                         "home": "Home FC", "away": "Away FC", "league": "", "slug": ""}
-    src._conds["g1"] = (time.time(), "1x2", AZ_COND)
+    src._conds["g1"] = (time.time(), [("1x2", AZ_COND)])
     assert src.quotes_for("g1") == []                        # sin límite conocido: no se usa
     for oid, lim in (("1", 20.0), ("2", 50.0), ("3", 80.0)):
         src._limits[("c9", oid)] = (time.time(), lim)
@@ -112,8 +112,37 @@ def test_azuro_hides_quotes_once_the_game_starts():
     for gid, hours in (("soon", 2), ("started", -0.01)):
         src._games[gid] = {"id": gid, "sport": "soccer", "start": datetime.now(timezone.utc) + timedelta(hours=hours),
                            "home": "Home FC", "away": "Away FC", "league": "", "slug": ""}
-        src._conds[gid] = (time.time(), "1x2", AZ_COND)
+        src._conds[gid] = (time.time(), [("1x2", AZ_COND)])
         src._wanted.add(gid)
     for oid in ("1", "2", "3"):
         src._limits[("c9", oid)] = (time.time(), 50.0)
     assert [e.event_id for e in src._build()] == ["soon"]     # el ya empezado tiene cuota vieja: no se usa
+
+
+def test_azuro_extra_soccer_markets():
+    from surebet.models import OVER, UNDER
+    from surebet.sources.azuro import game_conditions
+    ou = {"conditionId": "c25", "state": "Active", "hidden": False, "title": "Total Goals Over/Under", "outcomes": [
+        {"outcomeId": 1, "title": "Under 2.5", "point": "2.5", "odds": "1.49", "state": "Active"},
+        {"outcomeId": 2, "title": "Over 2.5", "point": "2.5", "odds": "2.37", "state": "Active"}]}
+    ou_h1 = {**ou, "conditionId": "h15", "title": "1st Half - Total Goals Over/Under", "outcomes": [
+        {"outcomeId": 1, "title": "Under 1.5", "point": "1.5", "odds": "1.3", "state": "Active"},
+        {"outcomeId": 2, "title": "Over 1.5", "point": "1.5", "odds": "3.2", "state": "Active"}]}
+    h1 = {**AZ_COND, "conditionId": "h1", "title": "1st Half - Result"}
+    asian = {**ou, "conditionId": "x", "title": "Asian Total Goals Over/Under"}           # no se usa
+    far_line = {**ou, "conditionId": "y", "outcomes": [{**o, "point": "6.5"} for o in ou["outcomes"]]}
+    picks = game_conditions([AZ_COND, ou, ou_h1, h1, asian, far_line], "soccer")
+    assert [m for m, _ in picks] == ["1x2", "ou_2.5", "ou_h1_1.5", "1x2_h1"]
+    assert game_conditions([ou, {**AZ_COND, "title": "Match Winner", "outcomes": AZ_COND["outcomes"][1:]}], "tennis")[0][0] == "ml"
+    assert outcome_map(ou, "Home FC", "Away FC") == {"1": UNDER, "2": OVER}
+    src = AzuroSource()
+    src._games["g1"] = {"id": "g1", "sport": "soccer", "home": "Home FC", "away": "Away FC", "league": "",
+                        "start": datetime.now(timezone.utc) + timedelta(hours=2), "slug": ""}
+    src._conds["g1"] = (time.time(), picks)
+    for c in (ou, ou_h1, AZ_COND, h1):
+        for o in c["outcomes"]:
+            src._limits[(c["conditionId"], str(o["outcomeId"]))] = (time.time(), 80.0)
+    qs = {(q.market, q.label): q for q in src.quotes_for("g1")}
+    assert qs[("ou_2.5", "Más 2.5")].odds == 2.37 and qs[("ou_h1_1.5", "Menos 1T 1.5")].covers == frozenset({UNDER})
+    assert ("1x2_h1", "1T Empate") in qs
+    assert src.resolution_for("g1", "ou_2.5") == {UNDER: ("azuro:c25", "1"), OVER: ("azuro:c25", "2")}

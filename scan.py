@@ -41,7 +41,7 @@ from surebet.sources.sxbet import SXBetSource
 from surebet.sources.cloudbet import CloudbetSource
 from surebet.sources.kalshi import KalshiSource
 from surebet.sources.azuro import AzuroSource
-from surebet.safety import blocked, golden_value, observe_only, risk_flags
+from surebet.safety import blocked, golden_value, observe_only, risk_flags, wide_value
 from surebet.semaforo import Semaforo
 from surebet.livehedge import LiveHedgeTracker
 from surebet.sxshadow import SXShadow
@@ -527,7 +527,7 @@ async def main() -> None:
                                                                 book_sources=AUTO_HOUSES, modes=(POLY_FIRST,))),
                            ("maker-precio", lambda: makersim.finish_auto(client))] if s.maker_auto_enabled else []),
                         ("sombra-pinnacle", lambda: refshadow.record(res.values)),
-                        ("sombra-sx", lambda: sxshadow.step(res.values, golden_value)),
+                        ("sombra-sx", lambda: sxshadow.step(res.values, golden_value, wide_value)),
                         ("sombra-sx-precio", lambda: sxshadow.verify(client)),
                         ("sombra-sx-cierre", lambda: sxshadow.settle(client)),
                         ("red", lambda: nets.tick(poly_quotes, lambda t: send_telegram(client, s.telegram_token,
