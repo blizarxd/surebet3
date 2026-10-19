@@ -120,6 +120,7 @@ class Executor:
         self._last_claim = 0.0
         self._claiming: dict[int, float] = {}   # apuesta -> cuándo se mandó su cobro (no repetir mientras confirma)
         self._warned_pol = False
+        self._warned_funds = False
         self.conn.execute("CREATE TABLE IF NOT EXISTS paper_meta (k TEXT PRIMARY KEY, v TEXT)")
         self.conn.execute("INSERT OR REPLACE INTO paper_meta VALUES ('executor', ?)", (json.dumps({
             "mode": self.mode, "status": self.status, "azuro_stake": azuro_stake, "max_per_op": max_per_op,
@@ -262,6 +263,21 @@ class Executor:
                 return None
             self._update(row_id, az_odds=odds, az_state="(dry) se habría aceptado")
             return odds
+        need = stake + fee_raw / 1e6
+        try:   # sin saldo o sin permiso, Azuro la rechaza igual: mejor no mandarla y avisar una vez
+            balance, allowed = await self.azuro.usdt_balance(client), await self.azuro.allowance(client)
+        except Exception:
+            balance = allowed = None
+        short = (f"saldo insuficiente en la wallet (${balance:,.2f} USDT)" if balance is not None and balance < need
+                 else "falta aprobar USDT al relayer (tools/azuro_wallet.py --approve)" if allowed is not None
+                 and allowed < need else None)
+        if short:
+            self._update(row_id, status="rejected", az_state="no enviada", reason=short)
+            if not self._warned_funds:
+                self._warned_funds = True
+                await self._say(client, f"⚠️ Ejecutor: no apuesto en Azuro: {short}. Las próximas se saltan hasta que se arregle.")
+            return None
+        self._warned_funds = False
         body = self.azuro.build(cond, outcome, stake, min_odds, fee_raw)
         try:
             resp = await self.azuro.place(client, body)

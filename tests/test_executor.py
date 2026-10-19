@@ -48,6 +48,8 @@ def handler(order_state="Accepted", ask=0.29):
     def h(r):
         seen.append((r.method, r.url.path))
         p = r.url.path
+        if r.url.host == "polygon-rpc.com":                                       # saldo y permiso de USDT
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": hex(10 ** 12)})
         if p.endswith("/gas-info"):
             return httpx.Response(200, json=[{"relayerFeeAmount": "20000"}])          # $0,02
         if p.endswith("/condition-batch"):
@@ -270,3 +272,23 @@ def test_claims_winnings_automatically(tmp_path):
     ex._last_claim = 0
     run(ex, h)                                        # mientras confirma, no se vuelve a mandar el mismo cobro
     assert not any(b["method"] == "eth_sendRawTransaction" for b in sent)
+
+
+def test_no_bet_without_funds_and_warns_once(tmp_path):
+    from surebet.models import Quote
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="live", azuro_key=KEY, value_net=False, azuro_stake=5)
+    ex._last_claim = time.time()
+    base = handler()
+
+    def poor(r):
+        if r.url.host == "polygon-rpc.com":           # 2 USDT en la wallet: no alcanza para $5
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": hex(2 * 10 ** 6)})
+        assert not r.url.path.endswith("/ordinar")    # nunca se manda la orden
+        return base(r)
+
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    for key in ("polymarket:E1", "polymarket:E2"):
+        ex.queue_value(SimpleNamespace(event=opp(key).event, market="1x2", poly_tokens={}, poly_conditions={}), q, 5, 2.30, 0.46)
+    run(ex, poor)
+    reasons = [r for (r,) in ex.conn.execute("SELECT reason FROM live_exec")]
+    assert len(reasons) == 2 and all("saldo insuficiente" in r for r in reasons) and ex._warned_funds

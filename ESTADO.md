@@ -70,6 +70,10 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   Interruptores: `AUTO_VALUE_NET=0` = valor en Azuro SIN red; `AUTO_ARB=0` = sin surebets Azuro+Poly (con los dos en 0 solo
   hace falta saldo en Azuro y no exige POLY_LIVE). Cobra solo las ganadas/anuladas cada 15 min (LP.withdrawPayouts, gas POL).
   Capital solo Azuro sin red con $30: ~$300 (pico ~$270 cobrando al instante) + ~0,5 POL.
+- **Mini prueba real (19/10, decidida):** solo Azuro, valor SIN red, $5 por pick, ~$50 USDT + ~1 POL en una wallet NUEVA
+  (clave en `AZURO_PRIVATE_KEY`, la pone el usuario). VPS ya con `AUTO_VALUE_NET=0`, `AUTO_ARB=0`, `AUTO_AZURO_STAKE=5`,
+  `AUTO_MAX_DAILY=100` (respaldo del .env en /root/surebet3.env.bak3/bak4). Falta: clave + fondos → `azuro_wallet.py --approve 100`
+  → `AUTO_EXEC=live`. Azuro hoy: comisión del relayer $0, apuesta mínima $1, máximo con valor ~$67–4.380 (mediana ~$100).
   **Para pasar a live:** wallet nueva solo para el bot (Polygon) con USDT (Azuro), USDC en Polymarket y ~0,5 POL; el usuario
   pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
   `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente
