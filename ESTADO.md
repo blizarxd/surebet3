@@ -76,8 +76,9 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   Pestaña 🟦 Azuro: todo el valor de Azuro a $30 (día por día, con/sin red, por mercado, precio real, ejecutor).
 - **Mini prueba real (19/10, decidida):** solo Azuro, valor SIN red, $5 por pick, ~$50 USDT + ~1 POL en una wallet NUEVA
   (clave en `AZURO_PRIVATE_KEY`, la pone el usuario). VPS ya con `AUTO_VALUE_NET=0`, `AUTO_ARB=0`, `AUTO_AZURO_STAKE=5`,
-  `AUTO_MAX_DAILY=100` (respaldo del .env en /root/surebet3.env.bak3/bak4). Falta: clave + fondos → `azuro_wallet.py --approve 100`
-  → `AUTO_EXEC=live`. Azuro hoy: comisión del relayer $0, apuesta mínima $1, máximo con valor ~$67–4.380 (mediana ~$100).
+  `AUTO_MAX_DAILY=100` (respaldo del .env en /root/surebet3.env.bak3/bak4). **19/10: wallet del bot 0xCeB5…E900 con clave en el
+  .env (la puso el usuario con tools/set_azuro_key.py), 1 POL, permiso de 100 USDT aprobado. Falta: que lleguen los $50 USDT
+  y que el usuario diga que arranque → `AUTO_EXEC=live`.** (La 1ª wallet 0xB55a… quedó descartada: su clave se pegó en el chat.) Azuro hoy: comisión del relayer $0, apuesta mínima $1, máximo con valor ~$67–4.380 (mediana ~$100).
   **Para pasar a live:** wallet nueva solo para el bot (Polygon) con USDT (Azuro), USDC en Polymarket y ~0,5 POL; el usuario
   pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
   `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente
