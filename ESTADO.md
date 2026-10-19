@@ -1,6 +1,6 @@
 # surebet3 · ESTADO (leer esto primero en una conversación nueva)
 
-Actualizado: 18/10/2026 (tarde). Todo es **papel** (simulación): ningún dinero real ni orden enviada.
+Actualizado: 19/10/2026. Todo es **papel** (simulación): ningún dinero real ni orden enviada.
 
 ## Dónde está todo
 - **Panel:** http://65.21.243.40/surebet/ (VPS Hetzner, `root@65.21.243.40`, `/opt/apps/surebet3`, servicio `surebet3`).
@@ -17,14 +17,15 @@ Escáner de surebets y valor: Polymarket vs casas blandas. Fuentes: Polymarket, 
 Cloudbet, Kalshi, Azuro (Polygon), OddsPapi (Rushbet, BetPlay, Pinnacle), The Odds API.
 Usuario: Cúcuta, Colombia; apuesta 1xBet a mano y el bot hace lo de Polymarket. Habla informal, prefiere que se construya directo.
 
-## Cuentas en papel (18/10, 8,5 días)
+## Cuentas en papel (19/10, 9,4 días)
 | Cuenta | Ganancia | Nota |
 |---|---|---|
-| Semi-manual (surebets 1xBet+Poly, $100, ≤6 h) | +$137 | 0 perdidas |
-| Automático (cuenta $3.000, tope $1.500, 90 % del libro, precio real) | +$221 | 1 perdida de −$0,20 |
-| Valor oro simple | +$888 | volátil; lo que prueba la ventaja es el CLV |
-| Valor + red (🛟 orden límite maker en Polymarket) | +$589 | baja caída máx. de 13,5 % a 6,3 % |
-Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 (CLV +2,6 %).
+| Semi-manual (surebets 1xBet+Poly, $1.000, ≤6 h) | +$162 | 180 ganadas, 0 perdidas, neto +0,95 %/op |
+| Automático (cuenta $3.000, tope $1.500, 90 % del libro, precio real) | +$251 | sin CS2/Dota2 bajó a ~5 ops/día |
+| Valor oro simple ($1.000) | +$1.009 | ROI 11 % con suerte; CLV oro +3,05 % (641), 78 % a favor |
+| Valor + red (🛟) | +$597 | sin red sería +$930; caída máx. 5,9 % |
+Automático por casa: Azuro+Poly +$57 (38 ops), Kalshi 6 ops +$109 (2 grandes), Poly+SX +$38, Azuro+SX +$22.
+Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS2.
 
 ## Reglas y decisiones que NO hay que repetir
 - **Anuladas:** Polymarket paga $0,50/share en 50/50 (la casa devuelve la apuesta) → `void_payout()`. Casi todas son esports CS2/Dota2.
@@ -55,6 +56,8 @@ Valor+red por casa: SX +$233 (CLV +5,3 %), Azuro +$43 (CLV +4,0 %), 1xBet +$298 
   +$110 (2 de $940–1.060 con margen 4–5,6 %). Con tope $30 por surebet: +$6,83 (+$15,88 sin CS2/Dota2, ~$2/día); $100: ~$6/día;
   $300: ~$15/día. 8 de las 9 anuladas eran CS2. Desglose en la pestaña Automático.
 
+- **Sombra 1er día (19/10):** las señales que nacen en la casa con API se llenan (Azuro 3/3, SX 3/11, Cloudbet 1/1); las de
+  1xBet probadas en SX/Azuro casi nunca (0/26: ahí no hay valor). 5 de 8 llenadas eran CS2 → el ejecutor ahora excluye CS2/Dota2.
 - **Ejecutor REAL Azuro + Polymarket** (`surebet/executor.py`, `surebet/azuro_exec.py`; tarjeta arriba en la pestaña Automático):
   (A) surebets Azuro + Polymarket confirmadas con precio real: primero Azuro, si la acepta Polymarket FOK con shares enteras;
   pata suelta → reintenta cada minuto, cubre si pierde ≤ 1 %, si no queda como valor y avisa. (B) valor + red en Azuro (lo que

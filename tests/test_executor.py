@@ -183,3 +183,17 @@ def test_dry_value_on_azuro(tmp_path):
     run(ex, handler())
     r = row(ex)
     assert r["status"] == "dry" and r["kind"] == "value" and r["total"] <= 30.01 and r["net_pct"] > 2
+
+
+def test_cs2_value_is_only_observed(tmp_path):
+    from surebet.models import MatchedEvent, Quote, SourceEvent
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="dry", max_per_op=30)
+    se = SourceEvent(feed="azuro", event_id="Z1", sport="esports:cs2", home="A", away="B", start=START, three_way=False)
+    ev = MatchedEvent(anchor=se)
+    ev.members = [(se, False)]
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="A", market="ml", ref="777|29")
+    v = SimpleNamespace(event=ev, market="ml", poly_tokens={}, poly_conditions={})
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    run(ex, handler())
+    r = row(ex)
+    assert r["status"] == "rejected" and "CS2" in r["reason"]

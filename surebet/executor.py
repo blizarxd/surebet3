@@ -14,7 +14,8 @@ Dos jugadas, las dos por API:
 
 Modos (AUTO_EXEC en .env): off | dry | live. "live" exige clave de Azuro y Polymarket en real (POLY_LIVE=1); si falta algo
 queda en dry y lo dice. Topes: AUTO_MAX_PER_OP (total comprometido por jugada, Azuro + Polymarket), AUTO_MAX_DAILY y
-AUTO_MAX_OPEN. Frenos: semáforo en rojo, /pausa de Telegram, el mismo partido una sola vez, nada a menos de 10 min.
+AUTO_MAX_OPEN. Frenos: semáforo en rojo, /pausa de Telegram, el mismo partido una sola vez, nada a menos de 10 min,
+CS2 y Dota2 nunca (solo observación).
 Corre en segundo plano (las confirmaciones de Azuro tardan segundos y no deben frenar el escaneo).
 """
 
@@ -35,6 +36,7 @@ from .arb import POLYMARKET, ValueBet
 from .azuro_exec import ACCEPTED, AzuroClient
 from .models import BookLevel, market_label
 from .polybuy import CLOB, walk_shares
+from .safety import observe_only
 from .staking import net_limit
 
 MODES = ("off", "dry", "live")
@@ -65,6 +67,11 @@ CREATE TABLE IF NOT EXISTS live_exec (
     reason TEXT, updated_ts REAL
 );
 """
+
+
+def _observed(event) -> bool:
+    """CS2 y Dota2: solo observación, nunca en el automático (decisión del 18/10, ver safety.OBSERVE_SPORTS)."""
+    return bool(getattr(event, "members", None)) and observe_only(event)
 
 
 def _odds(x) -> float | None:
@@ -270,6 +277,8 @@ class Executor:
         ev = o.event.anchor
         start = ev.start.timestamp() if ev.start else None
         why = self._blocked("arb", f"{o.event.key}#{o.market}", start, {"azuro", POLYMARKET}, az_stake + pm_stake)
+        if not why and _observed(o.event):
+            why = "CS2/Dota2: solo observación"
         if shares < POLY_MIN_SHARES or az_stake < 1:
             why = why or "monto muy chico para el mínimo de Polymarket (5 shares)"
         row_id = self._insert(kind="arb", event_key=f"{o.event.key}#{o.market}", title=ev.title, market=market_label(o.market),
@@ -329,6 +338,8 @@ class Executor:
         start = ev.start.timestamp() if ev.start else None
         min_odds = round(max((1 + VALUE_MIN_EV / 100) / fair, 1.01), 3)
         why = self._blocked("value", f"{v.event.key}#{v.market}", start, {"azuro", POLYMARKET}, total)
+        if not why and _observed(v.event):
+            why = "CS2/Dota2: solo observación"
         if not why and min_odds > odds + 1e-9:
             why = f"la cuota {odds:.3f} ya no deja EV ≥ {VALUE_MIN_EV:g} %"
         row_id = self._insert(kind="value", event_key=f"{v.event.key}#{v.market}", title=ev.title,
