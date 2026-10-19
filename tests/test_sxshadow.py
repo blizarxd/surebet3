@@ -175,3 +175,21 @@ def test_wide_tier_is_measured_apart_and_never_sent_to_executor(tmp_path):
 def replace_odds(q, odds):
     from dataclasses import replace
     return replace(q, odds=odds)
+
+
+def test_azuro_waits_until_3h_before_start(tmp_path, monkeypatch):
+    import sys
+    mod = sys.modules[__name__]
+    sh = SXShadow(tmp_path / "p.db")
+    monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=5))
+    assert sh.step([value(azuro_odds=2.40)], gold) == 1               # a 5 h: solo SX, Azuro espera
+    assert [h for (h,) in sh.conn.execute("SELECT house FROM sx_shadow")] == ["sxbet"]
+    assert sh.step([value(azuro_odds=2.40)], gold) == 0
+    monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=2))
+    assert sh.step([value(azuro_odds=2.40)], gold) == 1               # a 2 h: entra Azuro (SX ya estaba)
+    assert sorted(h for (h,) in sh.conn.execute("SELECT house FROM sx_shadow")) == ["azuro", "sxbet"]
+    assert sh.step([value(azuro_odds=2.40)], gold) == 0
+    only = SXShadow(tmp_path / "q.db")                                 # solo Azuro y lejos: no queda como "sin casa API"
+    monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=5))
+    assert only.step([value(azuro_odds=2.40, with_sx=False)], gold) == 0
+    assert only.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 0

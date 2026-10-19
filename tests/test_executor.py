@@ -292,3 +292,16 @@ def test_no_bet_without_funds_and_warns_once(tmp_path):
     run(ex, poor)
     reasons = [r for (r,) in ex.conn.execute("SELECT reason FROM live_exec")]
     assert len(reasons) == 2 and all("saldo insuficiente" in r for r in reasons) and ex._warned_funds
+
+
+def test_value_far_from_start_is_not_bet(tmp_path):
+    from surebet.models import Quote
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="dry", azuro_stake=5, max_per_op=100)
+    anchor = SimpleNamespace(title="Arsenal vs Leeds", start=datetime.now(timezone.utc) + timedelta(hours=4))
+    v = SimpleNamespace(event=SimpleNamespace(anchor=anchor, key="polymarket:E9"), market="1x2",
+                        poly_tokens={}, poly_conditions={})
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    run(ex, handler())
+    r = row(ex)
+    assert r["status"] == "rejected" and "más de 3 h" in r["reason"]

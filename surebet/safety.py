@@ -74,6 +74,11 @@ def wide_value(live: bool, ev_pct: float, odds: float, hours_to_start: float | N
             and WIDE_EV[0] <= ev_pct < WIDE_EV[1] and GOLD_ODDS[0] <= odds < GOLD_ODDS[1])
 
 
+# Azuro automático solo a ≤ 3 h del inicio (19/10: CLV de Azuro 0–1 h +3,0 %, 1–3 h +2,2 %, 3–6 h ~0 % con 33 señales).
+# Una señal más lejana se espera: se prueba en Azuro cuando el partido entra a 3 h si sigue siendo valor.
+AZURO_MAX_HOURS = 3.0
+
+
 def blocked(o: Opportunity) -> bool:
     return any(w.startswith("⛔") for w in o.warnings)
 

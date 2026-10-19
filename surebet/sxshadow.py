@@ -31,6 +31,7 @@ import httpx
 
 from .nettrack import price_path
 from .pricing import fill_detail
+from .safety import AZURO_MAX_HOURS
 from .sources.azuro import API as AZURO_API, ENV as AZURO_ENV
 from .sources.sxbet import API as SX_API, book_levels
 from .staking import net_limit, value_stake
@@ -168,16 +169,22 @@ class SXShadow:
             covers = "".join(sorted(v.quote.covers))
             sel = f"{v.event.key}#{v.market}#{covers}"
             like = sel.replace("%", "\\%").replace("_", "\\_") + "#%"
-            # oro: una vez por selección; amplio: solo si la selección no se anotó antes (ni como oro ni como amplio)
-            taken = self.conn.execute("SELECT 1 FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'" + (
-                " AND COALESCE(tier,'oro')='oro'" if gold else ""), (like,)).fetchone()
-            if sel + tier in seen or (not gold and sel + "oro" in seen) or taken:
+            # oro: una vez por selección y casa; amplio: solo en las casas donde la selección no se anotó antes
+            # (ni como oro ni como amplio)
+            taken = {h for (h,) in self.conn.execute("SELECT COALESCE(house,'-') FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'" + (
+                " AND COALESCE(tier,'oro')='oro'" if gold else ""), (like,))}
+            if sel + tier in seen or (not gold and sel + "oro" in seen):
                 continue
-            seen.add(sel + tier)
             best: dict = {}
             for q in v.event.quotes_for(v.market):
                 if q.source in self.houses and q.covers == v.quote.covers and q.ref and q.odds > best.get(q.source, (0,))[0]:
                     best[q.source] = (q.odds, q)
+            # Azuro solo a ≤ AZURO_MAX_HOURS del inicio: más lejos se espera y se prueba cuando entre (si sigue siendo valor)
+            later = "azuro" in best and hrs > AZURO_MAX_HOURS
+            best = {h: x for h, x in best.items() if h not in taken and not (h == "azuro" and later)}
+            if not best and (taken or later):
+                continue
+            seen.add(sel + tier)
             common = (now, st.timestamp(), v.event.anchor.title, v.event.anchor.sport, v.market, v.quote.label, covers,
                       v.quote.source, round(v.quote.odds, 4), round(v.ev_pct, 3), round(v.fair_prob, 5))
             polys = (json.dumps(v.poly_tokens), json.dumps(v.poly_conditions))

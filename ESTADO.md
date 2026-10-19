@@ -83,6 +83,15 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
   `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente
   de herramienta; se puede desde bookmaker.xyz con la misma wallet).
+- **Corte 19/10 noche (datos para arrancar real):** sombra de Azuro (desde 18/10 13:11): sin CS2/Dota2 solo 3 señales
+  nacidas en Azuro, 2 llenadas (Getafe, Fram; ambas perdidas, CLV −0,1 % y +12 %); Braga Menos 1,5 rechazada (escáner 3,31,
+  real 2,97: la cuenta de valor en papel la contó igual → el papel de Azuro exagera; la verdad es la sombra/Real vs papel).
+  CLV de Azuro por horas antes del inicio (todas las señales): 0–1 h +3,0 % (84, 82 % a favor), 1–3 h +2,2 %, **3–6 h ~0 %
+  (33, 52 %)** → propuesta: Azuro solo ≤ 3 h. EV 1–2 % en Azuro tiene CLV parecido a EV 2–5 % (1–1,5: +3,4 %, 31). EV 5–7 %
+  malo (−6,9 %, 7). Valor + red cuesta ~40 % del esperado (exp. ROI 2,2 % con red vs 3,4 % sin red, 519 picks).
+  **Decidido 19/10: Azuro automático solo ≤ 3 h** (`safety.AZURO_MAX_HOURS`; la sombra espera y prueba Azuro al entrar a 3 h;
+  el ejecutor rechaza valor a > 3 h). Dry de hoy: el tope diario en dry quedó lleno por filas de $30 de antes del cambio (en live solo cuentan las live).
+  Wallet 0xCeB5…E900: USDT 0,00 (falta el depósito), 0,98 POL, permiso 100 USDT.
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

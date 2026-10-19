@@ -41,7 +41,7 @@ from .azuro_exec import ACCEPTED, AzuroClient
 from .models import BookLevel, market_label
 from .polybuy import CLOB, walk_shares
 from .realpaper import REAL_SCHEMA, bet_pnl
-from .safety import observe_only
+from .safety import AZURO_MAX_HOURS, observe_only
 from .staking import net_limit
 
 MODES = ("off", "dry", "live")
@@ -249,6 +249,8 @@ class Executor:
         now = time.time()
         if start_ts is None or start_ts - now < MIN_TO_START_S:
             return "empieza en menos de 10 min"
+        if kind == "value" and start_ts - now > AZURO_MAX_HOURS * 3600:
+            return f"empieza en más de {AZURO_MAX_HOURS:g} h (Azuro solo ≤ {AZURO_MAX_HOURS:g} h)"
         if self.conn.execute("SELECT 1 FROM live_exec WHERE event_key=? AND mode=? AND status NOT IN ('rejected','error')",
                              (event_key, self.mode)).fetchone():
             return "ese partido ya tiene una jugada"
