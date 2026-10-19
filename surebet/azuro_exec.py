@@ -187,6 +187,24 @@ class AzuroClient:
         return [{"bet_id": int(b["betId"]), "core": b["core"]["address"], "lp": b["core"]["liquidityPool"]["address"],
                  "payout": float(b.get("payout") or b.get("amount") or 0)} for b in bets]
 
+    async def my_bets(self, client: httpx.AsyncClient, first: int = 100) -> list[dict]:
+        """Las apuestas de esta wallet según el subgraph oficial de Azuro: cuota aceptada, estado, resultado y pago."""
+        q = ("query($a: String!, $n: Int) { v3Bets(first: $n, where: {actor: $a}, orderBy: createdBlockNumber, "
+             "orderDirection: desc) { betId amount odds status result payout createdBlockTimestamp isRedeemed "
+             "selections { outcome { outcomeId title condition { conditionId gameId } } } } }")
+        r = await client.post(BETS_GRAPHQL, timeout=20, json={"query": q, "variables": {"a": self.address.lower(), "n": first}})
+        out = []
+        for b in ((r.json() or {}).get("data") or {}).get("v3Bets") or []:
+            sel = ((b.get("selections") or [{}])[0] or {}).get("outcome") or {}
+            cond = sel.get("condition") or {}
+            out.append({"bet_id": int(b["betId"]), "created_ts": float(b.get("createdBlockTimestamp") or 0),
+                        "amount": float(b.get("amount") or 0), "odds": float(b.get("odds") or 0),
+                        "status": b.get("status"), "result": b.get("result"),
+                        "payout": float(b["payout"]) if b.get("payout") not in (None, "") else None,
+                        "ref": f"{cond.get('conditionId')}|{sel.get('outcomeId')}", "outcome_title": sel.get("title"),
+                        "game_id": cond.get("gameId"), "redeemed": bool(b.get("isRedeemed"))})
+        return out
+
     @staticmethod
     def withdraw_data(core: str, bet_ids: list[int]) -> str:
         """LP.withdrawPayouts(core, ids): selector + core + puntero al arreglo + largo + ids."""

@@ -40,6 +40,7 @@ from .arb import POLYMARKET, ValueBet
 from .azuro_exec import ACCEPTED, AzuroClient
 from .models import BookLevel, market_label
 from .polybuy import CLOB, walk_shares
+from .realpaper import REAL_SCHEMA, bet_pnl
 from .safety import observe_only
 from .staking import net_limit
 
@@ -52,6 +53,7 @@ VALUE_MIN_EV = 2.0
 TICK = 0.01
 OPEN_STATES = ("placing", "covered", "loose", "value", "dry")
 CLAIM_EVERY_S = 15 * 60
+RECONCILE_EVERY_S = 10 * 60   # apuestas reales de la wallet (subgraph de Azuro) → real_bets
 CLAIM_MIN_POL = 0.02          # POL mínimo para pagar el gas del cobro
 POLY_MIN_SHARES = 5
 # Polymarket pide que el monto en USDC de una orden que se llena al instante tenga como mucho 2 decimales: con precio en
@@ -96,6 +98,7 @@ class Executor:
                  arb: bool = True) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
+        self.conn.executescript(REAL_SCHEMA)
         self.conn.commit()
         self.buyer, self.nets, self.gate = buyer, nets, gate
         self.max_per_op, self.max_daily, self.max_open = max_per_op, max_daily, int(max_open)
@@ -118,6 +121,7 @@ class Executor:
         self._queue: list[tuple] = []
         self._last_loose = 0.0
         self._last_claim = 0.0
+        self._last_reconcile = 0.0
         self._claiming: dict[int, float] = {}   # apuesta -> cuándo se mandó su cobro (no repetir mientras confirma)
         self._warned_pol = False
         self._warned_funds = False
@@ -162,12 +166,38 @@ class Executor:
         if time.time() - self._last_loose >= LOOSE_RETRY_S:
             self._last_loose = time.time()
             await self._retry_loose(client)
+        if self.azuro.address and time.time() - self._last_reconcile >= RECONCILE_EVERY_S:
+            self._last_reconcile = time.time()
+            try:
+                await self._reconcile(client)
+            except Exception as e:      # el tablero real vs papel se completa en la próxima pasada
+                self.status = f"{self.mode} · no pude leer las apuestas reales: {e!r}"[:200]
         if self.mode == "live" and time.time() - self._last_claim >= CLAIM_EVERY_S:
             self._last_claim = time.time()
             try:
                 await self._claim(client)
             except Exception as e:      # un cobro fallido se reintenta en 15 min; nunca frena las apuestas
                 self.status = f"{self.mode} · cobro falló: {e!r}"[:200]
+
+    async def _reconcile(self, client: httpx.AsyncClient) -> None:
+        """Guarda las apuestas REALES de la wallet (lo que dice Azuro, no lo que creemos) para el tablero real vs papel."""
+        bets = await self.azuro.my_bets(client)
+        now = time.time()
+        for b in bets:
+            ex = self.conn.execute("SELECT id, title, market, net_pct FROM live_exec WHERE mode='live' AND az_ref=? "
+                                   "ORDER BY created_ts DESC LIMIT 1", (b["ref"],)).fetchone()
+            self.conn.execute(
+                "INSERT INTO real_bets (bet_id, created_ts, amount, odds, status, result, payout, pnl, ref, outcome_title, "
+                "game_id, exec_id, title, market, ev, redeemed, updated_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(bet_id) DO UPDATE SET status=excluded.status, result=excluded.result, payout=excluded.payout, "
+                "pnl=excluded.pnl, redeemed=excluded.redeemed, updated_ts=excluded.updated_ts, "
+                "exec_id=COALESCE(real_bets.exec_id, excluded.exec_id), title=COALESCE(real_bets.title, excluded.title), "
+                "market=COALESCE(real_bets.market, excluded.market), ev=COALESCE(real_bets.ev, excluded.ev)",
+                (b["bet_id"], b["created_ts"], b["amount"], b["odds"], b["status"], b["result"], b["payout"],
+                 bet_pnl(b["status"], b["result"], b["amount"], b["payout"]), b["ref"], b["outcome_title"], b["game_id"],
+                 ex[0] if ex else None, ex[1] if ex else None, ex[2] if ex else None, ex[3] if ex else None,
+                 int(b["redeemed"]), now))
+        self.conn.commit()
 
     async def _claim(self, client: httpx.AsyncClient) -> None:
         """Cobra las apuestas ganadas o anuladas de Azuro: la plata vuelve a la wallet para las próximas."""

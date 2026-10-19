@@ -348,10 +348,12 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     from .sxshadow import summary as sxshadow_summary
     from .executor import summary as executor_summary
     from .azuro_panel import summary as azuro_summary
+    from .realpaper import summary as realpaper_summary
     livehedge = livehedge_summary(conn)
     sxshadow = sxshadow_summary(conn)
     executor = executor_summary(conn)
     azuro = azuro_summary(conn)
+    realpaper = realpaper_summary(conn)
     buttons = {"clicked": 0, "rejected": 0}   # uso de los botones de Telegram (práctica y rechazos de 1xBet)
     for sql, k in (("SELECT COUNT(*) FROM poly_orders WHERE clicked_ts IS NOT NULL", "clicked"),
                    ("SELECT COUNT(*) FROM value_nets WHERE clicked_ts IS NOT NULL", "clicked"),
@@ -497,6 +499,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
         "sxshadow": sxshadow,
         "executor": executor,
         "azuro": azuro,
+        "realpaper": realpaper,
         "valor": {**_auto_account(valor_ops, float(meta.get("valor_initial", 1000)),
                                   float(meta.get("valor_started", time.time()))),
                   "groups": _value_groups(valor_ops)},

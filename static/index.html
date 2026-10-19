@@ -85,6 +85,7 @@
   <button data-tab="auto">Automático (simulado)</button>
   <button data-tab="sx">🤖 Valor automático (sombra)</button>
   <button data-tab="az">🟦 Azuro</button>
+  <button data-tab="rp">📒 Real vs papel</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
@@ -256,6 +257,30 @@
     <div class="scroll"><table id="az-arb"></table></div></section>
   <section class="card"><h2>Pick por pick <span class="count" id="az-rows-sum"></span></h2>
     <div class="scroll"><table id="az-rows"></table></div></section>
+</main>
+<main id="tab-rp" hidden>
+  <section class="card"><div class="small muted">📒 <b>REAL</b> = lo que apostó la wallet del bot en Azuro (cuota aceptada, resultado y pago
+    leídos del registro oficial de Azuro). <b>PAPEL</b> = la sombra: las mismas señales oro de Azuro que se habrían llenado con el precio real,
+    recalculadas al <b>mismo monto por pick</b> que el real. 💡 El papel siempre tiene más picks: anota TODAS las señales; el real solo las que
+    el ejecutor llegó a apostar (topes, saldo, partido repetido, la cuota cambió). Esas son <b>señales perdidas</b>, no pérdidas.
+    🎟 <b>Cuota</b> = cuota media: acá <b>más ALTA = mejor</b>. Verde en el deslizamiento = el real consiguió mejor cuota que el papel.</div>
+    <div class="small" id="rp-mode" style="margin-top:6px"></div></section>
+  <section class="kpis" id="rp-kpis"></section>
+  <section class="card"><h2>Ganancia acumulada <span class="count">(real vs papel, al mismo monto por pick)</span></h2>
+    <div class="chart-box"><canvas id="rp-chart"></canvas></div></section>
+  <section class="card"><h2>Día por día</h2><div class="scroll"><table id="rp-days"></table></div></section>
+  <section class="grid2">
+    <div class="card"><h2>🟢 REAL uno por uno <span class="count" id="rp-real-n"></span></h2><div class="scroll" style="max-height:420px"><table id="rp-real"></table></div></div>
+    <div class="card"><h2>📝 PAPEL uno por uno <span class="count" id="rp-paper-n"></span></h2><div class="scroll" style="max-height:420px"><table id="rp-paper"></table></div></div>
+  </section>
+  <section class="grid2">
+    <div class="card"><h2>Reparto por mercado</h2><div class="scroll"><table id="rp-mk"></table></div>
+      <h2 style="margin-top:12px">Reparto por EV</h2><div class="scroll"><table id="rp-ev"></table></div></div>
+    <div class="card"><h2>⏱ Deslizamiento <span class="count">(cuota aceptada por Azuro vs la del papel, misma selección)</span></h2>
+      <div class="kpis" id="rp-slip"></div>
+      <h2 style="margin-top:12px">Señales perdidas <span class="count">(el papel las anotó, el real no las tomó)</span></h2>
+      <div class="scroll" style="max-height:300px"><table id="rp-missed"></table></div></div>
+  </section>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -728,7 +753,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "sx", "az", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "az", "rp", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -1227,6 +1252,60 @@ function renderAzuro(az, sx, ex, br) {
     : `<tr><td class="empty">Sin picks de Azuro todavía.</td></tr>`;
 }
 
+let rpChart = null;
+function renderRealPaper(x) {
+  if (!x) { $("rp-kpis").innerHTML = kpi("Real vs papel", "-", "todavía sin datos"); return; }
+  $("rp-mode").innerHTML = `Ejecutor: <b>${esc(x.status || "-")}</b>${x.wallet ? ` · wallet ${esc(x.wallet)}` : ""} · monto por pick <b>${money(x.stake)}</b>`
+    + (x.mode === "live" ? "" : ` · <span class="warn">todavía no apuesta en real: el lado REAL se llena cuando pase a live</span>`);
+  const t = x.total, R = t.real, P = t.paper, w = (g) => g.win == null ? "-" : g.win + "%";
+  $("rp-kpis").innerHTML = [
+    kpi("REAL · picks", R.n, `${R.settled} cerrados · win ${w(R)} · cuota media ${R.odds ?? "-"}`),
+    kpi("REAL · ganancia", money(R.pnl, true), `ROI ${R.roi == null ? "-" : pct(R.roi)}`, cls(R.pnl)),
+    kpi("PAPEL · picks", P.n, `${P.settled} cerrados · win ${w(P)} · cuota media ${P.odds ?? "-"}`),
+    kpi("PAPEL · ganancia", money(P.pnl, true), `ROI ${P.roi == null ? "-" : pct(P.roi)} (mismo monto por pick)`, cls(P.pnl)),
+  ].join("");
+  if (typeof Chart !== "undefined") {
+    const css = getComputedStyle(document.documentElement);
+    const ds = (pts, color, label) => ({label, data: pts.map(([t, y]) => ({x: t, y})), borderColor: css.getPropertyValue(color).trim(),
+      backgroundColor: "transparent", tension: 0.15, pointRadius: 1.5});
+    const data = {datasets: [ds(x.curve.real, "--green", "REAL"), ds(x.curve.paper, "--amber", "PAPEL")]};
+    const opts = {maintainAspectRatio: false, parsing: false, scales: {x: {type: "linear", ticks: {callback: (v) => new Date(v).toLocaleString("es", {day: "2-digit", month: "2-digit", hour: "2-digit"})}},
+      y: {ticks: {callback: (v) => "$" + v}}}, plugins: {legend: {display: true}}};
+    if (!rpChart) rpChart = new Chart($("rp-chart"), {type: "line", data, options: opts});
+    else { rpChart.data = data; rpChart.update("none"); }
+  }
+  const g = (s) => `<td class="num">${s.n || "-"}</td><td class="num">${s.win == null ? "-" : s.win + "%"}</td><td class="num">${s.odds ?? "-"}</td>
+    <td class="num ${cls(s.pnl)}">${s.settled ? money(s.pnl, true) : "-"}</td>`;
+  $("rp-days").innerHTML = `<tr><th></th><th colspan="4" style="color:var(--green)">🟢 REAL — tu wallet</th><th colspan="4" style="color:var(--amber)">📝 PAPEL — sombra</th><th></th></tr>
+    <tr><th>Día</th><th class="num">n</th><th class="num">Win</th><th class="num">Cuota</th><th class="num">P/L</th><th class="num">n</th><th class="num">Win</th><th class="num">Cuota</th><th class="num">P/L</th><th>Ganó</th></tr>` +
+    x.days.map((d) => `<tr><td><b>${esc(d.day)}</b></td>${g(d.real)}${g(d.paper)}<td>${d.winner ? (d.winner === "real" ? "🟢 real" : d.winner === "papel" ? "📝 papel" : "=") : "—"}</td></tr>`).join("") +
+    `<tr style="border-top:2px solid var(--line)"><td><b>TOTAL</b></td>${g(R)}${g(P)}<td></td></tr>`;
+  const res = (r) => r.pnl == null ? `<span class="tag open">abierta</span>` : r.won ? "✅" : r.pnl === 0 ? `<span class="tag void">anulada</span>` : "❌";
+  const one = (rows, isReal) => rows.length ? `<tr><th>Hora</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">$</th><th>Res</th><th class="num">P/L</th></tr>` +
+    rows.map((r) => `<tr><td class="small nowrap">${when(r.ts)}</td><td class="small">${esc(r.title)}<div class="muted">${esc(r.market)}</div></td>
+      <td class="small">${esc(r.label || "")}</td><td class="num"><b>${Number(r.odds).toFixed(2)}</b></td><td class="num">${money(r.stake)}</td>
+      <td>${res(r)}</td><td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td></tr>`).join("")
+    : `<tr><td class="empty">${isReal ? "Todavía sin apuestas reales: aparecen acá cuando el bot pase a live." : "Sin picks del papel todavía."}</td></tr>`;
+  $("rp-real-n").textContent = `(${x.total.real.n})`; $("rp-paper-n").textContent = `(${x.total.paper.n})`;
+  $("rp-real").innerHTML = one(x.real_rows, true); $("rp-paper").innerHTML = one(x.paper_rows, false);
+  const split = (rows) => rows.length ? `<tr><th></th><th class="num">Real n</th><th class="num">Win</th><th class="num">P/L</th><th class="num">Papel n</th><th class="num">Win</th><th class="num">P/L</th><th class="num">ROI papel</th></tr>` +
+    rows.map((s) => `<tr><td>${esc(s.name)}</td><td class="num">${s.real.n || "-"}</td><td class="num">${s.real.win == null ? "-" : s.real.win + "%"}</td>
+      <td class="num ${cls(s.real.pnl)}">${s.real.settled ? money(s.real.pnl, true) : "-"}</td><td class="num">${s.paper.n || "-"}</td>
+      <td class="num">${s.paper.win == null ? "-" : s.paper.win + "%"}</td><td class="num ${cls(s.paper.pnl)}">${s.paper.settled ? money(s.paper.pnl, true) : "-"}</td>
+      <td class="num ${cls(s.paper.roi)}">${s.paper.roi == null ? "-" : pct(s.paper.roi)}</td></tr>`).join("") : `<tr><td class="empty">Sin datos.</td></tr>`;
+  $("rp-mk").innerHTML = split(x.by_market); $("rp-ev").innerHTML = split(x.by_ev);
+  const s = x.slip;
+  $("rp-slip").innerHTML = [
+    kpi("Promedio", s.avg == null ? "-" : pct(s.avg), `${s.n} apuestas reales con su par en el papel`, cls(s.avg)),
+    kpi("A favor", s.favor, s.favor_avg == null ? "cuota mejor que el papel" : `${pct(s.favor_avg)} de media`, "pos"),
+    kpi("En contra", s.contra, s.contra_avg == null ? "cuota peor que el papel" : `${pct(s.contra_avg)} de media`, s.contra ? "neg" : ""),
+  ].join("");
+  $("rp-missed").innerHTML = x.missed.length ? `<tr><th>Hora</th><th>Partido</th><th class="num">Cuota</th><th>Por qué no entró</th></tr>` +
+    x.missed.map((m) => `<tr><td class="small nowrap">${when(m.ts)}</td><td class="small">${esc(m.title)}<div class="muted">${esc(m.label || "")}</div></td>
+      <td class="num">${Number(m.odds).toFixed(2)}</td><td class="small muted">${esc(m.why)}</td></tr>`).join("")
+    : `<tr><td class="empty">${x.mode === "live" ? "Ninguna: el real tomó todo lo que anotó el papel." : "Se cuentan desde la primera apuesta real."}</td></tr>`;
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1330,6 +1409,8 @@ function renderTab(tab) {
     renderRed(state.netpaper); renderLiveHedge(state.livehedge);
   } else if (tab === "sx") {
     renderSX(state.sxshadow);
+  } else if (tab === "rp") {
+    renderRealPaper(state.realpaper);
   } else if (tab === "az") {
     renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
   } else if (tab === "lp") {
