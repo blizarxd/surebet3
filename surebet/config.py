@@ -148,6 +148,9 @@ class Settings:
     auto_max_per_op: float = field(default_factory=lambda: _f("AUTO_MAX_PER_OP", 100))   # tope total Azuro + Polymarket
     auto_max_daily: float = field(default_factory=lambda: _f("AUTO_MAX_DAILY", 600))
     auto_max_open: int = field(default_factory=lambda: int(_f("AUTO_MAX_OPEN", 8)))
+    # AUTO_VALUE_NET=0: valor en Azuro sin red · AUTO_ARB=0: sin surebets Azuro + Polymarket (con los dos en 0, solo Azuro)
+    auto_value_net: bool = field(default_factory=lambda: os.getenv("AUTO_VALUE_NET", "1") == "1")
+    auto_arb: bool = field(default_factory=lambda: os.getenv("AUTO_ARB", "1") == "1")
     # Wallet de Azuro (Polygon, USDT): si no se pone, la misma clave que Polymarket. Solo en el .env del VPS.
     azuro_private_key: str = field(default_factory=lambda: os.getenv("AZURO_PRIVATE_KEY", "") or os.getenv("POLY_PRIVATE_KEY", ""),
                                    repr=False)

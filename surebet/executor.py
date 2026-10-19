@@ -12,6 +12,10 @@ Dos jugadas, las dos por API:
      mantiene EV ≥ 2 % contra Polymarket y, si la acepta, la red en Polymarket: la orden límite del lado contrario del
      botón 🛟 (surebet/valuenet.py), que se vigila y se cancela 10 min antes si no se llenó.
 
+Interruptores: AUTO_VALUE_NET=0 apuesta el valor en Azuro SIN red (valor puro: más esperado, más vaivén) y AUTO_ARB=0 apaga
+las surebets Azuro + Polymarket. Con los dos en 0 todo vive en Azuro: no hace falta saldo ni modo real en Polymarket.
+Cobro: cada CLAIM_EVERY_S cobra solo las apuestas ganadas o anuladas (LP.withdrawPayouts, gas en POL): la plata vuelve
+a la wallet y se puede volver a apostar, así hace falta menos capital.
 Modos (AUTO_EXEC en .env): off | dry | live. "live" exige clave de Azuro y Polymarket en real (POLY_LIVE=1); si falta algo
 queda en dry y lo dice. Monto: AUTO_AZURO_STAKE en Azuro por jugada (Polymarket va en proporción: la otra pata o la red).
 Topes: AUTO_MAX_PER_OP (total comprometido por jugada, Azuro + Polymarket), AUTO_MAX_DAILY y AUTO_MAX_OPEN. Frenos: semáforo en rojo, /pausa de Telegram, el mismo partido una sola vez, nada a menos de 10 min,
@@ -47,6 +51,8 @@ LOOSE_GIVE_UP_S = 5 * 60
 VALUE_MIN_EV = 2.0
 TICK = 0.01
 OPEN_STATES = ("placing", "covered", "loose", "value", "dry")
+CLAIM_EVERY_S = 15 * 60
+CLAIM_MIN_POL = 0.02          # POL mínimo para pagar el gas del cobro
 POLY_MIN_SHARES = 5
 # Polymarket pide que el monto en USDC de una orden que se llena al instante tenga como mucho 2 decimales: con precio en
 # centavos y shares ENTERAS siempre se cumple. Por eso el monto de Azuro se elige para que su cobro sea un entero.
@@ -86,13 +92,15 @@ def _odds(x) -> float | None:
 class Executor:
     def __init__(self, db_path: Path, buyer, nets, gate=None, mode: str = "dry", max_per_op: float = 100.0,
                  max_daily: float = 600.0, max_open: int = 8, azuro_key: str = "", affiliate: str = "",
-                 telegram: tuple[str, str] = ("", ""), azuro_stake: float = 30.0) -> None:
+                 telegram: tuple[str, str] = ("", ""), azuro_stake: float = 30.0, value_net: bool = True,
+                 arb: bool = True) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         self.buyer, self.nets, self.gate = buyer, nets, gate
         self.max_per_op, self.max_daily, self.max_open = max_per_op, max_daily, int(max_open)
         self.azuro_stake = azuro_stake
+        self.value_net, self.arb = bool(value_net), bool(arb)
         self.telegram = telegram
         self.azuro = AzuroClient(azuro_key, affiliate)
         mode = mode if mode in MODES else "dry"
@@ -100,25 +108,29 @@ class Executor:
         if mode == "live":
             if not self.azuro.address:
                 missing.append(self.azuro.error or "falta la clave de Azuro (AZURO_PRIVATE_KEY o POLY_PRIVATE_KEY)")
-            if not buyer.live:
+            if not buyer.live and (self.value_net or self.arb):   # solo Azuro (sin red ni surebets): no hace falta
                 missing.append("Polymarket sigue en demo (POLY_LIVE=1 y POLY_PRIVATE_KEY)")
         self.mode = "dry" if missing else mode
         self.status = (f"{self.mode}" + (f" (pediste live pero {'; '.join(missing)})" if missing else "")
                        + f" · ${azuro_stake:g} en Azuro por jugada (tope ${max_per_op:g} con Polymarket), "
-                         f"${max_daily:g}/día, {self.max_open} abiertas")
+                         f"${max_daily:g}/día, {self.max_open} abiertas · valor {'con' if self.value_net else 'SIN'} red"
+                         f" · surebets {'sí' if self.arb else 'no'}")
         self._queue: list[tuple] = []
         self._last_loose = 0.0
+        self._last_claim = 0.0
+        self._claiming: dict[int, float] = {}   # apuesta -> cuándo se mandó su cobro (no repetir mientras confirma)
+        self._warned_pol = False
         self.conn.execute("CREATE TABLE IF NOT EXISTS paper_meta (k TEXT PRIMARY KEY, v TEXT)")
         self.conn.execute("INSERT OR REPLACE INTO paper_meta VALUES ('executor', ?)", (json.dumps({
             "mode": self.mode, "status": self.status, "azuro_stake": azuro_stake, "max_per_op": max_per_op,
-            "max_daily": max_daily,
+            "max_daily": max_daily, "value_net": self.value_net, "arb": self.arb,
             "max_open": self.max_open,   # el panel es público: la wallet va recortada
             "wallet": f"{self.azuro.address[:6]}…{self.azuro.address[-4:]}" if self.azuro.address else None}),))
         self.conn.commit()
 
     # ------------------------------------------------------------------ entradas (desde el ciclo del escáner)
     def queue_arb(self, o, plan: list[dict]) -> None:
-        if self.mode != "off" and len(plan) == 2 and {p["source"] for p in plan} == {"azuro", POLYMARKET}:
+        if self.mode != "off" and self.arb and len(plan) == 2 and {p["source"] for p in plan} == {"azuro", POLYMARKET}:
             self._queue.append(("arb", o, plan))
 
     def queue_value(self, v, quote, stake: float, odds: float, fair: float) -> None:
@@ -149,6 +161,42 @@ class Executor:
         if time.time() - self._last_loose >= LOOSE_RETRY_S:
             self._last_loose = time.time()
             await self._retry_loose(client)
+        if self.mode == "live" and time.time() - self._last_claim >= CLAIM_EVERY_S:
+            self._last_claim = time.time()
+            try:
+                await self._claim(client)
+            except Exception as e:      # un cobro fallido se reintenta en 15 min; nunca frena las apuestas
+                self.status = f"{self.mode} · cobro falló: {e!r}"[:200]
+
+    async def _claim(self, client: httpx.AsyncClient) -> None:
+        """Cobra las apuestas ganadas o anuladas de Azuro: la plata vuelve a la wallet para las próximas."""
+        now = time.time()
+        self._claiming = {k: t for k, t in self._claiming.items() if now - t < 600}
+        bets = [b for b in await self.azuro.redeemable(client) if b["bet_id"] not in self._claiming]
+        if not bets:
+            return
+        if await self.azuro.pol_balance(client) < CLAIM_MIN_POL:
+            if not self._warned_pol:
+                self._warned_pol = True
+                await self._say(client, f"⚠️ Hay {len(bets)} apuestas de Azuro para cobrar (${sum(b['payout'] for b in bets):,.2f}) "
+                                        "pero falta POL para el gas. Manda ~0,5 POL a la wallet del bot.")
+            return
+        self._warned_pol = False
+        groups: dict[tuple, list] = {}
+        for b in bets:
+            groups.setdefault((b["core"], b["lp"]), []).append(b)
+        for (core, lp), bs in groups.items():
+            bs = bs[:20]
+            ids = [b["bet_id"] for b in bs]
+            try:
+                tx = await self.azuro.claim(client, core, lp, ids)
+            except Exception as e:
+                await self._say(client, f"⚠️ No pude cobrar en Azuro: {e}"[:300])
+                continue
+            for i in ids:
+                self._claiming[i] = now
+            await self._say(client, f"💰 Cobré {len(ids)} apuestas de Azuro (${sum(b['payout'] for b in bs):,.2f}): "
+                                    f"https://polygonscan.com/tx/{tx}")
 
     async def _say(self, client: httpx.AsyncClient, text: str) -> None:
         if self.mode == "live":
@@ -336,8 +384,11 @@ class Executor:
         limit = net_limit(odds)
         if limit <= 0:
             return
-        stake = round(min(self.azuro_stake, self.max_per_op / (1 + odds * limit)), 2)   # monto fijo; Azuro + red ≤ tope
-        total = round(stake + stake * odds * limit, 2)
+        if self.value_net:
+            stake = round(min(self.azuro_stake, self.max_per_op / (1 + odds * limit)), 2)   # monto fijo; Azuro + red ≤ tope
+            total = round(stake + stake * odds * limit, 2)
+        else:
+            stake = total = round(min(self.azuro_stake, self.max_per_op), 2)                # valor puro: solo Azuro
         ev = v.event.anchor
         start = ev.start.timestamp() if ev.start else None
         min_odds = round(max((1 + VALUE_MIN_EV / 100) / fair, 1.01), 3)
@@ -357,7 +408,13 @@ class Executor:
             return
         if self.mode == "dry":
             self._update(row_id, status="dry", net_pct=round(100 * (got * fair - 1), 3),
-                         reason=f"(dry) red: orden límite a {100 * limit:.0f}¢ por {stake * got:,.0f} shares")
+                         reason=f"(dry) red: orden límite a {100 * limit:.0f}¢ por {stake * got:,.0f} shares"
+                         if self.value_net else "(dry) sin red: solo la apuesta en Azuro")
+            return
+        if not self.value_net:
+            self._update(row_id, status="value", net_pct=round(100 * (got * fair - 1), 3), reason="sin red (AUTO_VALUE_NET=0)")
+            await self._say(client, f"🤖✅ REAL valor {ev.title}: Azuro ${stake:,.2f} a «{quote.label}» @ {got:.3f} "
+                                    f"(EV {100 * (got * fair - 1):+.1f} %), sin red.")
             return
         # La red de 🛟 con la apuesta de Azuro (cuota aceptada): la vigila valuenet.tick y avisa por Telegram
         vb = ValueBet(v.event, replace(quote, odds=got), fair, v.poly_tokens, v.market, v.poly_conditions)

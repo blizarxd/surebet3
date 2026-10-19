@@ -10,7 +10,8 @@ direcciones de V3 en Polygon (gem.azuro.org/hub/blockchains/deployment-addresses
   5. GET  /bet/orders/{id}                        → state: Created / Placed / Sent → Accepted | Rejected | Canceled
 
 Antes de la primera apuesta la wallet necesita USDT en Polygon y haber aprobado USDT al relayer (una vez, con un poco de
-POL para el gas): tools/azuro_wallet.py. Los premios se cobran con LP.withdrawPayout (también con POL).
+POL para el gas): tools/azuro_wallet.py. Los premios (y las anuladas) no llegan solos: se cobran con
+LP.withdrawPayouts(core, ids) (también con POL); las cobrables salen del subgraph de apuestas (isRedeemable).
 La clave vive solo en el .env del VPS (AZURO_PRIVATE_KEY, o POLY_PRIVATE_KEY si es la misma wallet): nunca se escribe
 en logs ni en la base.
 """
@@ -32,6 +33,8 @@ USDT = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F"
 USDT_DECIMALS = 6
 ODDS_DECIMALS = 12
 RPC = "https://polygon-rpc.com"
+BETS_GRAPHQL = "https://thegraph.onchainfeed.org/subgraphs/name/azuro-protocol/azuro-api-polygon-v3"
+WITHDRAW_PAYOUTS = "0xe8e3e87b"   # keccak("withdrawPayouts(address,uint256[])")[:4] (ABI del LP en el toolkit)
 ZERO = "0x" + "0" * 40
 ACCEPTED = {"Accepted", "Settled"}
 FAILED = {"Rejected", "Canceled", "CancelFailed"}
@@ -135,6 +138,51 @@ class AzuroClient:
         r = await client.post(self.rpc, timeout=10, json={"jsonrpc": "2.0", "id": 1, "method": "eth_call",
                                                           "params": [{"to": to, "data": data}, "latest"]})
         return int((r.json() or {}).get("result") or "0x0", 16)
+
+    async def _rpc(self, client: httpx.AsyncClient, method: str, params: list):
+        r = await client.post(self.rpc, timeout=20, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        data = r.json()
+        if "error" in data:
+            raise RuntimeError(str(data["error"])[:200])
+        return data["result"]
+
+    async def pol_balance(self, client: httpx.AsyncClient) -> float:
+        return int(await self._rpc(client, "eth_getBalance", [self.address, "latest"]), 16) / 1e18
+
+    async def send_tx(self, client: httpx.AsyncClient, to: str, data: str, gas: int | None = None) -> str:
+        """Firma y envía una transacción en Polygon (paga gas en POL). Devuelve el hash."""
+        from eth_account import Account
+        from eth_utils import to_checksum_address    # eth-account rechaza direcciones en minúscula como destino
+        to = to_checksum_address(to)
+        nonce = int(await self._rpc(client, "eth_getTransactionCount", [self.address, "pending"]), 16)
+        gas_price = int(int(await self._rpc(client, "eth_gasPrice", []), 16) * 1.3)
+        if gas is None:
+            try:
+                gas = int(int(await self._rpc(client, "eth_estimateGas", [{"from": self.address, "to": to, "data": data}]),
+                              16) * 1.3)
+            except RuntimeError:
+                gas = 400_000
+        tx = {"to": to, "value": 0, "gas": gas, "gasPrice": gas_price, "nonce": nonce, "chainId": CHAIN_ID, "data": data}
+        signed = Account.sign_transaction(tx, self._pk)
+        return await self._rpc(client, "eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex().removeprefix("0x")])
+
+    async def redeemable(self, client: httpx.AsyncClient) -> list[dict]:
+        """Apuestas de esta wallet listas para cobrar (ganadas o anuladas): {bet_id, core, lp, payout}."""
+        q = ("query($a: String!) { v3Bets(first: 50, where: {actor: $a, isRedeemable: true, isCashedOut: false}) "
+             "{ betId payout amount core { address liquidityPool { address } } } }")
+        r = await client.post(BETS_GRAPHQL, timeout=20, json={"query": q, "variables": {"a": self.address.lower()}})
+        bets = ((r.json() or {}).get("data") or {}).get("v3Bets") or []
+        return [{"bet_id": int(b["betId"]), "core": b["core"]["address"], "lp": b["core"]["liquidityPool"]["address"],
+                 "payout": float(b.get("payout") or b.get("amount") or 0)} for b in bets]
+
+    @staticmethod
+    def withdraw_data(core: str, bet_ids: list[int]) -> str:
+        """LP.withdrawPayouts(core, ids): selector + core + puntero al arreglo + largo + ids."""
+        return (WITHDRAW_PAYOUTS + _word(core) + f"{64:064x}" + f"{len(bet_ids):064x}"
+                + "".join(f"{i:064x}" for i in bet_ids))
+
+    async def claim(self, client: httpx.AsyncClient, core: str, lp: str, bet_ids: list[int]) -> str:
+        return await self.send_tx(client, lp, self.withdraw_data(core, bet_ids))
 
     async def usdt_balance(self, client: httpx.AsyncClient) -> float:
         return await self._call(client, USDT, "0x70a08231" + _word(self.address)) / 10 ** USDT_DECIMALS

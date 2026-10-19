@@ -208,3 +208,65 @@ def test_value_uses_fixed_azuro_stake(tmp_path):
     run(ex, handler())
     r = row(ex)
     assert r["az_stake"] == 30 and 60 < r["total"] < 100          # $30 en Azuro + la red (~$36) del lado contrario
+
+
+def test_withdraw_payouts_encoding():
+    data = AzuroClient.withdraw_data("0xF9548Be470A4e130c90ceA8b179FCD66D2972AC7", [466681, 7])
+    assert data.startswith("0xe8e3e87b") and len(data) == 10 + 64 * 5
+    assert data[10:74].endswith("f9548be470a4e130c90cea8b179fcd66d2972ac7")
+    assert int(data[74:138], 16) == 64 and int(data[138:202], 16) == 2 and int(data[202:266], 16) == 466681
+
+
+def test_azuro_only_live_without_polymarket(tmp_path):
+    buyer = Buyer()
+    buyer.live = False                                # Polymarket en demo: con red y surebets apagadas no hace falta
+    ex = Executor(tmp_path / "p.db", buyer, None, mode="live", azuro_key=KEY, value_net=False, arb=False)
+    assert ex.mode == "live" and "SIN red" in ex.status
+    ex.queue_arb(opp(), plan())
+    assert ex._queue == []                            # sin surebets
+
+
+def test_live_value_without_net_only_bets_azuro(tmp_path):
+    from surebet.models import Quote
+    buyer = Buyer()
+    ex = Executor(tmp_path / "p.db", buyer, None, mode="live", azuro_key=KEY, value_net=False, azuro_stake=30)
+    ex._last_claim = time.time()
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    v = SimpleNamespace(event=opp().event, market="1x2", poly_tokens={}, poly_conditions={})
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    h = handler()
+    original = h
+
+    def h2(r):                                        # minOdds del valor: la que deja EV ≥ 2 % (1,02 / 0,46)
+        if r.url.path.endswith("/ordinar"):
+            return httpx.Response(200, json={"id": "o1", "state": "Created"})
+        return original(r)
+    run(ex, h2)
+    r = row(ex)
+    assert r["status"] == "value" and r["az_stake"] == 30 and r["total"] == 30 and buyer.orders == []
+
+
+def test_claims_winnings_automatically(tmp_path):
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="live", azuro_key=KEY)
+    sent = []
+
+    def h(r):
+        if "subgraphs" in r.url.path:
+            return httpx.Response(200, json={"data": {"v3Bets": [{"betId": "466681", "payout": "9.25", "core": {
+                "address": "0xf9548be470a4e130c90cea8b179fcd66d2972ac7",
+                "liquidityPool": {"address": "0x0fa7fb5407ea971694652e6e16c12a52625de1b8"}}}]}})
+        body = json.loads(r.content)
+        m = body["method"]
+        sent.append(body)
+        res = {"eth_getBalance": hex(10 ** 18), "eth_getTransactionCount": "0x3", "eth_gasPrice": hex(30 * 10 ** 9),
+               "eth_estimateGas": hex(120_000), "eth_sendRawTransaction": "0xabc"}[m]
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": res})
+
+    run(ex, h)
+    est = next(b for b in sent if b["method"] == "eth_estimateGas")["params"][0]
+    assert est["to"].lower() == "0x0fa7fb5407ea971694652e6e16c12a52625de1b8" and est["data"].startswith("0xe8e3e87b")
+    assert any(b["method"] == "eth_sendRawTransaction" for b in sent) and 466681 in ex._claiming
+    sent.clear()
+    ex._last_claim = 0
+    run(ex, h)                                        # mientras confirma, no se vuelve a mandar el mismo cobro
+    assert not any(b["method"] == "eth_sendRawTransaction" for b in sent)

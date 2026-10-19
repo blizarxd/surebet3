@@ -67,6 +67,9 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   la sombra da por llenado): Azuro + red 🛟. Modo `AUTO_EXEC=dry` por defecto (lee precios reales, no firma ni envía).
   Firma EIP-712 verificada contra @azuro-org/toolkit 7.2.0. Monto: `AUTO_AZURO_STAKE=30` (decidido 19/10: $30 en Azuro, Polymarket en proporción). Topes: `AUTO_MAX_PER_OP=100`,
   `AUTO_MAX_DAILY=600`, `AUTO_MAX_OPEN=8`. Polymarket del usuario: cuenta con email → `POLY_SIGNATURE_TYPE=1` + `POLY_FUNDER`.
+  Interruptores: `AUTO_VALUE_NET=0` = valor en Azuro SIN red; `AUTO_ARB=0` = sin surebets Azuro+Poly (con los dos en 0 solo
+  hace falta saldo en Azuro y no exige POLY_LIVE). Cobra solo las ganadas/anuladas cada 15 min (LP.withdrawPayouts, gas POL).
+  Capital solo Azuro sin red con $30: ~$300 (pico ~$270 cobrando al instante) + ~0,5 POL.
   **Para pasar a live:** wallet nueva solo para el bot (Polygon) con USDT (Azuro), USDC en Polymarket y ~0,5 POL; el usuario
   pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
   `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente
