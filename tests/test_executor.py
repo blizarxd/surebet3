@@ -48,7 +48,7 @@ def handler(order_state="Accepted", ask=0.29):
     def h(r):
         seen.append((r.method, r.url.path))
         p = r.url.path
-        if r.url.host == "polygon-rpc.com":                                       # saldo y permiso de USDT
+        if r.url.host.endswith("publicnode.com"):                                       # saldo y permiso de USDT
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": hex(10 ** 12)})
         if p.endswith("/gas-info"):
             return httpx.Response(200, json=[{"relayerFeeAmount": "20000"}])          # $0,02
@@ -281,7 +281,7 @@ def test_no_bet_without_funds_and_warns_once(tmp_path):
     base = handler()
 
     def poor(r):
-        if r.url.host == "polygon-rpc.com":           # 2 USDT en la wallet: no alcanza para $5
+        if r.url.host.endswith("publicnode.com"):           # 2 USDT en la wallet: no alcanza para $5
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": hex(2 * 10 ** 6)})
         assert not r.url.path.endswith("/ordinar")    # nunca se manda la orden
         return base(r)

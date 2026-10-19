@@ -32,7 +32,9 @@ LP = "0x0FA7FB5407eA971694652E6E16C12A52625DE1b8"
 USDT = "0xc2132D05D31c914a87C6611C10748AEb04B58e8F"
 USDT_DECIMALS = 6
 ODDS_DECIMALS = 12
-RPC = "https://polygon-rpc.com"
+# Nodos públicos de Polygon (19/10: polygon-rpc.com dejó de ser público, "API key disabled"): se prueba en orden
+RPCS = ("https://polygon-bor-rpc.publicnode.com", "https://polygon.drpc.org", "https://1rpc.io/matic")
+RPC = RPCS[0]
 BETS_GRAPHQL = "https://thegraph.onchainfeed.org/subgraphs/name/azuro-protocol/azuro-api-polygon-v3"
 WITHDRAW_PAYOUTS = "0xe8e3e87b"   # keccak("withdrawPayouts(address,uint256[])")[:4] (ABI del LP en el toolkit)
 ZERO = "0x" + "0" * 40
@@ -92,9 +94,10 @@ def _word(addr: str) -> str:
 
 
 class AzuroClient:
-    def __init__(self, private_key: str = "", affiliate: str = ZERO, api: str = API, rpc: str = RPC) -> None:
+    def __init__(self, private_key: str = "", affiliate: str = ZERO, api: str = API, rpc: str = "") -> None:
         self._pk = private_key
-        self.affiliate, self.api, self.rpc = affiliate or ZERO, api, rpc
+        self.affiliate, self.api = affiliate or ZERO, api
+        self.rpcs = (rpc,) if rpc else RPCS
         self._account = None
         self.error = ""
         if private_key:
@@ -135,16 +138,25 @@ class AzuroClient:
         return (float(out.get("odds") or 0) or None), float(resp.get("maxBet") or 0)
 
     async def _call(self, client: httpx.AsyncClient, to: str, data: str) -> int:
-        r = await client.post(self.rpc, timeout=10, json={"jsonrpc": "2.0", "id": 1, "method": "eth_call",
-                                                          "params": [{"to": to, "data": data}, "latest"]})
-        return int((r.json() or {}).get("result") or "0x0", 16)
+        return int(await self._rpc(client, "eth_call", [{"to": to, "data": data}, "latest"]) or "0x0", 16)
 
     async def _rpc(self, client: httpx.AsyncClient, method: str, params: list):
-        r = await client.post(self.rpc, timeout=20, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-        data = r.json()
-        if "error" in data:
-            raise RuntimeError(str(data["error"])[:200])
-        return data["result"]
+        """Llamada JSON-RPC a Polygon; si un nodo no responde o falla, prueba el siguiente."""
+        last = None
+        for url in self.rpcs:
+            try:
+                r = await client.post(url, timeout=20, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+                data = r.json()
+            except (httpx.HTTPError, ValueError) as e:
+                last = e
+                continue
+            if "error" in data:
+                last = RuntimeError(str(data["error"])[:200])
+                if method == "eth_sendRawTransaction":
+                    raise last          # una transacción no se reenvía a otro nodo a ciegas
+                continue
+            return data["result"]
+        raise last or RuntimeError("ningún nodo de Polygon respondió")
 
     async def pol_balance(self, client: httpx.AsyncClient) -> float:
         return int(await self._rpc(client, "eth_getBalance", [self.address, "latest"]), 16) / 1e18
