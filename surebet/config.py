@@ -144,9 +144,10 @@ class Settings:
     alert_arb_stake: float = field(default_factory=lambda: _f("ALERT_ARB_STAKE", _f("PAPER_ARB_STAKE", 100)))
     # Ejecutor REAL de Azuro + Polymarket (surebet/executor.py): off | dry (anota lo que haría, sin enviar) | live
     auto_exec: str = field(default_factory=lambda: os.getenv("AUTO_EXEC", "dry").strip().lower())
-    auto_max_per_op: float = field(default_factory=lambda: _f("AUTO_MAX_PER_OP", 30))   # Azuro + Polymarket por jugada
-    auto_max_daily: float = field(default_factory=lambda: _f("AUTO_MAX_DAILY", 150))
-    auto_max_open: int = field(default_factory=lambda: int(_f("AUTO_MAX_OPEN", 6)))
+    auto_azuro_stake: float = field(default_factory=lambda: _f("AUTO_AZURO_STAKE", 30))  # monto en Azuro por jugada (19/10)
+    auto_max_per_op: float = field(default_factory=lambda: _f("AUTO_MAX_PER_OP", 100))   # tope total Azuro + Polymarket
+    auto_max_daily: float = field(default_factory=lambda: _f("AUTO_MAX_DAILY", 600))
+    auto_max_open: int = field(default_factory=lambda: int(_f("AUTO_MAX_OPEN", 8)))
     # Wallet de Azuro (Polygon, USDT): si no se pone, la misma clave que Polymarket. Solo en el .env del VPS.
     azuro_private_key: str = field(default_factory=lambda: os.getenv("AZURO_PRIVATE_KEY", "") or os.getenv("POLY_PRIVATE_KEY", ""),
                                    repr=False)

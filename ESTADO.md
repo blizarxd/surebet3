@@ -56,13 +56,17 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   +$110 (2 de $940–1.060 con margen 4–5,6 %). Con tope $30 por surebet: +$6,83 (+$15,88 sin CS2/Dota2, ~$2/día); $100: ~$6/día;
   $300: ~$15/día. 8 de las 9 anuladas eran CS2. Desglose en la pestaña Automático.
 
+- **Dónde está el oro (19/10):** valor PREPARTIDO de FÚTBOL. CLV oro fútbol mediana +2,8 % (188, 87 % a favor); básquet y
+  tenis medianas +2,2 a +2,5 % pero medias negativas (~55 % a favor). CS2/Dota2 fuera por las SUREBETS: CS2 15,6 % anuladas
+  (neto +0,24 % vs fútbol +1,17 %), Dota2 neto −1,27 %; como valor CS2 da CLV +3,5 % pero son pocas (13).
 - **Sombra 1er día (19/10):** las señales que nacen en la casa con API se llenan (Azuro 3/3, SX 3/11, Cloudbet 1/1); las de
   1xBet probadas en SX/Azuro casi nunca (0/26: ahí no hay valor). 5 de 8 llenadas eran CS2 → el ejecutor ahora excluye CS2/Dota2.
 - **Ejecutor REAL Azuro + Polymarket** (`surebet/executor.py`, `surebet/azuro_exec.py`; tarjeta arriba en la pestaña Automático):
   (A) surebets Azuro + Polymarket confirmadas con precio real: primero Azuro, si la acepta Polymarket FOK con shares enteras;
   pata suelta → reintenta cada minuto, cubre si pierde ≤ 1 %, si no queda como valor y avisa. (B) valor + red en Azuro (lo que
   la sombra da por llenado): Azuro + red 🛟. Modo `AUTO_EXEC=dry` por defecto (lee precios reales, no firma ni envía).
-  Firma EIP-712 verificada contra @azuro-org/toolkit 7.2.0. Topes: `AUTO_MAX_PER_OP=30`, `AUTO_MAX_DAILY=150`, `AUTO_MAX_OPEN=6`.
+  Firma EIP-712 verificada contra @azuro-org/toolkit 7.2.0. Monto: `AUTO_AZURO_STAKE=30` (decidido 19/10: $30 en Azuro, Polymarket en proporción). Topes: `AUTO_MAX_PER_OP=100`,
+  `AUTO_MAX_DAILY=600`, `AUTO_MAX_OPEN=8`. Polymarket del usuario: cuenta con email → `POLY_SIGNATURE_TYPE=1` + `POLY_FUNDER`.
   **Para pasar a live:** wallet nueva solo para el bot (Polygon) con USDT (Azuro), USDC en Polymarket y ~0,5 POL; el usuario
   pone la clave en el .env (`POLY_PRIVATE_KEY`, y `POLY_FUNDER`/`POLY_SIGNATURE_TYPE` si es cuenta web de Polymarket);
   `tools/azuro_wallet.py --approve 300`; `POLY_LIVE=1`; `AUTO_EXEC=live`. Cobrar premios de Azuro: LP.withdrawPayout (pendiente

@@ -13,8 +13,8 @@ Dos jugadas, las dos por API:
      botón 🛟 (surebet/valuenet.py), que se vigila y se cancela 10 min antes si no se llenó.
 
 Modos (AUTO_EXEC en .env): off | dry | live. "live" exige clave de Azuro y Polymarket en real (POLY_LIVE=1); si falta algo
-queda en dry y lo dice. Topes: AUTO_MAX_PER_OP (total comprometido por jugada, Azuro + Polymarket), AUTO_MAX_DAILY y
-AUTO_MAX_OPEN. Frenos: semáforo en rojo, /pausa de Telegram, el mismo partido una sola vez, nada a menos de 10 min,
+queda en dry y lo dice. Monto: AUTO_AZURO_STAKE en Azuro por jugada (Polymarket va en proporción: la otra pata o la red).
+Topes: AUTO_MAX_PER_OP (total comprometido por jugada, Azuro + Polymarket), AUTO_MAX_DAILY y AUTO_MAX_OPEN. Frenos: semáforo en rojo, /pausa de Telegram, el mismo partido una sola vez, nada a menos de 10 min,
 CS2 y Dota2 nunca (solo observación).
 Corre en segundo plano (las confirmaciones de Azuro tardan segundos y no deben frenar el escaneo).
 """
@@ -84,14 +84,15 @@ def _odds(x) -> float | None:
 
 
 class Executor:
-    def __init__(self, db_path: Path, buyer, nets, gate=None, mode: str = "dry", max_per_op: float = 30.0,
-                 max_daily: float = 150.0, max_open: int = 6, azuro_key: str = "", affiliate: str = "",
-                 telegram: tuple[str, str] = ("", "")) -> None:
+    def __init__(self, db_path: Path, buyer, nets, gate=None, mode: str = "dry", max_per_op: float = 100.0,
+                 max_daily: float = 600.0, max_open: int = 8, azuro_key: str = "", affiliate: str = "",
+                 telegram: tuple[str, str] = ("", ""), azuro_stake: float = 30.0) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         self.buyer, self.nets, self.gate = buyer, nets, gate
         self.max_per_op, self.max_daily, self.max_open = max_per_op, max_daily, int(max_open)
+        self.azuro_stake = azuro_stake
         self.telegram = telegram
         self.azuro = AzuroClient(azuro_key, affiliate)
         mode = mode if mode in MODES else "dry"
@@ -103,12 +104,14 @@ class Executor:
                 missing.append("Polymarket sigue en demo (POLY_LIVE=1 y POLY_PRIVATE_KEY)")
         self.mode = "dry" if missing else mode
         self.status = (f"{self.mode}" + (f" (pediste live pero {'; '.join(missing)})" if missing else "")
-                       + f" · tope ${max_per_op:g} por jugada, ${max_daily:g}/día, {self.max_open} abiertas")
+                       + f" · ${azuro_stake:g} en Azuro por jugada (tope ${max_per_op:g} con Polymarket), "
+                         f"${max_daily:g}/día, {self.max_open} abiertas")
         self._queue: list[tuple] = []
         self._last_loose = 0.0
         self.conn.execute("CREATE TABLE IF NOT EXISTS paper_meta (k TEXT PRIMARY KEY, v TEXT)")
         self.conn.execute("INSERT OR REPLACE INTO paper_meta VALUES ('executor', ?)", (json.dumps({
-            "mode": self.mode, "status": self.status, "max_per_op": max_per_op, "max_daily": max_daily,
+            "mode": self.mode, "status": self.status, "azuro_stake": azuro_stake, "max_per_op": max_per_op,
+            "max_daily": max_daily,
             "max_open": self.max_open,   # el panel es público: la wallet va recortada
             "wallet": f"{self.azuro.address[:6]}…{self.azuro.address[-4:]}" if self.azuro.address else None}),))
         self.conn.commit()
@@ -270,7 +273,8 @@ class Executor:
         pm = next(p for p in plan if p["source"] == POLYMARKET)
         total_plan = az["stake"] + pm["stake"]
         seen = az.get("fill_odds") or az["odds"]
-        target = min(self.max_per_op, total_plan) * az["stake"] / total_plan if total_plan else 0.0
+        # $AUTO_AZURO_STAKE en Azuro (o lo que aguantaba el plan, si es menos); el total no pasa de AUTO_MAX_PER_OP
+        target = min(self.azuro_stake, az["stake"], self.max_per_op * az["stake"] / total_plan) if total_plan else 0.0
         shares = math.floor(target * seen)                       # cobro de Azuro = shares enteras de Polymarket
         az_stake = round(shares / seen, 2) if seen else 0.0
         pm_stake = shares * pm["stake"] / (az["stake"] * seen) if az["stake"] else 0.0   # mismo precio del plan
@@ -332,7 +336,7 @@ class Executor:
         limit = net_limit(odds)
         if limit <= 0:
             return
-        stake = round(min(stake, self.max_per_op / (1 + odds * limit)), 2)   # Azuro + red ≤ tope por jugada
+        stake = round(min(self.azuro_stake, self.max_per_op / (1 + odds * limit)), 2)   # monto fijo; Azuro + red ≤ tope
         total = round(stake + stake * odds * limit, 2)
         ev = v.event.anchor
         start = ev.start.timestamp() if ev.start else None

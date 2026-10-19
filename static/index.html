@@ -596,7 +596,7 @@ function renderExecutor(x) {
   const sum = (f) => mine.filter(f).reduce((a, g) => a + g.n, 0);
   $("ex-kpis").innerHTML = [
     kpi("Modo", mode === "live" ? "🔴 LIVE" : mode === "dry" ? "🧪 dry" : "apagado", esc(c.status || ""), mode === "live" ? "neg" : ""),
-    kpi("Comprometido hoy", money(x.today[mode] || 0), `tope $${c.max_per_op ?? "-"} por jugada · $${c.max_daily ?? "-"} por día`),
+    kpi("Comprometido hoy", money(x.today[mode] || 0), `$${c.azuro_stake ?? "-"} en Azuro por jugada · tope $${c.max_per_op ?? "-"} con Polymarket · $${c.max_daily ?? "-"} por día`),
     kpi("Surebets", sum((g) => g.kind === "arb" && ["covered", "dry"].includes(g.status)), `cubiertas · ${sum((g) => g.kind === "arb" && g.status === "loose")} patas sueltas · ${sum((g) => g.kind === "arb" && g.status === "rejected")} no entraron`),
     kpi("Valor + red", sum((g) => g.kind === "value" && ["value", "dry"].includes(g.status)), `apostadas · ${sum((g) => g.kind === "value" && g.status === "rejected")} no entraron`),
   ].join("");

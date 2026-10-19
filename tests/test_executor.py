@@ -197,3 +197,14 @@ def test_cs2_value_is_only_observed(tmp_path):
     run(ex, handler())
     r = row(ex)
     assert r["status"] == "rejected" and "CS2" in r["reason"]
+
+
+def test_value_uses_fixed_azuro_stake(tmp_path):
+    from surebet.models import Quote
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="dry", azuro_stake=30, max_per_op=100)
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    v = SimpleNamespace(event=opp().event, market="1x2", poly_tokens={}, poly_conditions={})
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    run(ex, handler())
+    r = row(ex)
+    assert r["az_stake"] == 30 and 60 < r["total"] < 100          # $30 en Azuro + la red (~$36) del lado contrario

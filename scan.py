@@ -332,7 +332,8 @@ async def main() -> None:
     # Ejecutor real Azuro + Polymarket: por defecto "dry" (anota lo que haría); "live" solo con AUTO_EXEC=live y claves
     executor = (Executor(s.db_path, buyer, nets, semaforo, s.auto_exec, s.auto_max_per_op, s.auto_max_daily,
                          s.auto_max_open, s.azuro_private_key, s.azuro_affiliate,
-                         (s.telegram_token, s.telegram_chat_id)) if paper and s.auto_exec != "off" else None)
+                         (s.telegram_token, s.telegram_chat_id), s.auto_azuro_stake)
+                if paper and s.auto_exec != "off" else None)
     if executor and sxshadow:
         sxshadow.on_fill = executor.queue_value
 
