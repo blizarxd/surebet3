@@ -267,7 +267,7 @@
     <div class="small" id="rp-mode" style="margin-top:6px"></div></section>
   <section class="kpis" id="rp-kpis"></section>
   <section class="card"><h2>Ganancia acumulada <span class="count">(real vs papel, al mismo monto por pick)</span></h2>
-    <div class="chart-box"><canvas id="rp-chart"></canvas></div></section>
+    <div class="chart-box"><canvas id="rp-chart"></canvas><div class="empty" id="rp-chart-empty">La gráfica aparece cuando se cierren los primeros picks.</div></div></section>
   <section class="card"><h2>Día por día</h2><div class="scroll"><table id="rp-days"></table></div></section>
   <section class="grid2">
     <div class="card"><h2>🟢 REAL uno por uno <span class="count" id="rp-real-n"></span></h2><div class="scroll" style="max-height:420px"><table id="rp-real"></table></div></div>
@@ -1264,7 +1264,10 @@ function renderRealPaper(x) {
     kpi("PAPEL · picks", P.n, `${P.settled} cerrados · win ${w(P)} · cuota media ${P.odds ?? "-"}`),
     kpi("PAPEL · ganancia", money(P.pnl, true), `ROI ${P.roi == null ? "-" : pct(P.roi)} (mismo monto por pick)`, cls(P.pnl)),
   ].join("");
-  if (typeof Chart !== "undefined") {
+  const empty = !x.curve.real.length && !x.curve.paper.length;
+  $("rp-chart").style.display = empty ? "none" : "";
+  $("rp-chart-empty").style.display = empty ? "" : "none";
+  if (!empty && typeof Chart !== "undefined") {
     const css = getComputedStyle(document.documentElement);
     const ds = (pts, color, label) => ({label, data: pts.map(([t, y]) => ({x: t, y})), borderColor: css.getPropertyValue(color).trim(),
       backgroundColor: "transparent", tension: 0.15, pointRadius: 1.5});
