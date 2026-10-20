@@ -88,6 +88,7 @@ class PolyBuyer:
         self._clob = None
         self.nets = None   # ValueNet (red de seguridad de las apuestas de valor), si está activa
         self.semaforo = None   # Semaforo (riesgo): sus comandos llegan por este mismo bot
+        self.manual = None     # ManualValor (valor 1xBet a mano): botones ✅/❌ y /estoy /salgo /hoy
         self.status = "demo (no envía órdenes)" if not self.live else "REAL"
 
     # ------------------------------------------------------------------ oferta (al avisar)
@@ -193,6 +194,8 @@ class PolyBuyer:
                 text = await self.execute(client, int(data[3:]))
             elif data.startswith("vn:") and self.nets:
                 text = await self.nets.click(client, int(data[3:]))
+            elif data.startswith("mv:") and self.manual:
+                text = self.manual.click(data)
             elif data.startswith("nx:"):
                 _, kind, ref_id = data.split(":")
                 text = self._feedback(kind, int(ref_id))
@@ -210,6 +213,10 @@ class PolyBuyer:
                 await self._say(client, self.semaforo.resume())
             elif cmd == "/bloqueada" and self.semaforo:
                 await self._say(client, self.semaforo.block(" ".join(words[1:])))
+            elif cmd in ("/estoy", "/salgo") and self.manual:
+                await self._say(client, self.manual.set_active(cmd == "/estoy"))
+            elif cmd == "/hoy" and self.manual:
+                await self._say(client, self.manual.text_today())
             elif cmd == "/pausa":
                 self._set_paused(True)
                 await self._say(client, "⏸ Compras en Polymarket PAUSADAS. /activar para volver.")

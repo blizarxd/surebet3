@@ -92,6 +92,11 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   **Decidido 19/10: Azuro automático solo ≤ 3 h** (`safety.AZURO_MAX_HOURS`; la sombra espera y prueba Azuro al entrar a 3 h;
   el ejecutor rechaza valor a > 3 h). Dry de hoy: el tope diario en dry quedó lleno por filas de $30 de antes del cambio (en live solo cuentan las live).
   Wallet 0xCeB5…E900: USDT 0,00 (falta el depósito), 0,98 POL, permiso 100 USDT.
+- **Valor 1xBet a mano con botones (20/10)** (`surebet/manualvalor.py`, sección 🖐 en Real vs papel): cada pick de 1xBet de la
+  cuenta de valor (~47/día) llega por Telegram como aviso limpio (cuota, mínima con EV +1 %, $30 fijos) con botones «✅ la puse
+  a X» (3 cuotas) y «❌ no estaba»; solo en `MANUAL_VALUE_HOURS` (8-20, hora Colombia) y con /estoy (/salgo pausa, /hoy resume).
+  Fuera de horario se anota igual. Reemplaza el aviso viejo de valor de 1xBet (sin red). Backtest 10 días a $30 por hora:
+  8–20 h ≈ 29 picks/día, esperado ~$27/día (real +$986); todo el día 47/día, ~$44/día. Hora fuerte: 13 h (6/día, Europa).
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

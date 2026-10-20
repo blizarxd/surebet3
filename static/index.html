@@ -281,6 +281,14 @@
       <h2 style="margin-top:12px">Señales perdidas <span class="count">(el papel las anotó, el real no las tomó)</span></h2>
       <div class="scroll" style="max-height:300px"><table id="rp-missed"></table></div></div>
   </section>
+  <section class="card"><h2>🖐 Valor 1xBet a mano <span class="count">(tus botones ✅ / ❌ del aviso de Telegram, a monto fijo)</span></h2>
+    <div class="small muted">Cada pick de valor de 1xBet de la cuenta en papel llega por Telegram solo en tu horario y si estás en el PC
+      (<b>/estoy</b> · <b>/salgo</b> · <b>/hoy</b>). <b>Tú</b> = la cuota que marcaste al tocar ✅. <b>Papel</b> = la cuota del aviso, en las mismas
+      que pusiste. Las de fuera de horario se anotan para ver cuánto deja el papel cuando no estás.</div>
+    <div class="kpis" id="mv-kpis" style="margin-top:8px"></div>
+    <div class="scroll"><table id="mv-days"></table></div>
+    <h2 style="margin-top:12px">Uno por uno</h2>
+    <div class="scroll" style="max-height:420px"><table id="mv-rows"></table></div></section>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -1309,6 +1317,29 @@ function renderRealPaper(x) {
     : `<tr><td class="empty">${x.mode === "live" ? "Ninguna: el real tomó todo lo que anotó el papel." : "Se cuentan desde la primera apuesta real."}</td></tr>`;
 }
 
+function renderManual(x) {
+  if (!x) { $("mv-kpis").innerHTML = kpi("Valor a mano", "-", "todavía sin avisos: llegan con el próximo pick de 1xBet en tu horario"); $("mv-days").innerHTML = ""; $("mv-rows").innerHTML = ""; return; }
+  const t = x.total, num = (v) => v == null ? "-" : money(v, true);
+  $("mv-kpis").innerHTML = [
+    kpi("Avisadas", t.alerted, `puestas ${t.placed} · no estaban ${t.missed} · sin tocar ${t.untouched}`),
+    kpi("Tu ganancia", num(t.pnl), `${t.closed} cerradas${t.win == null ? "" : " · win " + t.win + "%"}`, cls(t.pnl)),
+    kpi("Papel en las mismas", num(t.paper_pnl), t.slip == null ? "cuota del aviso" : `tu cuota vs el aviso: ${pct(t.slip)}`, cls(t.paper_pnl)),
+    kpi("Fuera de horario", t.away, `el papel ahí: ${num(t.away_paper_pnl)}`, cls(t.away_paper_pnl)),
+  ].join("");
+  $("mv-days").innerHTML = `<tr><th>Día</th><th class="num">Avisadas</th><th class="num">Puestas</th><th class="num">No estaban</th><th class="num">Sin tocar</th>
+    <th class="num">Fuera</th><th class="num">Tú</th><th class="num">Papel (mismas)</th><th class="num">Papel (todo lo avisado)</th><th class="num">Papel fuera</th></tr>` +
+    x.days.map((d) => `<tr><td><b>${esc(d.day)}</b></td><td class="num">${d.alerted}</td><td class="num">${d.placed}</td><td class="num">${d.missed}</td>
+      <td class="num">${d.untouched}</td><td class="num">${d.away}</td><td class="num ${cls(d.pnl)}">${num(d.pnl)}</td>
+      <td class="num ${cls(d.paper_pnl)}">${num(d.paper_pnl)}</td><td class="num ${cls(d.alerted_paper_pnl)}">${num(d.alerted_paper_pnl)}</td>
+      <td class="num ${cls(d.away_paper_pnl)}">${num(d.away_paper_pnl)}</td></tr>`).join("");
+  const res = (r) => r.result === "won" ? "✅" : r.result === "lost" ? "❌" : r.result === "void" ? `<span class="tag void">anulada</span>` : `<span class="tag open">abierta</span>`;
+  $("mv-rows").innerHTML = `<tr><th>Hora</th><th>Partido</th><th>Apuesta</th><th class="num">Aviso</th><th class="num">Mínima</th><th>Estado</th><th class="num">Tu cuota</th><th>Res</th><th class="num">Tú</th><th class="num">Papel</th></tr>` +
+    x.rows.map((r) => `<tr><td class="small nowrap">${when(r.created_ts)}</td><td class="small">${esc(r.title)}<div class="muted">${esc(r.market || "")}</div></td>
+      <td class="small">${esc(r.label || "")}</td><td class="num">${Number(r.odds).toFixed(2)}</td><td class="num muted">${Number(r.min_odds).toFixed(2)}</td>
+      <td class="small">${esc(r.status)}</td><td class="num"><b>${r.placed_odds ? Number(r.placed_odds).toFixed(2) : "-"}</b></td><td>${res(r)}</td>
+      <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1414,6 +1445,7 @@ function renderTab(tab) {
     renderSX(state.sxshadow);
   } else if (tab === "rp") {
     renderRealPaper(state.realpaper);
+    renderManual(state.manual);
   } else if (tab === "az") {
     renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
   } else if (tab === "lp") {

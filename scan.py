@@ -54,6 +54,7 @@ from surebet.makersim import AUTO_HOUSES, MakerSimulator, POLY_FIRST, book_ref
 from surebet.pinnacle import RefShadow
 from surebet.polybuy import PolyBuyer
 from surebet.valuenet import ValueNet
+from surebet.manualvalor import SOURCES as MANUAL_SOURCES, ManualValor
 from surebet.nettrack import NetTracker
 from surebet.liveodds import LiveOdds
 from surebet.autovivo import LiveAutoSimulator
@@ -334,6 +335,9 @@ async def main() -> None:
                          s.auto_max_open, s.azuro_private_key, s.azuro_affiliate,
                          (s.telegram_token, s.telegram_chat_id), s.auto_azuro_stake, s.auto_value_net, s.auto_arb)
                 if paper and s.auto_exec != "off" else None)
+    # Valor 1xBet a mano: aviso limpio con botones de cada pick de la cuenta de valor (solo en tu horario)
+    manual = ManualValor(s.db_path, s.manual_value_stake, s.manual_value_hours) if paper else None
+    buyer.manual = manual
     if executor and sxshadow:
         sxshadow.on_fill = executor.queue_value
 
@@ -406,9 +410,15 @@ async def main() -> None:
         alerted[k] = (now, net)
         return True
 
+    async def send_manual(client) -> None:
+        for text, buttons in (manual.step() if manual else []):
+            await send_telegram(client, s.telegram_token, s.telegram_chat_id, text, buttons)
+
     def worth_value(v, hrs) -> bool:
         if v.quote.source in API_EXCHANGES:
             return False   # Azuro: valor solo medido (CLV), sin avisos
+        if manual and v.quote.source in MANUAL_SOURCES:
+            return False   # 1xBet: lo avisa ManualValor (aviso limpio con botones, cada pick de la cuenta de valor)
         if not golden_value(v.event.live, v.ev_pct, v.quote.odds, hrs):
             return False
         if semaforo.blocks("valor", {v.quote.source, POLYMARKET}):
@@ -516,6 +526,7 @@ async def main() -> None:
                         ("papel", lambda: paper.consider([o for o in res.opps if not any(
                             l.quote.source in API_EXCHANGES for l in o.legs)],
                             [v for v in res.values if v.quote.source not in API_EXCHANGES - {"azuro"}], resolution)),
+                        ("valor-manual", lambda: send_manual(client)),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, on_auto_fill)),
                         ("ejecución", lambda: execsim.verify(client)),
                         ("cuotas", lambda: live_odds.update(res.clusters)),
