@@ -29,6 +29,7 @@ def test_clean_alert_with_buttons_only_for_1xbet(tmp_path):
     text, buttons = msgs[0]
     assert "VALOR 1xBet" in text and "Apuesta: $30" in text and "tómala si está a 2,35 o más" in text
     assert buttons[0] == ("Abrir en 1xBet", "https://1xbet-col.com/x")
+    assert text.endswith("🔗 https://1xbet-col.com/x")
     assert [b[1].split(":")[-1] for b in buttons[1:4]] == ["2.40", "2.38", "2.35"] and buttons[-1][1].startswith("cb:mv:no:")
     assert mv.step() == []                                              # una sola vez por pick
 

@@ -144,7 +144,7 @@ class ManualValor:
             f"👉 {market}: {label}",
             f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más",
             f"Apuesta: ${stake:g}",
-        ])
+        ] + ([f"🔗 {url}"] if url.startswith("http") else []))
         buttons = [("Abrir en 1xBet", url)] if url.startswith("http") else []
         buttons += [(f"✅ La puse a {_fmt_odds(x)}", f"cb:mv:ok:{mid}:{x:.2f}") for x in odds_levels(odds, min_odds)]
         buttons.append(("❌ No estaba / bajó de la mínima", f"cb:mv:no:{mid}"))
