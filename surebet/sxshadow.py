@@ -172,7 +172,7 @@ class SXShadow:
             # oro: una vez por selección y casa; amplio: solo en las casas donde la selección no se anotó antes
             # (ni como oro ni como amplio)
             taken = {h for (h,) in self.conn.execute("SELECT COALESCE(house,'-') FROM sx_shadow WHERE key LIKE ? ESCAPE '\\'" + (
-                " AND COALESCE(tier,'oro')='oro'" if gold else ""), (like,))}
+                " AND COALESCE(tier,'oro')='oro'" if gold else " AND COALESCE(tier,'oro')!='lejos'"), (like,))}
             if sel + tier in seen or (not gold and sel + "oro" in seen):
                 continue
             best: dict = {}
@@ -181,7 +181,17 @@ class SXShadow:
                     best[q.source] = (q.odds, q)
             # Azuro solo a ≤ AZURO_MAX_HOURS del inicio: más lejos se espera y se prueba cuando entre (si sigue siendo valor)
             later = "azuro" in best and hrs > AZURO_MAX_HOURS
+            far = best.get("azuro") if later and gold else None   # solo medición del tramo > 3 h (nunca va al ejecutor)
             best = {h: x for h, x in best.items() if h not in taken and not (h == "azuro" and later)}
+            if far and sel + "lejos" not in seen:
+                seen.add(sel + "lejos")
+                fq = far[1]
+                rows.append((f"{sel}#azuro#lejos", now, st.timestamp(), v.event.anchor.title, v.event.anchor.sport, v.market,
+                             v.quote.label, covers, v.quote.source, round(v.quote.odds, 4), round(v.ev_pct, 3),
+                             round(v.fair_prob, 5), "azuro", "lejos", fq.ref, round(fq.odds, 4), round(now - fq.ts, 1),
+                             round(value_stake(fq.odds, max(ev_at(fq.odds, v.fair_prob), MIN_EV), self.bankroll,
+                                               min_total=self.min_total, limit=net_limit(fq.odds)), 2), "pendiente", None,
+                             json.dumps(v.poly_tokens), json.dumps(v.poly_conditions)))
             if not best and (taken or later):
                 continue
             seen.add(sel + tier)
@@ -219,7 +229,7 @@ class SXShadow:
                             await real_price(client, house, ref, stake, fair, self.cloudbet_key)))
         updates = []
         for key, stake, fair, signal, tier, (odds, cap, err) in fetched:
-            min_ev = MIN_EV if tier == "oro" else WIDE_MIN_EV
+            min_ev = WIDE_MIN_EV if tier == "amplio" else MIN_EV
             manual = " · queda el aviso manual de 1xBet" if signal in MANUAL else ""
             if odds is None:
                 updates.append(("rechazada", (err or "sin precio") + manual, None, None, cap, None, now, key))
@@ -343,6 +353,7 @@ def summary(conn) -> dict | None:
         return None
     rows = [r for r in everything if r["tier"] == "oro"]
     wide = [r for r in everything if r["tier"] == "amplio" and r["status"] != "pendiente" and r["house"]]
+    far = [r for r in everything if r["tier"] == "lejos" and r["status"] != "pendiente" and r["house"]]
     wide_by: dict[str, list] = {}
     for r in wide:
         wide_by.setdefault(r["house"], []).append(r)
@@ -373,5 +384,6 @@ def summary(conn) -> dict | None:
         "reasons": sorted(({"reason": k, "n": v} for k, v in reasons.items()), key=lambda x: -x["n"]),
         "wide": {**_stats(wide), "by_house": [{"name": NAMES.get(k, k), **_stats(v)}
                                               for k, v in sorted(wide_by.items(), key=lambda kv: -len(kv[1]))]},
+        "far": _stats(far),   # Azuro con el partido a 3–6 h: solo medición (el real espera a ≤ 3 h)
         "rows": rows[:150],
     }

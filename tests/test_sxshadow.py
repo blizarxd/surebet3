@@ -182,14 +182,33 @@ def test_azuro_waits_until_3h_before_start(tmp_path, monkeypatch):
     mod = sys.modules[__name__]
     sh = SXShadow(tmp_path / "p.db")
     monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=5))
-    assert sh.step([value(azuro_odds=2.40)], gold) == 1               # a 5 h: solo SX, Azuro espera
-    assert [h for (h,) in sh.conn.execute("SELECT house FROM sx_shadow")] == ["sxbet"]
-    assert sh.step([value(azuro_odds=2.40)], gold) == 0
+    assert sh.step([value(azuro_odds=2.40)], gold) == 2               # a 5 h: SX + Azuro solo como medición ("lejos")
+    assert sorted(sh.conn.execute("SELECT house, tier FROM sx_shadow")) == [("azuro", "lejos"), ("sxbet", "oro")]
+    sh.step([value(azuro_odds=2.40)], gold)
+    assert sh.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 2     # sin duplicados
     monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=2))
-    assert sh.step([value(azuro_odds=2.40)], gold) == 1               # a 2 h: entra Azuro (SX ya estaba)
-    assert sorted(h for (h,) in sh.conn.execute("SELECT house FROM sx_shadow")) == ["azuro", "sxbet"]
-    assert sh.step([value(azuro_odds=2.40)], gold) == 0
-    only = SXShadow(tmp_path / "q.db")                                 # solo Azuro y lejos: no queda como "sin casa API"
+    assert sh.step([value(azuro_odds=2.40)], gold) == 1               # a 2 h: entra Azuro como oro (SX ya estaba)
+    assert sorted(sh.conn.execute("SELECT house, tier FROM sx_shadow")) == [("azuro", "lejos"), ("azuro", "oro"), ("sxbet", "oro")]
+    sh.step([value(azuro_odds=2.40)], gold)
+    assert sh.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 3
+
+
+def test_far_azuro_is_measured_but_never_sent_to_executor(tmp_path, monkeypatch):
+    import sys
+    mod = sys.modules[__name__]
+    sh = SXShadow(tmp_path / "p.db")
+    fills = []
+    sh.on_fill = lambda *a: fills.append(a)
     monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=5))
-    assert only.step([value(azuro_odds=2.40, with_sx=False)], gold) == 0
-    assert only.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 0
+    sh.step([value(azuro_odds=2.40, with_sx=False)], gold)
+    assert [(h, t) for h, t in sh.conn.execute("SELECT house, tier FROM sx_shadow")] == [("azuro", "lejos")]
+    sh.step([value(azuro_odds=2.40, with_sx=False)], gold)
+    assert sh.conn.execute("SELECT COUNT(*) FROM sx_shadow").fetchone()[0] == 1       # una sola vez
+    aged(sh)
+    run(sh.verify, lambda r: httpx.Response(200, json={"conditions": [{"state": "Active", "outcomes": [
+        {"outcomeId": 29, "odds": "2.40", "state": "Active"}]}]}) if "condition-batch" in r.url.path
+        else httpx.Response(200, json={"response": {"maxBet": "80"}}))
+    assert sh.conn.execute("SELECT status FROM sx_shadow").fetchone()[0] == "llenada" and fills == []
+    assert summary(sh.conn)["far"]["fills"] == 1 and summary(sh.conn)["n"] == 0        # no cuenta en el oro
+    monkeypatch.setattr(mod, "START", datetime.now(timezone.utc) + timedelta(hours=2))
+    assert sh.step([value(azuro_odds=2.40, with_sx=False)], gold) == 1                  # al entrar a 3 h, se prueba como oro
