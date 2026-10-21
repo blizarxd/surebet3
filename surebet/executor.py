@@ -99,6 +99,8 @@ class Executor:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
         self.conn.executescript(REAL_SCHEMA)
+        if "notified" not in {r[1] for r in self.conn.execute("PRAGMA table_info(real_bets)")}:
+            self.conn.execute("ALTER TABLE real_bets ADD COLUMN notified INTEGER DEFAULT 0")
         self.conn.commit()
         self.buyer, self.nets, self.gate = buyer, nets, gate
         self.max_per_op, self.max_daily, self.max_open = max_per_op, max_daily, int(max_open)
@@ -198,6 +200,30 @@ class Executor:
                  ex[0] if ex else None, ex[1] if ex else None, ex[2] if ex else None, ex[3] if ex else None,
                  int(b["redeemed"]), now))
         self.conn.commit()
+        await self._notify_results(client)
+
+    async def _notify_results(self, client: httpx.AsyncClient) -> None:
+        """Un aviso por cada apuesta real que se resolvió (una sola vez), con el récord de la wallet."""
+        if self.mode != "live":
+            return
+        rows = self.conn.execute(
+            "SELECT bet_id, amount, odds, status, result, pnl, title, outcome_title, market FROM real_bets "
+            "WHERE pnl IS NOT NULL AND COALESCE(notified,0)=0 ORDER BY created_ts").fetchall()
+        for bet_id, amount, odds, status, result, pnl, title, outcome, market in rows:
+            self.conn.execute("UPDATE real_bets SET notified=1 WHERE bet_id=?", (bet_id,))
+            self.conn.commit()
+            tot = self.conn.execute(
+                "SELECT COUNT(*), SUM(pnl>0), SUM(pnl<0), SUM(pnl=0), COALESCE(SUM(pnl),0), COALESCE(SUM(amount),0) "
+                "FROM real_bets WHERE pnl IS NOT NULL").fetchone()
+            n, w, l, v, total, staked = tot[0], tot[1] or 0, tot[2] or 0, tot[3] or 0, tot[4], tot[5]
+            head = ("✅ GANÓ" if pnl > 0 else "❌ PERDIÓ" if pnl < 0 else "⚪ ANULADA (devuelve)")
+            await self._say(client, "\n".join([
+                f"🏁🟦 RESULTADO · AZURO REAL · {head}",
+                f"⚽ {title or '?'}",
+                f"🎯 {outcome or '?'}{f' ({market})' if market else ''} @ {odds:.2f}",
+                f"💵 ${amount:,.2f} → {'+' if pnl >= 0 else '−'}${abs(pnl):,.2f}",
+                f"📈 Real: {w}G-{l}P{f'-{v}A' if v else ''} · {'+' if total >= 0 else '−'}${abs(total):,.2f} "
+                f"· ROI {100 * total / staked:+.1f} % ({n} cerradas)" if staked else f"📈 Real: {n} cerradas"]))
 
     async def _claim(self, client: httpx.AsyncClient) -> None:
         """Cobra las apuestas ganadas o anuladas de Azuro: la plata vuelve a la wallet para las próximas."""
@@ -428,6 +454,27 @@ class Executor:
                 await self._say(client, f"🤖✅ {title}: pata suelta cubierta en Polymarket ({info}).")
 
     # ------------------------------------------------------------------ B. valor + red en Azuro
+    def _placed_text(self, ev, label: str, market: str, stake: float, got: float, min_odds: float, fair: float,
+                     start: float | None) -> str:
+        n, staked = self.conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(az_stake),0) FROM live_exec WHERE mode='live' AND status='value' "
+            "AND created_ts >= ?", (self._day0(),)).fetchone()
+        mins = max(0, int((start - time.time()) / 60)) if start else None
+        return "\n".join([
+            "🟦🟦🟦 AZURO · APUESTA REAL 🟦🟦🟦",
+            f"⚽ {ev.title}" + (f" · empieza en {mins // 60} h {mins % 60:02d} min" if mins is not None else ""),
+            f"🎯 {label} ({market_label(market)})",
+            f"💵 ${stake:,.2f} @ {got:.2f} (mínima {min_odds:.2f}) · EV {100 * (got * fair - 1):+.1f} %",
+            f"🤖 Sin red · hoy {n} apuestas reales (${staked:,.0f}) · tope ${self.max_daily:g}/día",
+            "⏳ Te aviso cuando se resuelva."])
+
+    async def _skip_notice(self, client, ev, label: str, why: str) -> None:
+        """Una señal oro que llegó al ejecutor y NO se apostó (en real): qué pasó y por qué."""
+        if why.startswith("CS2/Dota2") or why.startswith("ese partido ya tiene"):
+            return
+        await self._say(client, "\n".join(["⬜ AZURO · SEÑAL NO APOSTADA", f"⚽ {ev.title}", f"🎯 {label}",
+                                           f"🚫 {why}"]))
+
     async def _value(self, client, v, quote, stake: float, odds: float, fair: float) -> None:
         limit = net_limit(odds)
         if limit <= 0:
@@ -450,9 +497,12 @@ class Executor:
                               status="rejected" if why else "placing", total=total, az_ref=quote.ref, az_stake=stake,
                               az_min_odds=min_odds, net_pct=round(100 * (odds * fair - 1), 3), reason=why)
         if why:
+            await self._skip_notice(client, ev, quote.label, why)
             return
         got = await self._bet_azuro(client, row_id, quote.ref, stake, min_odds, odds)
         if got is None:
+            row = self.conn.execute("SELECT reason FROM live_exec WHERE id=?", (row_id,)).fetchone()
+            await self._skip_notice(client, ev, quote.label, (row and row[0]) or "Azuro no la aceptó")
             return
         if self.mode == "dry":
             self._update(row_id, status="dry", net_pct=round(100 * (got * fair - 1), 3),
@@ -461,8 +511,7 @@ class Executor:
             return
         if not self.value_net:
             self._update(row_id, status="value", net_pct=round(100 * (got * fair - 1), 3), reason="sin red (AUTO_VALUE_NET=0)")
-            await self._say(client, f"🤖✅ REAL valor {ev.title}: Azuro ${stake:,.2f} a «{quote.label}» @ {got:.3f} "
-                                    f"(EV {100 * (got * fair - 1):+.1f} %), sin red.")
+            await self._say(client, self._placed_text(ev, quote.label, v.market, stake, got, min_odds, fair, start))
             return
         # La red de 🛟 con la apuesta de Azuro (cuota aceptada): la vigila valuenet.tick y avisa por Telegram
         vb = ValueBet(v.event, replace(quote, odds=got), fair, v.poly_tokens, v.market, v.poly_conditions)

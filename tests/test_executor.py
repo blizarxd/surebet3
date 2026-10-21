@@ -305,3 +305,59 @@ def test_value_far_from_start_is_not_bet(tmp_path):
     run(ex, handler())
     r = row(ex)
     assert r["status"] == "rejected" and "más de 3 h" in r["reason"]
+
+
+def test_telegram_messages_for_real_bet_and_result(tmp_path):
+    from surebet.models import Quote
+    sent = []
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="live", azuro_key=KEY, value_net=False, azuro_stake=5,
+                  telegram=("tok", "chat"))
+    ex._last_claim = time.time()
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    v = SimpleNamespace(event=opp().event, market="1x2", poly_tokens={}, poly_conditions={})
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    base = handler()
+
+    def h(r):
+        if r.url.host == "api.telegram.org":
+            sent.append(json.loads(r.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+        if r.url.path.endswith("/ordinar"):
+            return httpx.Response(200, json={"id": "o1", "state": "Created"})
+        return base(r)
+    run(ex, h)
+    assert any("AZURO · APUESTA REAL" in s and "Arsenal" in s and "$5.00 @ 2.30" in s for s in sent)
+    # un resultado: un solo aviso, con el récord
+    ex.conn.execute("INSERT INTO real_bets (bet_id, created_ts, amount, odds, status, result, payout, pnl, title, outcome_title, "
+                    "market) VALUES (1, ?, 5, 2.3, 'Resolved', 'Won', 11.5, 6.5, 'Arsenal vs Leeds', 'Arsenal', '1X2')", (time.time(),))
+    ex.conn.execute("INSERT INTO real_bets (bet_id, created_ts, amount, odds, status, result, payout, pnl, title, outcome_title) "
+                    "VALUES (2, ?, 5, 2.0, 'Resolved', 'Lost', 0, -5, 'Roma vs Lazio', 'Roma')", (time.time(),))
+    ex.conn.commit()
+    sent.clear()
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(h)) as c:
+            await ex._notify_results(c)
+            await ex._notify_results(c)
+    asyncio.run(go())
+    assert len(sent) == 2 and "GANÓ" in sent[0] and "+$6.50" in sent[0] and "PERDIÓ" in sent[1] and "1G-1P" in sent[1]
+
+
+def test_unplaced_signal_is_reported(tmp_path):
+    from surebet.models import Quote
+    sent = []
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="live", azuro_key=KEY, value_net=False, azuro_stake=5,
+                  telegram=("tok", "chat"))
+    anchor = SimpleNamespace(title="Arsenal vs Leeds", start=datetime.now(timezone.utc) + timedelta(hours=5))
+    v = SimpleNamespace(event=SimpleNamespace(anchor=anchor, key="polymarket:E8"), market="1x2", poly_tokens={}, poly_conditions={})
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    base = handler()
+
+    def h(r):
+        if r.url.host == "api.telegram.org":
+            sent.append(json.loads(r.content)["text"])
+            return httpx.Response(200, json={"ok": True})
+        return base(r)
+    run(ex, h)
+    assert len(sent) == 1 and "NO APOSTADA" in sent[0] and "más de 3 h" in sent[0]
