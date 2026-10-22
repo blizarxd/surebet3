@@ -102,6 +102,10 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   en la sombra el nivel amplio (EV 1,5–2 %) y el tramo > 3 h (tier 'lejos', solo medición). Plan: unos días a $5; si oro + amplio
   siguen bien (CLV), pasar a oro + amplio. Azuro 19–20/10 sombra, 5 partidos reales sin esports: 1 ganada, 3 perdidas, 1 anulada
   (−$10 a $5), CLV mediano +2 %.
+- **Pestaña 📊 Dashboard valor manual (21/10)** (`surebet/valordash.py` + sección en `static/index.html`): el valor oro de 1xBet a $30
+  fijos, en vivo (el panel refresca cada 15 s y se redibuja solo al cerrarse un partido): KPIs, curva acumulada, mapa día × franja de 4 h
+  (hora Colombia), barras real vs esperado por franja, abiertas ahora y un gráfico por día. Versión para compartir sin panel:
+  `reports/dashboard_valor_oro.html` (estática, se regenera a mano).
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

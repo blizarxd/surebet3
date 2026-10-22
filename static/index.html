@@ -70,6 +70,30 @@
   .sem { background: var(--panel2); border-radius: 7px; padding: 8px 10px; border-left: 4px solid var(--green); }
   .sem.yellow { border-left-color: var(--amber); } .sem.red { border-left-color: var(--red); } .sem.stale { border-left-color: var(--muted); }
   .sem .small { margin-top: 3px; }
+  .vd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .vd-k { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .vd-k span { color: var(--muted); font-size: 12px; display: block; } .vd-k b { font-size: 24px; display: block; margin-top: 2px; }
+  .vd-k small { color: var(--muted); font-size: 12px; }
+  .vd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; position: relative; }
+  #vd-all { position: relative; }
+  .vd-card svg, #vd-all svg { display: block; width: 100%; height: auto; overflow: visible; } .vd-card svg text, #vd-all svg text { fill: var(--muted); font-size: 11px; }
+  .vd-heat { width: 100%; border-collapse: separate; border-spacing: 4px; font-size: 13px; }
+  .vd-heat th { font-weight: 500; color: var(--muted); font-size: 12px; padding: 2px 4px; text-align: center; border: 0; }
+  .vd-heat th.l { text-align: left; white-space: nowrap; }
+  .vd-heat td { text-align: center; border-radius: 8px; padding: 8px 2px; font-weight: 600; min-width: 62px; border: 0; }
+  .vd-heat td small { display: block; font-weight: 400; font-size: 11px; opacity: .75; }
+  .vd-heat td.t { background: none; font-weight: 700; } .vd-heat td.e { background: var(--panel2); color: var(--muted); font-weight: 400; }
+  .vd-bars { display: grid; gap: 10px; } .vd-bar { display: grid; grid-template-columns: 70px 1fr 280px; gap: 10px; align-items: center; font-size: 13px; }
+  .vd-bar .tr { position: relative; height: 24px; background: var(--panel2); border-radius: 8px; overflow: hidden; }
+  .vd-bar .f { position: absolute; top: 0; bottom: 0; border-radius: 8px; opacity: .85; }
+  .vd-bar .m { position: absolute; top: -2px; bottom: -2px; width: 3px; background: var(--text); opacity: .7; }
+  .vd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px; }
+  .vd-dh { display: flex; justify-content: space-between; align-items: baseline; } .vd-dm { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+  .vd-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+            padding: 6px 9px; font-size: 12px; line-height: 1.4; display: none; z-index: 4; white-space: nowrap; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+  .vd-live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: vdp 1.6s infinite; }
+  @keyframes vdp { 50% { opacity: .25; } }
+  @media (max-width: 640px) { .vd-bar { grid-template-columns: 60px 1fr; } .vd-bar .v { grid-column: 1 / -1; } }
 </style>
 </head>
 <body>
@@ -86,6 +110,7 @@
   <button data-tab="sx">🤖 Valor automático (sombra)</button>
   <button data-tab="az">🟦 Azuro</button>
   <button data-tab="rp">📒 Real vs papel</button>
+  <button data-tab="vd">📊 Dashboard valor manual</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
 </nav>
@@ -289,6 +314,18 @@
     <div class="scroll"><table id="mv-days"></table></div>
     <h2 style="margin-top:12px">Uno por uno</h2>
     <div class="scroll" style="max-height:420px"><table id="mv-rows"></table></div></section>
+</main>
+<main id="tab-vd" hidden>
+  <section class="card"><div class="small muted"><span class="vd-live"></span><b>En vivo:</b> se actualiza sola cada 15 s y cada vez que se cierra un partido.
+    Es el <b>valor oro de 1xBet (semi-manual)</b> con <b>$30 fijos por apuesta</b>, en papel, hora de Colombia. Lo ganado es contra el resultado real;
+    el "esperado sin suerte" es lo que dice la ventaja de precio (CLV). <span id="vd-upd"></span></div></section>
+  <section class="vd-kpis" id="vd-kpis" style="margin-top:12px"></section>
+  <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(cada punto es una apuesta; franjas = días)</span></h2><div id="vd-all"></div></section>
+  <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h)</span></h2><div class="scroll"><table class="vd-heat" id="vd-heat"></table></div></section>
+  <section class="card" style="margin-top:12px"><h2>¿Qué franjas rinden mejor? <span class="count">(barra = real · marca = esperado sin suerte)</span></h2><div class="vd-bars" id="vd-bars"></div></section>
+  <section class="card" style="margin-top:12px"><h2>Abiertas ahora <span class="count" id="vd-open-n"></span></h2><div class="scroll" style="max-height:260px"><table id="vd-open"></table></div></section>
+  <h2 style="margin-top:16px">Cada día, apuesta por apuesta <span class="count">(misma escala en todos; el más reciente primero)</span></h2>
+  <section class="vd-grid" id="vd-days"></section>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -761,7 +798,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "sx", "az", "rp", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "az", "rp", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -1340,6 +1377,97 @@ function renderManual(x) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
 }
 
+let vdSig = "";
+function renderValorDash(x) {
+  if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }
+  const P = x.picks;
+  const sig = P.length + "|" + P.reduce((s, p) => s + (p[2] || 0), 0).toFixed(2) + "|" + P.filter((p) => p[2] === null).length;
+  $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
+  if (sig === vdSig) return;          // nada nuevo: no se redibuja (ni parpadea ni gasta)
+  vdSig = sig;
+  const DN = ["dom","lun","mar","mié","jue","vie","sáb"], FR = [[0,4],[4,8],[8,12],[12,16],[16,20],[20,24]];
+  const fm = (v, s = 1) => (v < 0 ? "−" : s ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("es-CO");
+  const hm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  const dname = (k) => { const [y, m, d] = k.split("-").map(Number); return DN[new Date(y, m - 1, d).getDay()] + " " + String(d).padStart(2, "0") + "/" + String(m).padStart(2, "0"); };
+  const days = {}; P.forEach((p) => (days[p[0]] = days[p[0]] || []).push(p));
+  const keys = Object.keys(days).sort();
+  const closed = P.filter((p) => p[2] !== null), open = P.filter((p) => p[2] === null);
+  const tot = closed.reduce((s, p) => s + p[2], 0), exp = P.reduce((s, p) => s + p[3], 0), stk = closed.length * 30;
+  const won = closed.filter((p) => p[2] > 0).length, lost = closed.filter((p) => p[2] < 0).length;
+  const dpnl = keys.map((k) => days[k].reduce((s, p) => s + (p[2] || 0), 0));
+  const bi = dpnl.indexOf(Math.max(...dpnl)), wi = dpnl.indexOf(Math.min(...dpnl));
+  const today = keys[keys.length - 1], tcl = days[today].filter((p) => p[2] !== null), tp = dpnl[dpnl.length - 1];
+  $("vd-kpis").innerHTML = [
+    ["Ganancia total", `<b class="${tot >= 0 ? "pos" : "neg"}">${fm(tot)}</b>`, `ROI ${(100 * tot / Math.max(1, stk)).toFixed(1)} % sobre ${fm(stk, 0)}`],
+    ["Hoy " + dname(today), `<b class="${tp >= 0 ? "pos" : "neg"}">${fm(tp)}</b>`, `${tcl.length} cerradas · ${days[today].length - tcl.length} abiertas`],
+    ["Esperado sin suerte", `<b>${fm(exp)}</b>`, "lo que dice la ventaja de precio"],
+    ["Apuestas cerradas", `<b>${closed.length}</b>`, `${won} ganadas · ${lost} perdidas · ${open.length} abiertas`],
+    ["Acierto", `<b>${(100 * won / Math.max(1, won + lost)).toFixed(0)} %</b>`, "basta ~44 % con cuota media 2,4"],
+    ["Días en positivo", `<b>${dpnl.filter((v) => v > 0).length} de ${keys.length}</b>`, `mejor ${fm(dpnl[bi])} · peor ${fm(dpnl[wi])}`],
+  ].map(([a, b, c]) => `<div class="vd-k"><span>${a}</span>${b}<small>${c}</small></div>`).join("");
+
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n, a, par) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); par && par.appendChild(e); return e; };
+  const ticks = (a, b, n) => { const st = [50, 100, 200, 250, 500, 1000].find((s) => (b - a) / s <= n) || 1000; const o = []; for (let v = Math.ceil(a / st) * st; v <= b; v += st) o.push(v); return o; };
+  const css = getComputedStyle(document.documentElement), C = (n) => css.getPropertyValue(n).trim();
+  const tipHtml = (p, pre) => `<b>${pre}${hm(p.m)}</b> · ${esc(p.t)}<br>${esc(p.s)} @ ${p.o}<br>${p.pnl > 0 ? `<span class="pos">ganada ${fm(p.pnl)}</span>` : p.pnl < 0 ? `<span class="neg">perdida −$30</span>` : "anulada $0"} · acumulado <b>${fm(p.v)}</b>`;
+  function chart(box, pts, o) {
+    const W = o.W, H = o.H, L = 50, R = 12, T = 16, B = 24;
+    const svg = el("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.aria}, box);
+    const X = (v) => L + o.x(v) * (W - L - R), Y = (v) => T + (o.ymax - v) / (o.ymax - o.ymin) * (H - T - B);
+    (o.bands || []).forEach((b, i) => { if (i % 2 === 0) el("rect", {x: X(b[0]), y: T, width: Math.max(0, X(b[1]) - X(b[0])), height: H - T - B, fill: C("--panel2"), opacity: .8}, svg); });
+    o.yt.forEach((v) => { el("line", {x1: L, x2: W - R, y1: Y(v), y2: Y(v), stroke: v === 0 ? C("--muted") : C("--line"), "stroke-width": 1}, svg);
+      const tx = el("text", {x: L - 7, y: Y(v) + 4, "text-anchor": "end"}, svg); tx.textContent = v === 0 ? "$0" : fm(v); });
+    o.xt.forEach(([v, l]) => { const tx = el("text", {x: X(v), y: H - 7, "text-anchor": "middle"}, svg); tx.textContent = l; });
+    let d = ""; pts.forEach((p, i) => d += (i ? "L" : "M") + X(p.x).toFixed(1) + " " + Y(p.v).toFixed(1));
+    if (o.area) { const a0 = Y(Math.max(o.ymin, 0)); el("path", {d: d + `L${X(pts[pts.length - 1].x)} ${a0}L${X(pts[0].x)} ${a0}Z`, fill: C("--blue"), opacity: .1}, svg); }
+    el("path", {d, fill: "none", stroke: C("--blue"), "stroke-width": o.sw || 2.2, "stroke-linejoin": "round", "stroke-linecap": "round"}, svg);
+    if (o.dots) pts.forEach((p) => el("circle", {cx: X(p.x), cy: Y(p.v), r: 2, fill: C("--blue")}, svg));
+    [[o.hi, C("--green"), -9], [o.lo, C("--red"), 16]].forEach(([p, c, dy]) => { if (!p) return;
+      el("circle", {cx: X(p.x), cy: Y(p.v), r: 5, fill: c, stroke: C("--panel"), "stroke-width": 2}, svg);
+      const r = X(p.x) > W - 110, tx = el("text", {x: X(p.x) + (r ? -8 : 8), y: Y(p.v) + dy, "text-anchor": r ? "end" : "start", style: `fill:${C("--text")};font-weight:600`}, svg);
+      tx.textContent = fm(p.v) + " · " + o.when(p); });
+    const tip = document.createElement("div"); tip.className = "vd-tip"; box.appendChild(tip);
+    const cr = el("line", {y1: T, y2: H - B, stroke: C("--muted"), visibility: "hidden"}, svg), rg = el("circle", {r: 4.5, fill: C("--blue"), stroke: C("--panel"), "stroke-width": 2, visibility: "hidden"}, svg);
+    const mv = (e) => { const q = e.touches ? e.touches[0] : e, r = svg.getBoundingClientRect(), sx = (q.clientX - r.left) / r.width * W; let b = pts[0], bd = 1e9;
+      pts.forEach((p) => { const dd = Math.abs(X(p.x) - sx); if (dd < bd) { bd = dd; b = p; } });
+      cr.setAttribute("x1", X(b.x)); cr.setAttribute("x2", X(b.x)); cr.setAttribute("visibility", "visible"); rg.setAttribute("cx", X(b.x)); rg.setAttribute("cy", Y(b.v)); rg.setAttribute("visibility", "visible");
+      tip.innerHTML = o.tip(b); tip.style.display = "block"; const br = box.getBoundingClientRect();
+      tip.style.left = Math.max(4, Math.min(q.clientX - br.left + 12, br.width - tip.offsetWidth - 4)) + "px"; tip.style.top = Math.max(q.clientY - br.top - 64, 4) + "px"; };
+    svg.addEventListener("mousemove", mv); svg.addEventListener("touchmove", mv, {passive: true}); svg.addEventListener("touchstart", mv, {passive: true});
+    svg.addEventListener("mouseleave", () => { tip.style.display = "none"; cr.setAttribute("visibility", "hidden"); rg.setAttribute("visibility", "hidden"); });
+  }
+  let acc = 0, i = 0; const all = [], bands = [];
+  keys.forEach((k) => { const s = i; days[k].forEach((p) => { if (p[2] === null) return; acc += p[2]; all.push({x: i++, v: acc, m: p[1], t: p[4], s: p[5], o: p[6], pnl: p[2], day: dname(k)}); }); bands.push([s, i]); });
+  $("vd-all").innerHTML = "";
+  if (all.length > 1) {
+    let ah = all[0], al = all[0]; all.forEach((p) => { if (p.v > ah.v) ah = p; if (p.v < al.v) al = p; });
+    const amin = Math.min(0, al.v) - 120, amax = ah.v + 160;
+    chart($("vd-all"), all, {W: 1060, H: 320, x: (v) => v / (all.length - 1), ymin: amin, ymax: amax, yt: ticks(amin, amax, 6), bands, area: 1, hi: ah, lo: al, when: (p) => p.day,
+      xt: keys.map((k, j) => [(bands[j][0] + bands[j][1]) / 2, dname(k).slice(4)]).filter((_, j) => days[keys[j]].length >= 10), aria: "Ganancia acumulada", tip: (p) => tipHtml(p, p.day + " ")});
+  }
+  const cell = {}; keys.forEach((k) => { cell[k] = FR.map(() => ({n: 0, pnl: 0, e: 0})); days[k].forEach((p) => { const f = FR.findIndex((r) => p[1] / 60 >= r[0] && p[1] / 60 < r[1]); const c = cell[k][f]; c.n++; c.pnl += p[2] || 0; c.e += p[3]; }); });
+  const mx = Math.max(1, ...keys.flatMap((k) => cell[k].map((c) => Math.abs(c.pnl))));
+  const col = (v) => { const a = Math.min(1, Math.abs(v) / mx); return `background:rgba(${v >= 0 ? "62,207,142" : "240,97,109"},${(.14 + .55 * a).toFixed(2)})`; };
+  let h = `<tr><th class="l">Día</th>${FR.map((r) => `<th>${String(r[0]).padStart(2, "0")}–${String(r[1]).padStart(2, "0")} h</th>`).join("")}<th>Total del día</th></tr>`;
+  keys.slice().reverse().forEach((k) => { const j = keys.indexOf(k); h += `<tr><th class="l">${dname(k)}</th>` + cell[k].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${dpnl[j] >= 0 ? "pos" : "neg"}">${fm(dpnl[j])}</td></tr>`; });
+  const ft = FR.map((_, f) => keys.reduce((a, k) => ({n: a.n + cell[k][f].n, pnl: a.pnl + cell[k][f].pnl, e: a.e + cell[k][f].e}), {n: 0, pnl: 0, e: 0}));
+  h += `<tr><th class="l">Total</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${tot >= 0 ? "pos" : "neg"}">${fm(tot)}</td></tr>`;
+  $("vd-heat").innerHTML = h;
+  const bm = Math.max(1, ...ft.map((c) => Math.max(Math.abs(c.pnl), c.e))) * 1.08;
+  $("vd-bars").innerHTML = ft.map((c, f) => `<div class="vd-bar"><b>${String(FR[f][0]).padStart(2, "0")}–${String(FR[f][1]).padStart(2, "0")} h</b><div class="tr"><div class="f" style="left:0;width:${Math.abs(c.pnl) / bm * 100}%;background:${c.pnl >= 0 ? "var(--green)" : "var(--red)"}"></div><div class="m" style="left:${Math.max(0, c.e) / bm * 100}%"></div></div><div class="v"><b class="${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}</b> <span class="muted">· esperado ${fm(c.e)} · ${(c.n / keys.length).toFixed(1)}/día</span></div></div>`).join("");
+  $("vd-open-n").textContent = `(${open.length})`;
+  $("vd-open").innerHTML = open.length ? `<tr><th>Hora</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th></tr>` + open.slice().reverse().map((p) => `<tr><td class="small nowrap">${dname(p[0]).slice(4)} ${hm(p[1])}</td><td class="small">${esc(p[4])}</td><td class="small">${esc(p[5])}</td><td class="num"><b>${Number(p[6]).toFixed(2)}</b></td></tr>`).join("") : `<tr><td class="empty">Ninguna abierta.</td></tr>`;
+  let gmin = 0, gmax = 0;
+  const dd = keys.map((k) => { let a = 0; const pts = [{x: 0, v: 0, m: 0, t: "inicio del día", s: "", o: "", pnl: 0, st: 1}]; days[k].forEach((p) => { if (p[2] === null) return; a += p[2]; pts.push({x: p[1], v: a, m: p[1], t: p[4], s: p[5], o: p[6], pnl: p[2]}); });
+    let hi = pts[0], lo = pts[0]; pts.forEach((p) => { if (p.v > hi.v) hi = p; if (p.v < lo.v) lo = p; }); gmin = Math.min(gmin, lo.v); gmax = Math.max(gmax, hi.v); return {k, pts, hi, lo, fin: a, nopen: days[k].length - (pts.length - 1)}; });
+  gmin -= 70; gmax += 90; const g = $("vd-days"); g.innerHTML = "";
+  dd.slice().reverse().forEach((d) => { const c = document.createElement("div"); c.className = "vd-card"; const w = d.pts.filter((p) => p.pnl > 0).length, l = d.pts.filter((p) => p.pnl < 0).length;
+    c.innerHTML = `<div class="vd-dh"><b>${dname(d.k)}</b><b class="${d.fin >= 0 ? "pos" : "neg"}" style="font-size:18px">${fm(d.fin)}</b></div><p class="vd-dm">${d.pts.length - 1} cerradas · ${w} ganadas · ${l} perdidas${d.nopen ? ` · ${d.nopen} abiertas` : ""}</p>`; g.appendChild(c);
+    chart(c, d.pts, {W: 520, H: 210, x: (v) => v / 1440, ymin: gmin, ymax: gmax, yt: ticks(gmin, gmax, 5), dots: 1, sw: 2, xt: [[0, "0h"], [360, "6h"], [720, "12h"], [1080, "18h"], [1440, "24h"]],
+      hi: d.hi.v > 0 ? d.hi : null, lo: d.lo.v < 0 ? d.lo : null, when: (p) => hm(p.m), aria: "Ganancia del " + dname(d.k), tip: (p) => p.st ? "inicio del día · $0" : tipHtml(p, "")}); });
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1446,6 +1574,8 @@ function renderTab(tab) {
   } else if (tab === "rp") {
     renderRealPaper(state.realpaper);
     renderManual(state.manual);
+  } else if (tab === "vd") {
+    renderValorDash(state.valordash);
   } else if (tab === "az") {
     renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
   } else if (tab === "lp") {
