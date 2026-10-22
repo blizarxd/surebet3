@@ -361,3 +361,15 @@ def test_unplaced_signal_is_reported(tmp_path):
         return base(r)
     run(ex, h)
     assert len(sent) == 1 and "NO APOSTADA" in sent[0] and "más de 3 h" in sent[0]
+
+
+def test_one_bet_per_game_across_markets(tmp_path):
+    from surebet.models import Quote
+    ex = Executor(tmp_path / "p.db", Buyer(), None, mode="dry", azuro_stake=5, max_per_op=100)
+    q = Quote(source="azuro", feed="azuro", covers=frozenset({"H"}), odds=2.30, label="Arsenal", market="1x2", ref="777|29")
+    for mk in ("1x2", "ou_2.5"):                        # dos mercados del mismo partido
+        v = SimpleNamespace(event=opp().event, market=mk, poly_tokens={}, poly_conditions={})
+        ex.queue_value(v, q, 13.0, 2.30, 0.46)
+    run(ex, handler())
+    rows = ex.conn.execute("SELECT status, reason FROM live_exec ORDER BY id").fetchall()
+    assert rows[0][0] == "dry" and rows[1][0] == "rejected" and "ya tiene una jugada" in rows[1][1]

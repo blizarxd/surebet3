@@ -277,8 +277,10 @@ class Executor:
             return "empieza en menos de 10 min"
         if kind == "value" and start_ts - now > AZURO_MAX_HOURS * 3600:
             return f"empieza en más de {AZURO_MAX_HOURS:g} h (Azuro solo ≤ {AZURO_MAX_HOURS:g} h)"
-        if self.conn.execute("SELECT 1 FROM live_exec WHERE event_key=? AND mode=? AND status NOT IN ('rejected','error')",
-                             (event_key, self.mode)).fetchone():
+        base = event_key.split("#")[0]       # una sola jugada por PARTIDO (varios mercados del mismo partido se correlacionan)
+        if self.conn.execute("SELECT 1 FROM live_exec WHERE (event_key=? OR event_key LIKE ? ESCAPE '!') AND mode=? "
+                             "AND status NOT IN ('rejected','error')",
+                             (base, base.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "#%", self.mode)).fetchone():
             return "ese partido ya tiene una jugada"
         if self.gate:
             why = self.gate.blocks("auto" if kind == "arb" else "valor", sources)
