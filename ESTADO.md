@@ -104,7 +104,9 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   (−$10 a $5), CLV mediano +2 %.
 - **Pestaña 📊 Dashboard valor manual (21/10)** (`surebet/valordash.py` + sección en `static/index.html`): el valor oro de 1xBet a $30
   fijos, en vivo (el panel refresca cada 15 s y se redibuja solo al cerrarse un partido): KPIs, curva acumulada, mapa día × franja de 4 h
-  (hora Colombia), barras real vs esperado por franja, abiertas ahora y un gráfico por día. Versión para compartir sin panel:
+  (hora Colombia), barras real vs esperado por franja, 🎯 «para apostar ahora» con botón a 1xBet, riesgo (caída máx., rachas, banca),
+  6 desgloses (deporte, mercado, cuota, EV, horas antes, día), lista de todas las apuestas (20 por página, orden, CSV), filtros
+  (monto $5–100, franja, deporte, mercado, resultado, equipo, «solo las que puse ✅») y un gráfico por día. Versión para compartir sin panel:
   `reports/dashboard_valor_oro.html` (estática, se regenera a mano).
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
