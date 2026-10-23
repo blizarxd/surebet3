@@ -104,6 +104,9 @@
   a.vd-btn { display: inline-block; background: var(--green); color: #07140d; font-weight: 700; border-radius: 8px; padding: 6px 12px; text-decoration: none; white-space: nowrap; font-size: 13px; }
   a.vd-btn.ghost { background: var(--panel2); color: var(--blue); border: 1px solid var(--line); font-weight: 500; padding: 4px 10px; }
   a.vd-btn:hover { filter: brightness(1.12); }
+  .vd-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .vd-chips button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 13px; }
+  .vd-chips button.on { background: var(--blue); border-color: var(--blue); color: #06111f; font-weight: 700; }
   .vd-grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); gap: 12px; }
   #vd-alert { position: fixed; inset: 0; z-index: 99; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; overflow: hidden; cursor: pointer; }
   #vd-alert .disco { position: absolute; inset: -60%; background: conic-gradient(from 0deg, #ff2d95, #ffd400, #22e3ff, #7c5cff, #27e08a, #ff2d95); opacity: .55; animation: vdSpin 6s linear infinite; }
@@ -386,7 +389,16 @@
   <section class="vd-kpis" id="vd-kpis" style="margin-top:12px"></section>
   <section class="vd-kpis" id="vd-risk" style="margin-top:10px"></section>
   <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(azul = real · naranja punteada = esperado sin suerte · franjas = días)</span></h2><div id="vd-all"></div></section>
-  <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h)</span></h2><div class="scroll"><table class="vd-heat" id="vd-heat"></table></div></section>
+  <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h · hora Colombia)</span></h2>
+    <div class="vd-chips" id="vd-hf-sp"><span class="muted small">Deporte:</span>
+      <button data-sp="all" class="on">Todos</button><button data-sp="soccer">⚽ Fútbol</button><button data-sp="basketball">🏀 Básquet</button><button data-sp="tennis">🎾 Tenis</button><button data-sp="esports">🎮 Esports</button></div>
+    <div class="vd-filters" style="padding:8px 0 6px">
+      <label>Mercado<select id="vd-hf-mk"><option value="all">Todos</option><option value="gan">Ganador / 1X2</option><option value="mm">Más/Menos (partido)</option><option value="mm1">Más/Menos 1er tiempo</option><option value="x1">1X2 1er tiempo</option></select></label>
+      <label>Cuota<select id="vd-hf-od"><option value="all">Todas</option><option value="<2">menor a 2</option><option value="2-2.5">2 a 2,5</option><option value="2.5-3">2,5 a 3</option><option value="3+">3 o más</option><option value="2+">2 o más</option></select></label>
+      <label>Horas antes del juego<select id="vd-hf-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
+      <button id="vd-hf-reset" type="button">Quitar filtros del cuadro</button></div>
+    <div class="small" id="vd-heat-sum" style="margin-bottom:8px"></div>
+    <div class="scroll"><table class="vd-heat" id="vd-heat"></table></div></section>
   <section class="card" style="margin-top:12px"><h2>¿Qué franjas rinden mejor? <span class="count">(barra = real · marca = esperado sin suerte)</span></h2><div class="vd-bars" id="vd-bars"></div></section>
   <section class="card" style="margin-top:12px"><h2>⏱ Cuánto duran las cuotas <span class="count">(desde que el escáner ve la señal hasta que deja de ser valor; con los filtros activos)</span></h2><div class="scroll"><table id="vd-dur"></table></div></section>
   <section class="vd-grid2" id="vd-groups" style="margin-top:12px"></section>
@@ -1448,6 +1460,16 @@ function renderManual(x) {
 }
 
 let vdSig = "", vdData = null, vdPage = 1, vdBound = false;
+const vdH = {sp: "all", mk: "all", od: "all", hb: "all"};
+function vdMkKey(mk) { mk = mk || ""; return mk.startsWith("Más/Menos 1T") ? "mm1" : mk.startsWith("Más/Menos") ? "mm" : mk === "1X2 1er tiempo" ? "x1" : "gan"; }
+function vdHeatOk(o) {                      // filtros propios del cuadro, encima de los de arriba
+  const f = vdH;
+  if (f.sp !== "all" && !(f.sp === "esports" ? o.sp.startsWith("esports") : o.sp === f.sp)) return false;
+  if (f.mk !== "all" && vdMkKey(o.mk) !== f.mk) return false;
+  if (f.od !== "all") { const x = o.o; if (f.od === "<2" ? !(x < 2) : f.od === "3+" ? !(x >= 3) : f.od === "2+" ? !(x >= 2) : !(x >= +f.od.split("-")[0] && x < +f.od.split("-")[1])) return false; }
+  if (f.hb !== "all") { if (!o.st) return false; const h = (o.st - o.ts) / 3600, [a, b] = f.hb.split("-").map(Number); if (!(h >= a && h < b)) return false; }
+  return true;
+}
 const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", omin: null, omax: null, hb: "all"};
 const VD_FR = [[0,4],[4,8],[8,12],[12,16],[16,20],[20,24]], VD_DN = ["dom","lun","mar","mié","jue","vie","sáb"];
 const vdFm = (v, s = 1) => (v < 0 ? "−" : s ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("es-CO");
@@ -1479,6 +1501,9 @@ function vdFillFilters(all) {
   vdF.sp = $("vd-f-sp").value; vdF.mk = $("vd-f-mk").value;
   if (vdBound) return;
   vdBound = true;
+  $("vd-hf-sp").addEventListener("click", (e) => { const b = e.target.closest("button[data-sp]"); if (!b) return; vdH.sp = b.dataset.sp; $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); vdDraw(); });
+  [["mk", "vd-hf-mk"], ["od", "vd-hf-od"], ["hb", "vd-hf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdH[k] = e.target.value; vdDraw(); }));
+  $("vd-hf-reset").addEventListener("click", () => { Object.assign(vdH, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-hf-mk", "vd-hf-od", "vd-hf-hb"].forEach((id) => $(id).value = "all"); $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdDraw(); });
   const bind = (id, key, num) => $(id).addEventListener("input", (e) => { vdF[key] = e.target.type === "checkbox" ? e.target.checked : (num ? +e.target.value : e.target.value); vdPage = 1; vdDraw(); });
   bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb");
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
@@ -1548,7 +1573,7 @@ function renderValorDash(x) {
 
 function vdDraw() {
   const x = vdData, STK = vdF.stake, k = STK / 30, F = vdFilters(x.picks);
-  const P = F.map((p) => [p.d, p.m, p.p == null ? null : p.p * k, p.e * k, p.t, p.l, p.o, p.s]);
+  const P = F.map((p) => [p.d, p.m, p.p == null ? null : p.p * k, p.e * k, p.t, p.l, p.o, p.s, p]);
   $("vd-f-count").textContent = `${F.length} de ${x.picks.length} apuestas`;
   if (!P.length) { $("vd-kpis").innerHTML = kpi("Sin apuestas", "-", "con esos filtros"); ["vd-all", "vd-heat", "vd-bars", "vd-days", "vd-groups", "vd-risk"].forEach((i) => $(i).innerHTML = ""); vdListDraw(); return; }
   const fm = vdFm, hm = vdHm, dname = vdDn, FR = VD_FR;
@@ -1610,13 +1635,16 @@ function vdDraw() {
     chart($("vd-all"), all, {W: 1060, H: 320, x: (v) => v / (all.length - 1), ymin: amin, ymax: amax, yt: ticks(amin, amax, 6), bands, area: 1, hi: ah, lo: al, when: (p) => p.day, exp: eall,
       xt: keys.map((kk, j) => [(bands[j][0] + bands[j][1]) / 2, dname(kk).slice(4)]).filter((_, j) => days[keys[j]].length >= 10 || keys.length < 8), aria: "Ganancia acumulada", tip: (p) => tipHtml(p, p.day + " ")});
   }
-  const cell = {}; keys.forEach((kk) => { cell[kk] = FR.map(() => ({n: 0, pnl: 0, e: 0})); days[kk].forEach((p) => { const f = vdFr(p[1]); const c = cell[kk][f]; c.n++; c.pnl += p[2] || 0; c.e += p[3]; }); });
+  const cell = {}; keys.forEach((kk) => { cell[kk] = FR.map(() => ({n: 0, pnl: 0, e: 0})); days[kk].forEach((p) => { if (!vdHeatOk(p[8])) return; const f = vdFr(p[1]); const c = cell[kk][f]; c.n++; c.pnl += p[2] || 0; c.e += p[3]; }); });
+  const cd = {}; keys.forEach((kk) => cd[kk] = cell[kk].reduce((s, c) => s + c.pnl, 0));
+  const FH = F.filter(vdHeatOk), HC = FH.filter((p) => p.p != null), ctot = HC.reduce((s, p) => s + p.p * k, 0), cexp = FH.reduce((s, p) => s + p.e * k, 0), cw = HC.filter((p) => p.p > 0).length, cl = HC.filter((p) => p.p < 0).length;
+  $("vd-heat-sum").innerHTML = FH.length ? `Con estos filtros: <b>${FH.length}</b> apuestas (${HC.length} cerradas) · <b class="${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</b> de ganancia · esperado sin suerte <b>${fm(cexp)}</b> · acierto <b>${cw + cl ? Math.round(100 * cw / (cw + cl)) : 0} %</b> (${cw} ganadas, ${cl} perdidas)` : `<span class="muted">Ninguna apuesta con esos filtros.</span>`;
   const mx = Math.max(1, ...keys.flatMap((kk) => cell[kk].map((c) => Math.abs(c.pnl))));
   const col = (v) => { const a = Math.min(1, Math.abs(v) / mx); return `background:rgba(${v >= 0 ? "62,207,142" : "240,97,109"},${(.14 + .55 * a).toFixed(2)})`; };
   let h = `<tr><th class="l">Día</th>${FR.map((r) => `<th>${String(r[0]).padStart(2, "0")}–${String(r[1]).padStart(2, "0")} h</th>`).join("")}<th>Total del día</th></tr>`;
-  keys.slice().reverse().forEach((kk) => { const j = keys.indexOf(kk); h += `<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${dpnl[j] >= 0 ? "pos" : "neg"}">${fm(dpnl[j])}</td></tr>`; });
+  keys.slice().reverse().forEach((kk) => { const j = keys.indexOf(kk); h += `<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
   const ft = FR.map((_, f) => keys.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl, e: a.e + cell[kk][f].e}), {n: 0, pnl: 0, e: 0}));
-  h += `<tr><th class="l">Total</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${tot >= 0 ? "pos" : "neg"}">${fm(tot)}</td></tr>`;
+  h += `<tr><th class="l">Total</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
   $("vd-heat").innerHTML = h;
   const bm = Math.max(1, ...ft.map((c) => Math.max(Math.abs(c.pnl), c.e))) * 1.08;
   $("vd-bars").innerHTML = ft.map((c, f) => `<div class="vd-bar"><b>${String(FR[f][0]).padStart(2, "0")}–${String(FR[f][1]).padStart(2, "0")} h</b><div class="tr"><div class="f" style="left:0;width:${Math.abs(c.pnl) / bm * 100}%;background:${c.pnl >= 0 ? "var(--green)" : "var(--red)"}"></div><div class="m" style="left:${Math.max(0, c.e) / bm * 100}%"></div></div><div class="v"><b class="${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}</b> <span class="muted">· esperado ${fm(c.e)} · ${(c.n / keys.length).toFixed(1)}/día</span></div></div>`).join("");
