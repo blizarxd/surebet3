@@ -123,6 +123,9 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   sonido y botón «🚀 APOSTAR EN 1xBET». Botones para encender/apagar alerta y sonido y «▶ Probar alerta» (se guarda en localStorage).
   Filtros nuevos: cuota mín./máx. y horas antes del partido. Análisis por cuota (12 días): el esperado es ~3 % por apuesta en todos los
   tramos; lo que ganó de más en cuota ≥ 2 (+$1.842 real vs +$355 esperado) es suerte; no filtrar por cuota todavía.
+- **1xBet intermitente (23/10):** el 23/10 1xBet empezó a rechazar consultas por ratos (semáforo 🔴 en APIs, se pausan avisos que lo usan).
+  Medida (no es esquivar el bloqueo, es pedir menos): `onexbet.REQUEST_GAP_S` 0,3 → 0,6 s y `ONEXBET_LIVE_S=60` (antes 10 s) en el .env
+  (respaldo /root/surebet3.env.bak6). Vigilar si bajan los cortes; si siguen, bajar más (prematch 120 s, primer tiempo).
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.
