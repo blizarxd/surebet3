@@ -336,7 +336,7 @@ async def main() -> None:
                          (s.telegram_token, s.telegram_chat_id), s.auto_azuro_stake, s.auto_value_net, s.auto_arb)
                 if paper and s.auto_exec != "off" else None)
     # Valor 1xBet a mano: aviso limpio con botones de cada pick de la cuenta de valor (solo en tu horario)
-    manual = ManualValor(s.db_path, s.manual_value_stake, s.manual_value_hours) if paper else None
+    manual = ManualValor(s.db_path, s.manual_value_stake, s.manual_value_hours, tuple(s.manual_houses)) if paper else None
     buyer.manual = manual
     if executor and sxshadow:
         sxshadow.on_fill = executor.queue_value

@@ -126,6 +126,12 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
 - **1xBet intermitente (23/10):** el 23/10 1xBet empezó a rechazar consultas por ratos (semáforo 🔴 en APIs, se pausan avisos que lo usan).
   Medida (no es esquivar el bloqueo, es pedir menos): `onexbet.REQUEST_GAP_S` 0,3 → 0,6 s y `ONEXBET_LIVE_S=60` (antes 10 s) en el .env
   (respaldo /root/surebet3.env.bak6). Vigilar si bajan los cortes; si siguen, bajar más (prematch 120 s, primer tiempo).
+- **Casas para rotar a mano (23/10):** el usuario apuesta desde Venezuela y rota 1xBet, Melbet y 888starz (`MANUAL_HOUSES`) para evitar
+  límites. `/casa [nombre]` en Telegram elige la casa de hoy; el aviso la muestra y dice «en Melbet tómala si está a X o más (mira su
+  cuota)»; los ✅/❌ se guardan por casa (`manual_value.house`); el dashboard 📊 tiene filtro «Casa donde la puse» y la tabla «🏦 Por
+  casa» (puestas, no estaba, % disponible, tu ganancia vs papel, tu cuota vs aviso). Sin botón en la web que cambie la casa: el panel es
+  público (solo lectura). No tenemos cuotas de Melbet/888starz: la cuota mínima del aviso es el criterio. Primeros datos: 11 puestas en
+  1xBet, 1 «no estaba» (92 % disponible), tu cuota −0,3 % vs el aviso.
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

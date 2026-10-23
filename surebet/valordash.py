@@ -6,7 +6,7 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   d día · m minuto del día (Colombia) · ts hora de la señal · st inicio del partido · t partido · l selección · o cuota · ev EV %
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
-  · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
+  · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
   como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
 """
 
@@ -31,9 +31,12 @@ def summary(conn) -> dict | None:
     except sqlite3.OperationalError:
         return None
     try:
-        mv = {k: (s, po, mn) for k, s, po, mn in conn.execute("SELECT key, status, placed_odds, min_odds FROM manual_value")}
-    except sqlite3.OperationalError:
-        mv = {}
+        mv = {k: (s, po, mn, h) for k, s, po, mn, h in conn.execute("SELECT key, status, placed_odds, min_odds, house FROM manual_value")}
+    except sqlite3.OperationalError:       # base anterior a la columna «house»
+        try:
+            mv = {k: (s, po, mn, None) for k, s, po, mn in conn.execute("SELECT key, status, placed_odds, min_odds FROM manual_value")}
+        except sqlite3.OperationalError:
+            mv = {}
     raw = []
     for key, ek, mk, mname, legs, status, ts, start, title, sport, ev in ops:
         leg = (json.loads(legs) or [{}])[0]
@@ -49,13 +52,17 @@ def summary(conn) -> dict | None:
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
         exp = 0.0 if c is None else STAKE * (c if abs(c) <= RARE_CLV else med) / 100
-        y, po, mn = mv.get(key, (None, None, None))
+        y, po, mn, hs = mv.get(key, (None, None, None, None))
         picks.append({"d": t.strftime("%Y-%m-%d"), "m": t.hour * 60 + t.minute, "ts": round(ts), "st": round(start) if start else None,
                       "t": (title or "")[:34], "l": (leg.get("label") or "")[:22], "o": round(odds, 3), "ev": round(ev or 0, 2),
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
-                      "y": y, "po": po, "mn": mn,
+                      "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None})
     if not picks:
         return None
-    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"]}
+    try:
+        active = (conn.execute("SELECT v FROM manual_value_meta WHERE k='house'").fetchone() or [None])[0]
+    except sqlite3.OperationalError:
+        active = None
+    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet"}

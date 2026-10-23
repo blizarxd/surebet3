@@ -215,6 +215,8 @@ class PolyBuyer:
                 await self._say(client, self.semaforo.block(" ".join(words[1:])))
             elif cmd in ("/estoy", "/salgo") and self.manual:
                 await self._say(client, self.manual.set_active(cmd == "/estoy"))
+            elif cmd == "/casa" and self.manual:
+                await self._say(client, self.manual.set_house(" ".join(words[1:])))
             elif cmd == "/hoy" and self.manual:
                 await self._say(client, self.manual.text_today())
             elif cmd == "/pausa":

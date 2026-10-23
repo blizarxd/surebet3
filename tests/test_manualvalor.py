@@ -27,9 +27,9 @@ def test_clean_alert_with_buttons_only_for_1xbet(tmp_path):
     msgs = mv.step()
     assert len(msgs) == 1
     text, buttons = msgs[0]
-    assert "VALOR 1xBet" in text and "Apuesta: $30" in text and "tómala si está a 2,35 o más" in text
+    assert "VALOR +" in text and "🏦 1xBet" in text and "Apuesta: $30" in text and "tómala si está a 2,35 o más" in text
     assert buttons[0] == ("Abrir en 1xBet", "https://1xbet-col.com/x")
-    assert text.endswith("🔗 https://1xbet-col.com/x")
+    assert text.endswith("https://1xbet-col.com/x")
     assert [b[1].split(":")[-1] for b in buttons[1:4]] == ["2.40", "2.38", "2.35"] and buttons[-1][1].startswith("cb:mv:no:")
     assert mv.step() == []                                              # una sola vez por pick
 
@@ -66,3 +66,21 @@ def test_buttons_and_result_against_paper(tmp_path):
 def test_odds_levels():
     assert odds_levels(2.40, 2.35) == [2.40, 2.38, 2.35]
     assert odds_levels(2.40, 2.40) == [2.40]
+
+
+def test_house_of_the_day_and_per_house_buttons(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    assert "1xBet" in mv.set_house() and "Casas" in mv.set_house("pepe")
+    assert "Melbet" in mv.set_house("MELBET") and mv.house() == "Melbet"
+    add(mv, "valor#a")
+    add(mv, "valor#b")
+    (t1, b1), (_, b2) = mv.step()
+    assert "🏦 Melbet" in t1 and "en Melbet tómala si está a 2,35 o más" in t1 and b1[0][0] == "Abrir partido en 1xBet"
+    assert "en Melbet" in mv.click(b1[1][1][3:])
+    mv.set_house("888starz")
+    assert "888starz" in mv.click(b2[-1][1][3:])
+    mv.conn.execute("UPDATE paper_ops SET status='won' WHERE key='valor#a'")
+    mv.conn.commit()
+    s = summary(mv.conn)
+    hs = {h["house"]: h for h in s["by_house"]}
+    assert hs["Melbet"]["placed"] == 1 and hs["Melbet"]["pnl"] > 0 and hs["888starz"]["missed"] == 1

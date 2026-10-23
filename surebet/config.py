@@ -151,6 +151,7 @@ class Settings:
     # Valor 1xBet a mano con aviso limpio y botones (surebet/manualvalor.py): monto fijo y horario (hora Colombia)
     manual_value_stake: float = field(default_factory=lambda: _f("MANUAL_VALUE_STAKE", 30))
     manual_value_hours: str = field(default_factory=lambda: os.getenv("MANUAL_VALUE_HOURS", "8-20"))
+    manual_houses: list[str] = field(default_factory=lambda: _list("MANUAL_HOUSES", "1xBet,Melbet,888starz"))
     # AUTO_VALUE_NET=0: valor en Azuro sin red · AUTO_ARB=0: sin surebets Azuro + Polymarket (con los dos en 0, solo Azuro)
     auto_value_net: bool = field(default_factory=lambda: os.getenv("AUTO_VALUE_NET", "1") == "1")
     auto_arb: bool = field(default_factory=lambda: os.getenv("AUTO_ARB", "1") == "1")

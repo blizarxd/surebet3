@@ -26,6 +26,7 @@ from .safety import OBSERVE_SPORTS
 COL = timezone(timedelta(hours=-5))
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SOURCES = ("1xbet", "onexbet")
+HOUSES = ("1xBet", "Melbet", "888starz")   # casas donde apuestas a mano (MANUAL_HOUSES en el .env); /casa elige la de hoy
 MIN_EV = 1.0                 # cuota mínima aceptable: EV ≥ +1 % contra el precio justo de Polymarket
 LOOKBACK_S = 900             # picks del papel de los últimos 15 min (no avisar viejos tras reiniciar)
 SPORT_ICON = {"soccer": "⚽", "basketball": "🏀", "tennis": "🎾", "hockey": "🏒", "baseball": "⚾",
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS manual_value (
     fair_odds REAL, ev_pct REAL, stake REAL, url TEXT,
     status TEXT,                -- avisada | puesta | no estaba | fuera de horario | no estabas
     placed_odds REAL,           -- la cuota a la que dijiste que la pusiste
-    clicked_ts REAL
+    clicked_ts REAL,
+    house TEXT                  -- la casa donde la pusiste (o donde no estaba), la que estaba activa con /casa
 );
 CREATE TABLE IF NOT EXISTS manual_value_meta (k TEXT PRIMARY KEY, v TEXT);
 """
@@ -75,12 +77,31 @@ def odds_levels(odds: float, min_odds: float) -> list[float]:
 
 
 class ManualValor:
-    def __init__(self, db_path: Path, stake: float = 30.0, hours: str = "8-20") -> None:
+    def __init__(self, db_path: Path, stake: float = 30.0, hours: str = "8-20", houses: tuple[str, ...] = HOUSES) -> None:
         self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
         self.conn.executescript(SCHEMA)
+        if "house" not in {r[1] for r in self.conn.execute("PRAGMA table_info(manual_value)")}:
+            self.conn.execute("ALTER TABLE manual_value ADD COLUMN house TEXT")
         self.conn.commit()
         self.stake = stake
         self.start_h, self.end_h = _hours(hours)
+        self.houses = tuple(houses) or HOUSES
+
+    # ------------------------------------------------------------------ casa de hoy (/casa)
+    def house(self) -> str:
+        r = self.conn.execute("SELECT v FROM manual_value_meta WHERE k='house'").fetchone()
+        return r[0] if r and r[0] in self.houses else self.houses[0]
+
+    def set_house(self, name: str = "") -> str:
+        name = name.strip().lower()
+        if not name:
+            return f"🏦 Casa de hoy: {self.house()}\nCambiar: " + " · ".join(f"/casa {h.lower()}" for h in self.houses)
+        pick = next((h for h in self.houses if h.lower() == name), None)
+        if not pick:
+            return f"No conozco «{name}». Casas: " + ", ".join(self.houses)
+        self.conn.execute("INSERT OR REPLACE INTO manual_value_meta VALUES ('house', ?)", (pick,))
+        self.conn.commit()
+        return f"🏦 Casa de hoy: {pick}. Tus ✅ y ❌ de ahora en adelante se anotan en {pick}."
 
     # ------------------------------------------------------------------ estado (/estoy, /salgo)
     def active(self) -> bool:
@@ -133,19 +154,21 @@ class ManualValor:
         start, title, sport, market, label, odds, min_odds, ev, stake, url = self.conn.execute(
             "SELECT start_ts, title, sport, market, label, odds, min_odds, ev_pct, stake, url FROM manual_value WHERE id=?",
             (mid,)).fetchone()
+        house = self.house()
         when = ""
         if start:
             mins = max(0, int((start - now) / 60))
             when = f" · empieza {datetime.fromtimestamp(start, COL):%H:%M} (en {mins // 60} h {mins % 60:02d} min)" \
                 if mins >= 60 else f" · empieza {datetime.fromtimestamp(start, COL):%H:%M} (en {mins} min)"
         text = "\n".join([
-            f"💰 VALOR 1xBet {ev:+.1f} % · #{mid}",
+            f"💰 VALOR {ev:+.1f} % · #{mid} · 🏦 {house}",
             f"{SPORT_ICON.get(sport, '🎯')} {title}{when}",
             f"👉 {market}: {label}",
-            f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más",
-            f"Apuesta: ${stake:g}",
-        ] + ([f"🔗 {url}"] if url.startswith("http") else []))
-        buttons = [("Abrir en 1xBet", url)] if url.startswith("http") else []
+            (f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más" if house == "1xBet" else
+             f"Cuota de 1xBet {_fmt_odds(odds)} · en {house} tómala si está a {_fmt_odds(min_odds)} o más (mira su cuota)"),
+            f"Apuesta: ${stake:g} · cambiar de casa: /casa",
+        ] + ([f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"] if url.startswith("http") else []))
+        buttons = [("Abrir partido en 1xBet" if house != "1xBet" else "Abrir en 1xBet", url)] if url.startswith("http") else []
         buttons += [(f"✅ La puse a {_fmt_odds(x)}", f"cb:mv:ok:{mid}:{x:.2f}") for x in odds_levels(odds, min_odds)]
         buttons.append(("❌ No estaba / bajó de la mínima", f"cb:mv:no:{mid}"))
         return text, buttons
@@ -167,15 +190,15 @@ class ManualValor:
                 odds = float(parts[3])
             except (IndexError, ValueError):
                 return "Botón desconocido."
-            self.conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=? WHERE id=?",
-                              (odds, time.time(), mid))
+            self.conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
+                              (odds, time.time(), self.house(), mid))
             self.conn.commit()
             again = " (corregida)" if status == "puesta" else ""
-            return f"✅ Anotada{again}: {label} a {_fmt_odds(odds)} · ${stake:g} — {title}. {self.today_line()}"
-        self.conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=? WHERE id=?",
-                          (time.time(), mid))
+            return f"✅ Anotada{again} en {self.house()}: {label} a {_fmt_odds(odds)} · ${stake:g} — {title}. {self.today_line()}"
+        self.conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=? WHERE id=?",
+                          (time.time(), self.house(), mid))
         self.conn.commit()
-        return f"❌ Anotado: {label} no estaba a la cuota mínima — {title}."
+        return f"❌ Anotado: {label} no estaba a la cuota mínima en {self.house()} — {title}."
 
     def today_line(self) -> str:
         t = today_stats(self.conn)
@@ -183,7 +206,7 @@ class ManualValor:
 
     def text_today(self) -> str:
         t = today_stats(self.conn)
-        return (f"📒 Valor 1xBet a mano · hoy\n"
+        return (f"📒 Valor a mano · hoy · casa activa: {self.house()}\n"
                 f"Avisadas {t['alerted']} · puestas {t['placed']} · no estaban {t['missed']} · sin tocar {t['untouched']}\n"
                 f"Fuera de horario / no estabas: {t['away']}\n"
                 f"Tu ganancia (cerradas): ${t['pnl']:+,.2f} · el papel en las mismas: ${t['paper_pnl']:+,.2f}\n"
@@ -193,11 +216,11 @@ class ManualValor:
 # ---------------------------------------------------------------------- resultados y panel
 def _rows(conn) -> list[dict]:
     cols = ("id", "key", "created_ts", "start_ts", "title", "sport", "market", "label", "odds", "min_odds", "ev_pct",
-            "stake", "status", "placed_odds", "clicked_ts", "result")
+            "stake", "status", "placed_odds", "clicked_ts", "result", "house")
     try:
         rs = conn.execute(
             "SELECT m.id, m.key, m.created_ts, m.start_ts, m.title, m.sport, m.market, m.label, m.odds, m.min_odds, "
-            "m.ev_pct, m.stake, m.status, m.placed_odds, m.clicked_ts, p.status FROM manual_value m "
+            "m.ev_pct, m.stake, m.status, m.placed_odds, m.clicked_ts, p.status, m.house FROM manual_value m "
             "LEFT JOIN paper_ops p ON p.key = m.key ORDER BY m.created_ts").fetchall()
     except sqlite3.OperationalError:
         return []
@@ -255,7 +278,12 @@ def summary(conn) -> dict | None:
         if r["pnl"] is not None:
             run += r["pnl"]
             curve.append([r["created_ts"] * 1000, round(run, 2)])
+    by_house = {}
+    for r in rows:
+        if r["status"] in ("puesta", "no estaba"):
+            by_house.setdefault(r["house"] or "1xBet", []).append(r)
     return {"total": agg(rows), "days": [{"day": k, **agg(v)} for k, v in reversed(list(days.items()))],
+            "by_house": [{"house": h, **agg(v)} for h, v in sorted(by_house.items())],
             "curve": curve,
             "rows": [{k: r[k] for k in ("created_ts", "start_ts", "title", "sport", "market", "label", "odds", "min_odds",
                                          "ev_pct", "stake", "status", "placed_odds", "result", "pnl", "paper_pnl")}
