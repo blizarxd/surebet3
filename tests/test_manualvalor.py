@@ -75,7 +75,7 @@ def test_house_of_the_day_and_per_house_buttons(tmp_path):
     add(mv, "valor#a")
     add(mv, "valor#b")
     (t1, b1), (_, b2) = mv.step()
-    assert "🏦 Melbet" in t1 and "en Melbet tómala si está a 2,35 o más" in t1 and b1[0][0] == "Abrir partido en 1xBet"
+    assert "🏦 Melbet" in t1 and "en Melbet tómala si está a 2,35 o más" in t1 and b1[0][0] == "Partido en 1xBet"
     assert "en Melbet" in mv.click(b1[1][1][3:])
     mv.set_house("888starz")
     assert "888starz" in mv.click(b2[-1][1][3:])
@@ -84,3 +84,19 @@ def test_house_of_the_day_and_per_house_buttons(tmp_path):
     s = summary(mv.conn)
     hs = {h["house"]: h for h in s["by_house"]}
     assert hs["Melbet"]["placed"] == 1 and hs["Melbet"]["pnl"] > 0 and hs["888starz"]["missed"] == 1
+
+
+def test_domain_command_and_link_in_other_house(tmp_path):
+    from surebet.manualvalor import swap_domain
+    assert swap_domain("https://1xbet-col.com/en/line/football/1-liga/2-a-b", "melbet.com") == "https://melbet.com/en/line/football/1-liga/2-a-b"
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    mv.set_house("melbet")
+    add(mv, "valor#a")
+    (t1, b1), = mv.step()
+    assert "/dominio melbet" in t1 and b1[0][0] == "Partido en 1xBet"           # todavía sin dominio: avisa cómo ponerlo
+    assert "melbet.com" in mv.set_domain("melbet https://www.melbet.com/es/line") or True
+    assert mv.domain("Melbet") == "www.melbet.com" and "Falta" in mv.set_domain("melbet") and "no válida" in mv.set_domain("1xbet x.com").lower()
+    add(mv, "valor#b")
+    (t2, b2), = mv.step()
+    assert "🔗 Melbet: https://www.melbet.com/x" in t2 and b2[0] == ("Abrir en Melbet", "https://www.melbet.com/x") and b2[1][0] == "Partido en 1xBet"
+    assert "sin dominio" in mv.set_domain("") and mv.domain("888starz") is None

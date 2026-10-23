@@ -20,6 +20,7 @@ import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from .safety import OBSERVE_SPORTS
 
@@ -57,6 +58,21 @@ def _hours(raw: str) -> tuple[int, int]:
         return 8, 20
 
 
+def _clean_domain(raw: str) -> str:
+    """'https://www.melbet.com/es/line' -> 'www.melbet.com' (solo el dominio)."""
+    raw = raw.strip().lower()
+    host = urlsplit(raw if "//" in raw else "//" + raw).netloc or raw.split("/")[0]
+    return host if "." in host and " " not in host else ""
+
+
+def swap_domain(url: str, domain: str) -> str | None:
+    """El link del partido de 1xBet con el dominio de otra casa (las casas de su misma familia usan la misma ruta)."""
+    if not url.startswith("http") or not domain:
+        return None
+    u = urlsplit(url)
+    return urlunsplit(("https", domain, u.path, "", ""))
+
+
 def _fmt_odds(x: float) -> str:
     return f"{x:.2f}".replace(".", ",")
 
@@ -86,6 +102,28 @@ class ManualValor:
         self.stake = stake
         self.start_h, self.end_h = _hours(hours)
         self.houses = tuple(houses) or HOUSES
+
+    # ------------------------------------------------------------------ dominio de cada casa (/dominio)
+    def domain(self, house: str) -> str | None:
+        r = self.conn.execute("SELECT v FROM manual_value_meta WHERE k=?", (f"domain:{house}",)).fetchone()
+        return r[0] if r and r[0] else None
+
+    def set_domain(self, args: str = "") -> str:
+        words = args.split()
+        if not words:
+            conf = [f"{h}: {self.domain(h) or 'sin dominio'}" for h in self.houses if h != "1xBet"]
+            return "🌐 Dominios de las casas (para armar el link del partido):\n" + "\n".join(conf) + \
+                "\nPonerlo: /dominio melbet melbet.com"
+        pick = next((h for h in self.houses if h.lower() == words[0].lower()), None)
+        if not pick or pick == "1xBet":
+            return "Casa no válida. Usa: " + ", ".join(h.lower() for h in self.houses if h != "1xBet")
+        dom = _clean_domain(words[1]) if len(words) > 1 else ""
+        if not dom:
+            return f"Falta el dominio. Ejemplo: /dominio {pick.lower()} {pick.lower()}.com"
+        self.conn.execute("INSERT OR REPLACE INTO manual_value_meta VALUES (?, ?)", (f"domain:{pick}", dom))
+        self.conn.commit()
+        return (f"🌐 {pick} → {dom}. Desde ahora el aviso trae el link del partido en {pick}.\n"
+                f"Pruébalo con el próximo aviso: si no abre el mismo partido, avísame (cambia la ruta según la casa).")
 
     # ------------------------------------------------------------------ casa de hoy (/casa)
     def house(self) -> str:
@@ -155,6 +193,7 @@ class ManualValor:
             "SELECT start_ts, title, sport, market, label, odds, min_odds, ev_pct, stake, url FROM manual_value WHERE id=?",
             (mid,)).fetchone()
         house = self.house()
+        hurl = swap_domain(url, self.domain(house)) if house != "1xBet" else None
         when = ""
         if start:
             mins = max(0, int((start - now) / 60))
@@ -167,8 +206,11 @@ class ManualValor:
             (f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más" if house == "1xBet" else
              f"Cuota de 1xBet {_fmt_odds(odds)} · en {house} tómala si está a {_fmt_odds(min_odds)} o más (mira su cuota)"),
             f"Apuesta: ${stake:g} · cambiar de casa: /casa",
-        ] + ([f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"] if url.startswith("http") else []))
-        buttons = [("Abrir partido en 1xBet" if house != "1xBet" else "Abrir en 1xBet", url)] if url.startswith("http") else []
+        ] + ([f"🔗 {house}: {hurl}", f"🔗 1xBet: {url}"] if hurl else [f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"]
+              if url.startswith("http") else [])
+          + ([f"ℹ️ Para el link en {house}: /dominio {house.lower()} <su dominio>"] if house != "1xBet" and not hurl else []))
+        buttons = ([(f"Abrir en {house}", hurl)] if hurl else []) + (
+            [("Partido en 1xBet" if house != "1xBet" else "Abrir en 1xBet", url)] if url.startswith("http") else [])
         buttons += [(f"✅ La puse a {_fmt_odds(x)}", f"cb:mv:ok:{mid}:{x:.2f}") for x in odds_levels(odds, min_odds)]
         buttons.append(("❌ No estaba / bajó de la mínima", f"cb:mv:no:{mid}"))
         return text, buttons

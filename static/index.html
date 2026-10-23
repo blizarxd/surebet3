@@ -1478,6 +1478,13 @@ const vdHm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m
 const vdDn = (k) => { const [y, m, d] = k.split("-").map(Number); return VD_DN[new Date(y, m - 1, d).getDay()] + " " + String(d).padStart(2, "0") + "/" + String(m).padStart(2, "0"); };
 const vdFam = (mk) => (mk || "?").startsWith("Más/Menos") ? "Más/Menos" : mk;
 const vdFr = (m) => VD_FR.findIndex((r) => m / 60 >= r[0] && m / 60 < r[1]);
+// link del partido en la casa activa: el de 1xBet con el dominio de esa casa (se pone con /dominio en Telegram)
+function vdUrl(p) {
+  const h = vdData && vdData.house, d = vdData && vdData.domains && vdData.domains[h];
+  if (!p.u || !h || h === "1xBet" || !d) return p.u;
+  try { const u = new URL(p.u); return "https://" + d + u.pathname; } catch (e) { return p.u; }
+}
+const vdHouseName = () => (vdData && vdData.house && vdData.domains && vdData.domains[vdData.house]) ? vdData.house : "1xBet";
 const VD_LIVE_S = 120;   // el escáner la vio hace menos de 2 min: sigue vigente (se puede apostar)
 function vdLife(p, now) {
   if (!p.ls) return {live: false, dur: null, kick: false};       // se mide desde el AVISO (p.ts), no desde que la cuota existió por primera vez
@@ -1530,7 +1537,7 @@ function vdNow(all) {
     return `<tr${isLive ? "" : ' style="opacity:.6"'}><td class="nowrap"><b>${left(p)}</b></td><td>${esc(p.t)}<div class="muted small">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td>${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num muted">${p.mn ? p.mn.toFixed(2) : "-"}</td><td class="num">${p.ev.toFixed(1)}%</td>
       <td class="small nowrap">${isLive ? `<span class="pos">🟢 vigente</span>${L.dur != null ? `<div class="muted">lleva ${vdDur(L.dur)}</div>` : ""}` : `<span class="muted">⚪ cambió</span><div class="muted">duró ${vdDur(L.dur)}</div>`}</td>
-      <td>${p.u ? `<a class="vd-btn ${isLive ? "" : "ghost"}" href="${esc(p.u)}" target="_blank" rel="noopener">${isLive ? "Apostar en 1xBet ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`; };
+      <td>${p.u ? `<a class="vd-btn ${isLive ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${isLive ? "Apostar en " + vdHouseName() + " ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`; };
   const head = `<tr><th>Empieza en</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">Mínima</th><th class="num">EV</th><th>Estado de la cuota</th><th></th></tr>`;
   $("vd-now").innerHTML = (open.length ? head + live.map((p) => row(p, true)).join("") + gone.map((p) => row(p, false)).join("")
     : `<tr><td class="empty">Ninguna pendiente por ahora: cuando salga una señal aparece acá (y te llega a Telegram).</td></tr>`)
@@ -1556,7 +1563,7 @@ function vdListDraw() {
       <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
       <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? "· avisada" : p.y ? esc(p.y) : ""}</td>
-      <td>${p.u ? `<a class="vd-btn ${p.s === "o" ? "" : "ghost"}" href="${esc(p.u)}" target="_blank" rel="noopener">${p.s === "o" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
+      <td>${p.u ? `<a class="vd-btn ${p.s === "o" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${p.s === "o" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
   $("vd-list-n").textContent = `(${rows.length} apuestas)`;
   const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`;
   $("vd-pager").innerHTML = rows.length ? b(1, "«", vdPage === 1) + b(vdPage - 1, "‹ Anterior", vdPage === 1) + `<span class="muted">Página ${vdPage} de ${pages}</span>` + b(vdPage + 1, "Siguiente ›", vdPage === pages) + b(pages, "»", vdPage === pages) : "";
@@ -1731,7 +1738,7 @@ function vdAlertRender() {
   $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>`;
   const state2 = L.live || !p.ls ? "🟢 VIGENTE — ¡todavía se puede apostar!" : `⚪ la cuota ya cambió (duró ${vdDur(L.dur)})`;
   $("vdal-when").innerHTML = `${mins == null ? "" : mins >= 60 ? `⏳ empieza en ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min` : `⏳ empieza en <b>${mins} min</b>`}<br>${state2}`;
-  const a = $("vdal-go"); if (p.u) { a.href = p.u; a.style.display = "inline-block"; } else a.style.display = "none";
+  const a = $("vdal-go"); if (p.u) { a.href = vdUrl(p); a.textContent = "🚀 APOSTAR EN " + vdHouseName().toUpperCase() + " →"; a.style.display = "inline-block"; } else a.style.display = "none";
   $("vdal-more").textContent = vdAl.queue.length ? `➕ ${vdAl.queue.length} señal${vdAl.queue.length > 1 ? "es" : ""} más (toca para ver la siguiente)` : "";
 }
 function vdAlertShow(list) {

@@ -65,4 +65,8 @@ def summary(conn) -> dict | None:
         active = (conn.execute("SELECT v FROM manual_value_meta WHERE k='house'").fetchone() or [None])[0]
     except sqlite3.OperationalError:
         active = None
-    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet"}
+    try:
+        domains = {k[7:]: v for k, v in conn.execute("SELECT k, v FROM manual_value_meta WHERE k LIKE 'domain:%'") if v}
+    except sqlite3.OperationalError:
+        domains = {}
+    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet", "domains": domains}
