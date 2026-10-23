@@ -346,6 +346,7 @@
   <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(azul = real · naranja punteada = esperado sin suerte · franjas = días)</span></h2><div id="vd-all"></div></section>
   <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h)</span></h2><div class="scroll"><table class="vd-heat" id="vd-heat"></table></div></section>
   <section class="card" style="margin-top:12px"><h2>¿Qué franjas rinden mejor? <span class="count">(barra = real · marca = esperado sin suerte)</span></h2><div class="vd-bars" id="vd-bars"></div></section>
+  <section class="card" style="margin-top:12px"><h2>⏱ Cuánto duran las cuotas <span class="count">(desde que el escáner ve la señal hasta que deja de ser valor; con los filtros activos)</span></h2><div class="scroll"><table id="vd-dur"></table></div></section>
   <section class="vd-grid2" id="vd-groups" style="margin-top:12px"></section>
   <section class="card" style="margin-top:12px"><h2>Todas las apuestas <span class="count" id="vd-list-n"></span></h2>
     <div class="vd-filters" style="padding:0 0 8px"><label>Ordenar por<select id="vd-f-sort"><option value="ts">Más recientes</option><option value="win">Mayor ganancia</option><option value="loss">Mayor pérdida</option><option value="ev">Mayor EV</option><option value="odds">Mayor cuota</option><option value="clv">Mejor CLV</option></select></label>
@@ -1412,6 +1413,13 @@ const vdHm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m
 const vdDn = (k) => { const [y, m, d] = k.split("-").map(Number); return VD_DN[new Date(y, m - 1, d).getDay()] + " " + String(d).padStart(2, "0") + "/" + String(m).padStart(2, "0"); };
 const vdFam = (mk) => (mk || "?").startsWith("Más/Menos") ? "Más/Menos" : mk;
 const vdFr = (m) => VD_FR.findIndex((r) => m / 60 >= r[0] && m / 60 < r[1]);
+const VD_LIVE_S = 120;   // el escáner la vio hace menos de 2 min: sigue vigente (se puede apostar)
+function vdLife(p, now) {
+  if (!p.ls) return {live: false, dur: null, kick: false};       // se mide desde el AVISO (p.ts), no desde que la cuota existió por primera vez
+  const kickoff = p.st && p.st <= now, live = !kickoff && now - p.ls < VD_LIVE_S;
+  return {live, dur: Math.max(0, (live ? now : p.ls) - p.ts), kick: !!(p.st && p.ls >= p.st - 180)};
+}
+const vdDur = (s) => s == null ? "-" : s < 90 ? Math.round(s) + " s" : s < 5400 ? Math.round(s / 60) + " min" : Math.floor(s / 3600) + " h " + String(Math.round((s % 3600) / 60)).padStart(2, "0") + " min";
 const vdMed = (a) => { a = a.filter((x) => x != null).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : null; };
 
 function vdFilters(all) {
@@ -1433,8 +1441,8 @@ function vdFillFilters(all) {
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30}); ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-csv").addEventListener("click", () => {
-    const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha_col", "hora_col", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "link"]];
-    F.forEach((p) => rows.push([p.d, vdHm(p.m), p.t, p.sp, p.mk, p.l, p.o, p.ev, p.c ?? "", {g: "ganada", p: "perdida", a: "anulada", o: "abierta"}[p.s], p.p == null ? "" : (p.p * k).toFixed(2), p.y ?? "", p.po ?? "", p.u]));
+    const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha_col", "hora_col", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
+    F.forEach((p) => rows.push([p.d, vdHm(p.m), p.t, p.sp, p.mk, p.l, p.o, p.ev, p.c ?? "", {g: "ganada", p: "perdida", a: "anulada", o: "abierta"}[p.s], p.p == null ? "" : (p.p * k).toFixed(2), p.y ?? "", p.po ?? "", p.ls ? Math.max(0, p.ls - p.ts) : "", p.u]));
     const csv = "﻿" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = "valor_1xbet_picks.csv"; a.click();
   });
@@ -1442,31 +1450,43 @@ function vdFillFilters(all) {
 
 // "Para apostar ahora": se refresca en cada pasada (la cuenta regresiva), aunque no haya cambios en los datos
 function vdNow(all) {
-  const now = Date.now() / 1000, mine = (p) => p.y === "no estaba";
-  const todo = all.filter((p) => p.s === "o" && p.st && p.st > now + 120 && !mine(p) && p.y !== "puesta").sort((a, b) => a.st - b.st);
+  const now = Date.now() / 1000;
+  const open = all.filter((p) => p.s === "o" && p.st && p.st > now + 120 && p.y !== "no estaba" && p.y !== "puesta").sort((a, b) => a.st - b.st);
+  const live = open.filter((p) => vdLife(p, now).live || !p.ls), gone = open.filter((p) => !(vdLife(p, now).live || !p.ls));
   const playing = all.filter((p) => p.s === "o" && p.st && p.st <= now + 120);
   const left = (p) => { const m = Math.max(0, Math.round((p.st - now) / 60)); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`; };
-  $("vd-now-n").textContent = `(${todo.length} por apostar · ${playing.length} en juego o por cerrarse)`;
-  $("vd-now").innerHTML = (todo.length ? `<tr><th>Empieza en</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">Mínima</th><th class="num">EV</th><th></th></tr>` + todo.map((p) =>
-    `<tr><td class="nowrap"><b>${left(p)}</b><div class="muted small">${vdHm(Math.floor(((p.st - 5 * 3600) % 86400) / 60))} h</div></td><td>${esc(p.t)}<div class="muted small">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td>${esc(p.l)}</td>
+  $("vd-now-n").textContent = `(${live.length} vigentes · ${gone.length} ya cambiaron · ${playing.length} en juego)`;
+  const row = (p, isLive) => { const L = vdLife(p, now);
+    return `<tr${isLive ? "" : ' style="opacity:.6"'}><td class="nowrap"><b>${left(p)}</b></td><td>${esc(p.t)}<div class="muted small">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td>${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num muted">${p.mn ? p.mn.toFixed(2) : "-"}</td><td class="num">${p.ev.toFixed(1)}%</td>
-      <td>${p.u ? `<a class="vd-btn" href="${esc(p.u)}" target="_blank" rel="noopener">Apostar en 1xBet ↗</a>` : ""}</td></tr>`).join("")
+      <td class="small nowrap">${isLive ? `<span class="pos">🟢 vigente</span>${L.dur != null ? `<div class="muted">lleva ${vdDur(L.dur)}</div>` : ""}` : `<span class="muted">⚪ cambió</span><div class="muted">duró ${vdDur(L.dur)}</div>`}</td>
+      <td>${p.u ? `<a class="vd-btn ${isLive ? "" : "ghost"}" href="${esc(p.u)}" target="_blank" rel="noopener">${isLive ? "Apostar en 1xBet ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`; };
+  const head = `<tr><th>Empieza en</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">Mínima</th><th class="num">EV</th><th>Estado de la cuota</th><th></th></tr>`;
+  $("vd-now").innerHTML = (open.length ? head + live.map((p) => row(p, true)).join("") + gone.map((p) => row(p, false)).join("")
     : `<tr><td class="empty">Ninguna pendiente por ahora: cuando salga una señal aparece acá (y te llega a Telegram).</td></tr>`)
-    + (playing.length ? `<tr><th colspan="7">⏳ En juego o por cerrarse</th></tr>` + playing.map((p) => `<tr><td class="muted small">en juego</td><td>${esc(p.t)}</td><td>${esc(p.l)}</td><td class="num">${p.o.toFixed(2)}</td><td></td><td class="num">${p.ev.toFixed(1)}%</td><td>${p.y === "puesta" ? "✅ la pusiste" : ""}</td></tr>`).join("") : "");
+    + (playing.length ? `<tr><th colspan="8">⏳ En juego o por cerrarse</th></tr>` + playing.map((p) => `<tr><td class="muted small">en juego</td><td>${esc(p.t)}</td><td>${esc(p.l)}</td><td class="num">${p.o.toFixed(2)}</td><td></td><td class="num">${p.ev.toFixed(1)}%</td><td class="small">${p.y === "puesta" ? "✅ la pusiste" : ""}</td><td></td></tr>`).join("") : "");
+}
+
+function vdLifeCell(p, now) {
+  const L = vdLife(p, now);
+  if (L.dur == null) return `<span class="muted">-</span>`;
+  if (L.live) return `<span class="pos">🟢 vigente · ${vdDur(L.dur)}</span>`;      // mientras no cambie no se marca: aún se puede apostar
+  return L.kick ? `<span class="muted">hasta el inicio · ${vdDur(L.dur)}</span>` : `<span>duró ${vdDur(L.dur)}</span>`;
 }
 
 function vdListDraw() {
   const F = vdFilters(vdData.picks), k = vdF.stake / 30, srt = {
     ts: (a, b) => b.ts - a.ts, win: (a, b) => (b.p ?? -1e9) - (a.p ?? -1e9), loss: (a, b) => (a.p ?? 1e9) - (b.p ?? 1e9), ev: (a, b) => b.ev - a.ev, odds: (a, b) => b.o - a.o, clv: (a, b) => (b.c ?? -1e9) - (a.c ?? -1e9)};
-  const rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = 20, pages = Math.max(1, Math.ceil(rows.length / per));
+  const nowS = Date.now() / 1000, rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = 20, pages = Math.max(1, Math.ceil(rows.length / per));
   vdPage = Math.min(Math.max(1, vdPage), pages);
   const slice = rows.slice((vdPage - 1) * per, vdPage * per), res = {g: `<span class="pos">✅ ganada</span>`, p: `<span class="neg">❌ perdida</span>`, a: `<span class="tag void">anulada</span>`, o: `<span class="tag open">abierta</span>`};
-  $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Tu botón</th><th></th></tr>` +
+  $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
     (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td class="small">${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
+      <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
       <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"}` : p.y === "no estaba" ? "❌ no estaba" : p.y === "avisada" ? "· avisada" : p.y ? esc(p.y) : ""}</td>
-      <td>${p.u ? `<a class="vd-btn ${p.s === "o" ? "" : "ghost"}" href="${esc(p.u)}" target="_blank" rel="noopener">${p.s === "o" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="10">Ninguna apuesta con esos filtros.</td></tr>`);
+      <td>${p.u ? `<a class="vd-btn ${p.s === "o" ? "" : "ghost"}" href="${esc(p.u)}" target="_blank" rel="noopener">${p.s === "o" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
   $("vd-list-n").textContent = `(${rows.length} apuestas)`;
   const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`;
   $("vd-pager").innerHTML = rows.length ? b(1, "«", vdPage === 1) + b(vdPage - 1, "‹ Anterior", vdPage === 1) + `<span class="muted">Página ${vdPage} de ${pages}</span>` + b(vdPage + 1, "Siguiente ›", vdPage === pages) + b(pages, "»", vdPage === pages) : "";
@@ -1477,7 +1497,7 @@ function renderValorDash(x) {
   vdData = x;
   $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
   vdNow(x.picks);
-  const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length;
+  const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length;
   if (sig === vdSig) return;          // nada nuevo: no se redibuja (ni parpadea ni gasta)
   vdSig = sig; vdFillFilters(P); vdDraw();
 }
@@ -1583,6 +1603,16 @@ function vdDraw() {
   $("vd-groups").innerHTML = grp("Por deporte", (p) => p.sp) + grp("Por mercado", (p) => vdFam(p.mk)) +
     grp("Por cuota", oddsB, ["<1.6", "cuota 1.6–2", "cuota 2–2.5", "cuota 2.5–3", "cuota 3–4", "cuota 4+"]) + grp("Por EV al detectar", evB, ["<2", "EV 2–3 %", "EV 3–4 %", "EV 4–5 %", "EV 5–7 %", "EV 7 %+"]) +
     grp("Por horas antes del partido", hrs, ["0–1 h antes", "1–3 h antes", "3–6 h antes", "?"]) + grp("Por día de la semana", (p) => ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"][new Date(p.d + "T12:00:00").getDay()], ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]);
+
+  // cuánto duran las cuotas: % de señales que siguen vigentes pasados 30 s, 1, 2, 5, 15 y 60 min (las que llegaron vivas hasta el inicio cuentan como vigentes)
+  const nowD = Date.now() / 1000, TS = [30, 60, 120, 300, 900, 3600];
+  const durRows = (title, rows) => { const R = rows.filter((p) => p.ls); if (R.length < 5) return "";
+    const ds = R.map((p) => ({d: vdLife(p, nowD).dur, keep: vdLife(p, nowD).kick || vdLife(p, nowD).live})), med = vdMed(ds.map((x) => x.d));
+    const pc = (s) => Math.round(100 * ds.filter((x) => x.d >= s || x.keep).length / ds.length) + " %";
+    return `<tr><td>${esc(title)}</td><td class="num">${R.length}</td><td class="num"><b>${vdDur(med)}</b></td>${TS.map((s) => `<td class="num">${pc(s)}</td>`).join("")}<td class="num">${Math.round(100 * ds.filter((x) => x.keep).length / ds.length)} %</td></tr>`; };
+  $("vd-dur").innerHTML = `<tr><th></th><th class="num">Señales</th><th class="num">Duración típica</th>${["30 s", "1 min", "2 min", "5 min", "15 min", "1 h"].map((s) => `<th class="num">sigue a los ${s}</th>`).join("")}<th class="num">hasta el inicio</th></tr>` +
+    durRows("Todas", F) + [...new Set(F.map((p) => vdFam(p.mk)))].sort().map((m) => durRows(m, F.filter((p) => vdFam(p.mk) === m))).join("") +
+    [...new Set(F.map((p) => p.sp))].sort().map((s) => durRows(s, F.filter((p) => p.sp === s))).join("");
 
   // un gráfico por día (el más reciente primero)
   let gmin = 0, gmax = 0;

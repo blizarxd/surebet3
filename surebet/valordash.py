@@ -6,7 +6,8 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   d día · m minuto del día (Colombia) · ts hora de la señal · st inicio del partido · t partido · l selección · o cuota · ev EV %
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
-  · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso.
+  · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
+  como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ STATUS = {"won": "g", "lost": "p", "void": "a", "open": "o"}
 
 def summary(conn) -> dict | None:
     try:
-        clv = {k: c for k, c in conn.execute("SELECT key, clv_pct FROM value_bets WHERE clv_pct IS NOT NULL")}
+        vb = {k: (c, fs, ls) for k, c, fs, ls in conn.execute("SELECT key, clv_pct, first_seen, last_seen FROM value_bets")}
         ops = conn.execute("SELECT key, event_key, market, market_name, legs_json, status, created_ts, start_ts, title, sport, "
                            "edge_pct FROM paper_ops WHERE track='valor' ORDER BY created_ts").fetchall()
     except sqlite3.OperationalError:
@@ -39,11 +40,11 @@ def summary(conn) -> dict | None:
         if leg.get("source") not in SOURCES or status not in STATUS:
             continue
         raw.append((key, ek, mk, mname, leg, status, ts, start, title, sport, ev,
-                    clv.get(f"{ek}#{mk}#{leg['source']}:{''.join(leg.get('covers') or [])}")))
-    vals = sorted(r[11] for r in raw if r[11] is not None)
+                    vb.get(f"{ek}#{mk}#{leg['source']}:{''.join(leg.get('covers') or [])}", (None, None, None))))
+    vals = sorted(r[11][0] for r in raw if r[11][0] is not None)
     med = vals[len(vals) // 2] if vals else 0.0
     picks = []
-    for key, ek, mk, mname, leg, status, ts, start, title, sport, ev, c in raw:
+    for key, ek, mk, mname, leg, status, ts, start, title, sport, ev, (c, fs, ls) in raw:
         t = datetime.fromtimestamp(ts, COL)
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
@@ -53,7 +54,8 @@ def summary(conn) -> dict | None:
                       "t": (title or "")[:34], "l": (leg.get("label") or "")[:22], "o": round(odds, 3), "ev": round(ev or 0, 2),
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
-                      "y": y, "po": po, "mn": mn})
+                      "y": y, "po": po, "mn": mn,
+                      "fs": round(fs) if fs else None, "ls": round(ls) if ls else None})
     if not picks:
         return None
     return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"]}

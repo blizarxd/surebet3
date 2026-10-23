@@ -112,6 +112,11 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   6 de 7 (precio bueno; mala suerte). Pero 4 de las 7 eran 2 pares del MISMO partido (Menos 2.5 + Menos 1.5; 1T Brighton + Más 1T 1.5),
   perfectamente correlacionados → en realidad 5 apuestas independientes. Arreglado: el ejecutor ahora hace UNA jugada por partido
   (antes solo bloqueaba el mismo mercado). Pendiente: decidir si recargar y seguir.
+- **Duración de las señales de valor (22/10)** (dashboard valor manual, columna «Cuota (duración)» y tabla «Cuánto duran las cuotas»):
+  se mide DESDE EL AVISO hasta la última vez que el escáner la vio como valor. «🟢 vigente» mientras siga (no se marca duración: aún se
+  puede apostar); «duró X» cuando cambia; «hasta el inicio» si duró hasta el partido. 581 señales: 99 % siguen a los 30 s, 97 % al
+  minuto, 95 % a los 2 min, 91 % a los 5, 86 % a los 15, 81 % a la hora; mediana ~1 h 36. Las de 1er tiempo son las rápidas (mediana
+  5 min, 80 % a los 5 min); tenis no cambia. (El análisis previo medía desde la 1.ª vez que la cuota existió y salía subestimado.)
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

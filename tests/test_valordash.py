@@ -8,7 +8,7 @@ from surebet.valordash import summary
 
 PAPER = """CREATE TABLE paper_ops (key TEXT, kind TEXT, track TEXT, created_ts REAL, start_ts REAL, event_key TEXT, market TEXT,
            market_name TEXT, sport TEXT, edge_pct REAL, title TEXT, legs_json TEXT, status TEXT)"""
-VB = "CREATE TABLE value_bets (key TEXT PRIMARY KEY, clv_pct REAL)"
+VB = "CREATE TABLE value_bets (key TEXT PRIMARY KEY, clv_pct REAL, first_seen REAL, last_seen REAL)"
 MV = "CREATE TABLE manual_value (key TEXT, status TEXT, placed_odds REAL, min_odds REAL)"
 
 
@@ -24,7 +24,7 @@ def test_picks_at_fixed_30(tmp_path):
                    json.dumps([{"source": source, "label": "Arsenal", "covers": ["H"], "odds": odds, "stake": 99,
                                 "url": "https://1xbet-col.com/x"}]), status))
         if clv is not None:
-            c.execute("INSERT INTO value_bets VALUES (?,?)", (f"e{i}#1x2#{source}:H", clv))
+            c.execute("INSERT INTO value_bets VALUES (?,?,?,?)", (f"e{i}#1x2#{source}:H", clv, now + i - 60, now + i + 1380))
     add(1, "1xbet", 2.5, "won", 4.0)
     add(2, "1xbet", 2.0, "lost", 2.0)
     add(3, "sxbet", 2.0, "won")                  # otra casa: fuera
@@ -38,4 +38,5 @@ def test_picks_at_fixed_30(tmp_path):
     assert [p["s"] for p in P] == ["g", "p", "o", "a"]
     assert abs(P[0]["e"] - 1.2) < 1e-9 and P[0]["mk"] == "1X2" and P[0]["sp"] == "soccer"   # esperado = 30 × CLV 4 %
     assert P[0]["u"] == "https://1xbet-col.com/x" and P[0]["y"] == "puesta" and P[0]["po"] == 2.4 and P[1]["y"] is None
+    assert P[0]["ls"] - P[0]["fs"] == 1440 and P[1]["fs"] is not None and P[2]["fs"] is None   # duración de la señal (24 min)
     assert summary(sqlite3.connect(tmp_path / "vacia.db")) is None
