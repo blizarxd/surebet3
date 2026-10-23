@@ -1481,7 +1481,7 @@ const vdFr = (m) => VD_FR.findIndex((r) => m / 60 >= r[0] && m / 60 < r[1]);
 // link del partido en la casa activa: el de 1xBet con el dominio de esa casa (se pone con /dominio en Telegram)
 function vdUrl(p) {
   const h = vdData && vdData.house, d = vdData && vdData.domains && vdData.domains[h];
-  if (!p.u || !h || h === "1xBet" || !d) return p.u;
+  if (!p.u || !h || !d) return p.u;
   try { const u = new URL(p.u); return "https://" + d + u.pathname; } catch (e) { return p.u; }
 }
 const vdHouseName = () => (vdData && vdData.house && vdData.domains && vdData.domains[vdData.house]) ? vdData.house : "1xBet";

@@ -111,12 +111,12 @@ class ManualValor:
     def set_domain(self, args: str = "") -> str:
         words = args.split()
         if not words:
-            conf = [f"{h}: {self.domain(h) or 'sin dominio'}" for h in self.houses if h != "1xBet"]
+            conf = [f"{h}: {self.domain(h) or ('sin dominio (usa el del escáner)' if h == '1xBet' else 'sin dominio')}" for h in self.houses]
             return "🌐 Dominios de las casas (para armar el link del partido):\n" + "\n".join(conf) + \
                 "\nPonerlo: /dominio melbet melbet.com"
         pick = next((h for h in self.houses if h.lower() == words[0].lower()), None)
-        if not pick or pick == "1xBet":
-            return "Casa no válida. Usa: " + ", ".join(h.lower() for h in self.houses if h != "1xBet")
+        if not pick:
+            return "Casa no válida. Usa: " + ", ".join(h.lower() for h in self.houses)
         dom = _clean_domain(words[1]) if len(words) > 1 else ""
         if not dom:
             return f"Falta el dominio. Ejemplo: /dominio {pick.lower()} {pick.lower()}.com"
@@ -193,7 +193,7 @@ class ManualValor:
             "SELECT start_ts, title, sport, market, label, odds, min_odds, ev_pct, stake, url FROM manual_value WHERE id=?",
             (mid,)).fetchone()
         house = self.house()
-        hurl = swap_domain(url, self.domain(house)) if house != "1xBet" else None
+        hurl = swap_domain(url, self.domain(house))          # el dominio que usas de esa casa (también el de 1xBet: ve1xbet.com…)
         when = ""
         if start:
             mins = max(0, int((start - now) / 60))
@@ -206,11 +206,12 @@ class ManualValor:
             (f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más" if house == "1xBet" else
              f"Cuota de 1xBet {_fmt_odds(odds)} · en {house} tómala si está a {_fmt_odds(min_odds)} o más (mira su cuota)"),
             f"Apuesta: ${stake:g} · cambiar de casa: /casa",
-        ] + ([f"🔗 {house}: {hurl}", f"🔗 1xBet: {url}"] if hurl else [f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"]
-              if url.startswith("http") else [])
+        ] + ([f"🔗 {house}: {hurl}"] + ([f"🔗 1xBet: {url}"] if house != "1xBet" else []) if hurl else
+              [f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"] if url.startswith("http") else [])
           + ([f"ℹ️ Para el link en {house}: /dominio {house.lower()} <su dominio>"] if house != "1xBet" and not hurl else []))
         buttons = ([(f"Abrir en {house}", hurl)] if hurl else []) + (
-            [("Partido en 1xBet" if house != "1xBet" else "Abrir en 1xBet", url)] if url.startswith("http") else [])
+            [("Partido en 1xBet" if house != "1xBet" else "Abrir en 1xBet", url)]
+            if url.startswith("http") and (house != "1xBet" or not hurl) else [])
         buttons += [(f"✅ La puse a {_fmt_odds(x)}", f"cb:mv:ok:{mid}:{x:.2f}") for x in odds_levels(odds, min_odds)]
         buttons.append(("❌ No estaba / bajó de la mínima", f"cb:mv:no:{mid}"))
         return text, buttons

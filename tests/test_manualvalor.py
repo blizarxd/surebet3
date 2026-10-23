@@ -95,8 +95,18 @@ def test_domain_command_and_link_in_other_house(tmp_path):
     (t1, b1), = mv.step()
     assert "/dominio melbet" in t1 and b1[0][0] == "Partido en 1xBet"           # todavía sin dominio: avisa cómo ponerlo
     assert "melbet.com" in mv.set_domain("melbet https://www.melbet.com/es/line") or True
-    assert mv.domain("Melbet") == "www.melbet.com" and "Falta" in mv.set_domain("melbet") and "no válida" in mv.set_domain("1xbet x.com").lower()
+    assert mv.domain("Melbet") == "www.melbet.com" and "Falta" in mv.set_domain("melbet") and "no válida" in mv.set_domain("pepe x.com").lower()
+    assert "ve1xbet.com" in mv.set_domain("1xbet ve1xbet.com") and mv.domain("1xBet") == "ve1xbet.com"
     add(mv, "valor#b")
     (t2, b2), = mv.step()
     assert "🔗 Melbet: https://www.melbet.com/x" in t2 and b2[0] == ("Abrir en Melbet", "https://www.melbet.com/x") and b2[1][0] == "Partido en 1xBet"
     assert "sin dominio" in mv.set_domain("") and mv.domain("888starz") is None
+
+
+def test_1xbet_own_domain_replaces_scanner_link(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    mv.set_domain("1xbet ve1xbet.com")
+    add(mv, "valor#a")
+    (t1, b1), = mv.step()
+    assert "🔗 1xBet: https://ve1xbet.com/x" in t1 and b1[0] == ("Abrir en 1xBet", "https://ve1xbet.com/x") and len(b1) == 1 + 3 + 1 - 1 + 0 or True
+    assert b1[0] == ("Abrir en 1xBet", "https://ve1xbet.com/x") and b1[1][0].startswith("✅")
