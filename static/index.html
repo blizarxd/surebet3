@@ -97,7 +97,7 @@
   .vd-filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
   .vd-filters label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
   .vd-filters label.chk { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 6px; color: var(--text); }
-  .vd-filters select, .vd-filters input[type=search] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; min-width: 110px; }
+  .vd-filters select, .vd-filters input[type=search], .vd-filters input[type=number] { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px; min-width: 110px; }
   .vd-filters button, .vd-pager button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13px; }
   .vd-filters button:hover, .vd-pager button:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); } .vd-pager button:disabled { opacity: .35; cursor: default; }
   .vd-pager { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
@@ -105,6 +105,28 @@
   a.vd-btn.ghost { background: var(--panel2); color: var(--blue); border: 1px solid var(--line); font-weight: 500; padding: 4px 10px; }
   a.vd-btn:hover { filter: brightness(1.12); }
   .vd-grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 430px), 1fr)); gap: 12px; }
+  #vd-alert { position: fixed; inset: 0; z-index: 99; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; overflow: hidden; cursor: pointer; }
+  #vd-alert .disco { position: absolute; inset: -60%; background: conic-gradient(from 0deg, #ff2d95, #ffd400, #22e3ff, #7c5cff, #27e08a, #ff2d95); opacity: .55; animation: vdSpin 6s linear infinite; }
+  #vd-alert .strobe { position: absolute; inset: 0; animation: vdStrobe 1.2s steps(1) infinite; }
+  #vd-alert .dim { position: absolute; inset: 0; background: rgba(8,10,22,.66); backdrop-filter: blur(3px); }
+  @keyframes vdSpin { to { transform: rotate(360deg); } }
+  @keyframes vdStrobe { 0% { background: rgba(255,45,149,.30); } 33% { background: rgba(34,227,255,.30); } 66% { background: rgba(255,212,0,.30); } }
+  #vd-alert .inner { position: relative; z-index: 2; max-width: 760px; width: 100%; color: #fff; }
+  #vd-alert .bigemo { font-size: clamp(64px, 18vw, 130px); animation: vdBob 1.4s ease-in-out infinite; line-height: 1.1; }
+  @keyframes vdBob { 50% { transform: translateY(-14px) scale(1.06); } }
+  #vd-alert h2 { font-size: clamp(24px, 7vw, 48px); font-weight: 900; margin: 6px 0 10px; background: linear-gradient(90deg, #fff, #ffd400, #22e3ff, #ff2d95); background-size: 220% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: vdShine 2.5s linear infinite; }
+  @keyframes vdShine { to { background-position: 220% center; } }
+  #vd-alert .match { font-size: clamp(18px, 5vw, 30px); font-weight: 800; margin: 4px 0; }
+  #vd-alert .pick { font-size: clamp(22px, 6.5vw, 40px); font-weight: 900; margin: 8px 0; color: #ffd400; }
+  #vd-alert .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 10px 0; }
+  #vd-alert .chip { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.35); border-radius: 999px; padding: 6px 14px; font-weight: 800; font-size: clamp(14px, 4vw, 20px); }
+  #vd-alert .when { font-size: clamp(15px, 4.2vw, 22px); font-weight: 700; margin: 6px 0; }
+  #vd-alert a.go { display: inline-block; margin-top: 12px; background: #27e08a; color: #04170d; font-weight: 900; font-size: clamp(18px, 5vw, 28px); padding: 14px 28px; border-radius: 16px; text-decoration: none; box-shadow: 0 0 40px rgba(39,224,138,.8); animation: vdPulse 1s ease-in-out infinite; }
+  @keyframes vdPulse { 50% { transform: scale(1.06); box-shadow: 0 0 70px rgba(39,224,138,1); } }
+  #vd-alert .more { margin-top: 12px; font-weight: 800; color: #22e3ff; } #vd-alert .x { margin-top: 14px; font-size: 13px; opacity: .8; }
+  .vd-float { position: absolute; font-size: 34px; opacity: .85; animation: vdFloat 4s ease-in infinite; pointer-events: none; }
+  @keyframes vdFloat { 0% { transform: translateY(40px) rotate(0); opacity: 0; } 20% { opacity: .9; } 100% { transform: translateY(-110vh) rotate(360deg); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #vd-alert .disco, #vd-alert .strobe, #vd-alert .bigemo, #vd-alert h2, #vd-alert a.go, .vd-float { animation: none; } }
 </style>
 </head>
 <body>
@@ -326,6 +348,20 @@
     <h2 style="margin-top:12px">Uno por uno</h2>
     <div class="scroll" style="max-height:420px"><table id="mv-rows"></table></div></section>
 </main>
+<div id="vd-alert" onclick="vdAlertNext()">
+  <div class="disco"></div><div class="strobe"></div><div class="dim"></div>
+  <div class="inner">
+    <div class="bigemo" id="vdal-emo">⚽</div>
+    <h2>💰🔥 ¡SEÑAL DE VALOR! 🔥💰</h2>
+    <div class="match" id="vdal-match"></div>
+    <div class="pick" id="vdal-pick"></div>
+    <div class="chips" id="vdal-chips"></div>
+    <div class="when" id="vdal-when"></div>
+    <a class="go" id="vdal-go" href="#" target="_blank" rel="noopener" onclick="event.stopPropagation()">🚀 APOSTAR EN 1xBET →</a>
+    <div class="more" id="vdal-more"></div>
+    <div class="x">toca para cerrar</div>
+  </div>
+</div>
 <main id="tab-vd" hidden>
   <section class="card"><div class="small muted"><span class="vd-live"></span><b>En vivo:</b> se actualiza sola cada 15 s y cada vez que se cierra un partido.
     Es el <b>valor oro de 1xBet (semi-manual)</b> en papel, hora de Colombia. Lo ganado es contra el resultado real; el "esperado sin suerte" (línea
@@ -336,9 +372,15 @@
     <label>Deporte<select id="vd-f-sp"></select></label>
     <label>Mercado<select id="vd-f-mk"></select></label>
     <label>Resultado<select id="vd-f-res"><option value="all">Todos</option><option value="cerr">Cerradas</option><option value="g">Ganadas</option><option value="p">Perdidas</option><option value="a">Anuladas</option><option value="o">Abiertas</option></select></label>
+    <label>Cuota mín.<input id="vd-f-omin" type="number" step="0.1" min="1" placeholder="1.6" style="width:80px"></label>
+    <label>Cuota máx.<input id="vd-f-omax" type="number" step="0.1" min="1" placeholder="4" style="width:80px"></label>
+    <label>Horas antes del partido<select id="vd-f-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
     <label>Buscar equipo<input id="vd-f-q" type="search" placeholder="Arsenal, Bucks…"></label>
     <label class="chk"><input id="vd-f-mine" type="checkbox"> Solo las que puse (✅)</label>
-    <button id="vd-reset" type="button">Quitar filtros</button><span class="muted small" id="vd-f-count"></span>
+    <button id="vd-reset" type="button">Quitar filtros</button>
+    <button id="vd-al-on" type="button" title="Pantalla completa con luces cuando salga una señal nueva">🚨 Alerta de pantalla: ...</button>
+    <button id="vd-al-snd" type="button">🔊 Sonido: ...</button>
+    <button id="vd-al-test" type="button">▶ Probar alerta</button><span class="muted small" id="vd-f-count"></span>
   </section>
   <section class="card" style="margin-top:12px"><h2>🎯 Para apostar ahora <span class="count" id="vd-now-n"></span></h2><div class="scroll"><table id="vd-now"></table></div></section>
   <section class="vd-kpis" id="vd-kpis" style="margin-top:12px"></section>
@@ -1406,7 +1448,7 @@ function renderManual(x) {
 }
 
 let vdSig = "", vdData = null, vdPage = 1, vdBound = false;
-const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts"};
+const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", omin: null, omax: null, hb: "all"};
 const VD_FR = [[0,4],[4,8],[8,12],[12,16],[16,20],[20,24]], VD_DN = ["dom","lun","mar","mié","jue","vie","sáb"];
 const vdFm = (v, s = 1) => (v < 0 ? "−" : s ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("es-CO");
 const vdHm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
@@ -1426,7 +1468,8 @@ function vdFilters(all) {
   const f = vdF, q = f.q.trim().toLowerCase();
   return all.filter((p) => (f.fr === "all" || vdFr(p.m) === +f.fr) && (f.sp === "all" || p.sp === f.sp) && (f.mk === "all" || vdFam(p.mk) === f.mk)
     && (f.res === "all" || (f.res === "cerr" ? p.s !== "o" : p.s === f.res)) && (!f.mine || p.y === "puesta")
-    && (!q || (p.t + " " + p.l).toLowerCase().includes(q)));
+    && (!q || (p.t + " " + p.l).toLowerCase().includes(q)) && (f.omin == null || p.o >= f.omin) && (f.omax == null || p.o <= f.omax)
+    && (f.hb === "all" || (p.st && (() => { const h = (p.st - p.ts) / 3600, [a, b] = f.hb.split("-").map(Number); return h >= a && h < b; })())));
 }
 
 function vdFillFilters(all) {
@@ -1437,8 +1480,9 @@ function vdFillFilters(all) {
   if (vdBound) return;
   vdBound = true;
   const bind = (id, key, num) => $(id).addEventListener("input", (e) => { vdF[key] = e.target.type === "checkbox" ? e.target.checked : (num ? +e.target.value : e.target.value); vdPage = 1; vdDraw(); });
-  bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort");
-  $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30}); ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
+  bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb");
+  ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
+  $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all"}); $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-csv").addEventListener("click", () => {
     const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha_col", "hora_col", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
@@ -1626,6 +1670,65 @@ function vdDraw() {
   vdListDraw();
 }
 
+// ===== 🚨 alerta de pantalla completa (estilo «El Señor de la Noche»): luces, emoji, sonido y el link para apostar =====
+const vdAl = {on: true, snd: true, base: null, queue: [], cur: null, tick: null, ctx: null};
+try { vdAl.on = (localStorage.getItem("vd_alert") ?? "1") === "1"; vdAl.snd = (localStorage.getItem("vd_snd") ?? "1") === "1"; } catch (e) {}
+const VD_EMO = {soccer: "⚽", basketball: "🏀", tennis: "🎾", hockey: "🏒", baseball: "⚾", americanfootball: "🏈", volleyball: "🏐", mma: "🥊", boxing: "🥊"};
+function vdAlButtons() {
+  if (!$("vd-al-on")) return;
+  $("vd-al-on").textContent = "🚨 Alerta de pantalla: " + (vdAl.on ? "ENCENDIDA" : "apagada"); $("vd-al-snd").textContent = "🔊 Sonido: " + (vdAl.snd ? "sí" : "no");
+}
+function vdAudio() { try { if (!vdAl.ctx) vdAl.ctx = new (window.AudioContext || window.webkitAudioContext)(); if (vdAl.ctx.state === "suspended") vdAl.ctx.resume(); } catch (e) {} return vdAl.ctx; }
+document.addEventListener("click", vdAudio);
+function vdSound() {                      // arpegio de discoteca: dos subidas rápidas
+  const c = vdAl.snd && vdAudio(); if (!c) return;
+  const t0 = c.currentTime + 0.02, notes = [523, 659, 784, 1047, 784, 1047, 1319, 1568];
+  notes.forEach((f, i) => { const o = c.createOscillator(), g = c.createGain(), s = t0 + i * 0.13;
+    o.type = i % 2 ? "square" : "triangle"; o.frequency.setValueAtTime(f, s); g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(0.16, s + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, s + 0.2);
+    o.connect(g); g.connect(c.destination); o.start(s); o.stop(s + 0.22); });
+}
+function vdAlertRender() {
+  const p = vdAl.cur, now = Date.now() / 1000; if (!p) return;
+  const L = vdLife(p, now), mins = p.st ? Math.max(0, Math.round((p.st - now) / 60)) : null;
+  $("vdal-emo").textContent = p.sp.startsWith("esports") ? "🎮" : (VD_EMO[p.sp] || "🎯");
+  $("vdal-match").textContent = p.t; $("vdal-pick").textContent = "🎯 " + p.l + " · " + vdFam(p.mk);
+  $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>`;
+  const state2 = L.live || !p.ls ? "🟢 VIGENTE — ¡todavía se puede apostar!" : `⚪ la cuota ya cambió (duró ${vdDur(L.dur)})`;
+  $("vdal-when").innerHTML = `${mins == null ? "" : mins >= 60 ? `⏳ empieza en ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min` : `⏳ empieza en <b>${mins} min</b>`}<br>${state2}`;
+  const a = $("vdal-go"); if (p.u) { a.href = p.u; a.style.display = "inline-block"; } else a.style.display = "none";
+  $("vdal-more").textContent = vdAl.queue.length ? `➕ ${vdAl.queue.length} señal${vdAl.queue.length > 1 ? "es" : ""} más (toca para ver la siguiente)` : "";
+}
+function vdAlertShow(list) {
+  if (!list.length) return;
+  vdAl.queue = list.slice(1); vdAl.cur = list[0];
+  const box = $("vd-alert"); box.querySelectorAll(".vd-float").forEach((e) => e.remove());
+  ["💰", "🔥", "💎", "🚀", "⚽", "💸", "✨"].forEach((e, i) => { const s = document.createElement("span"); s.className = "vd-float"; s.textContent = e; s.style.left = (8 + i * 13) + "%"; s.style.animationDelay = (i * 0.5) + "s"; s.style.animationIterationCount = "infinite"; box.insertBefore(s, box.querySelector(".inner")); });
+  vdAlertRender(); box.style.display = "flex"; vdSound();
+  clearInterval(vdAl.tick); vdAl.tick = setInterval(() => { if ($("vd-alert").style.display === "none") return clearInterval(vdAl.tick); vdAlertRender(); }, 1000);
+}
+function vdAlertNext() {
+  if (vdAl.queue.length) { vdAl.cur = vdAl.queue.shift(); vdAlertRender(); vdSound(); return; }
+  vdAl.cur = null; clearInterval(vdAl.tick); $("vd-alert").style.display = "none";
+}
+function vdAlertCheck(x) {                // se llama en cada refresco, desde cualquier pestaña
+  if (!x || !x.picks.length) return;
+  const now = Date.now() / 1000, maxTs = Math.max(...x.picks.map((p) => p.ts));
+  if (vdAl.base === null) { vdAl.base = maxTs; return; }       // primera carga: no se avisa lo viejo
+  const fresh = x.picks.filter((p) => p.ts > vdAl.base && p.s === "o" && p.st && p.st > now - 60 && p.ts > now - 600).sort((a, b) => b.ts - a.ts);
+  vdAl.base = Math.max(vdAl.base, maxTs);
+  if (fresh.length && vdAl.on) vdAlertShow(fresh);
+}
+function vdAlertInit() {
+  if (vdAl.bound || !$("vd-al-on")) return; vdAl.bound = true; vdAlButtons();
+  $("vd-al-on").addEventListener("click", () => { vdAl.on = !vdAl.on; try { localStorage.setItem("vd_alert", vdAl.on ? "1" : "0"); } catch (e) {} vdAlButtons(); });
+  $("vd-al-snd").addEventListener("click", () => { vdAl.snd = !vdAl.snd; try { localStorage.setItem("vd_snd", vdAl.snd ? "1" : "0"); } catch (e) {} vdAlButtons(); if (vdAl.snd) vdSound(); });
+  $("vd-al-test").addEventListener("click", () => {
+    const P = (vdData && vdData.picks) || (state && state.valordash && state.valordash.picks) || [], base = P.filter((p) => p.s === "o").slice(-1)[0] || P[P.length - 1];
+    if (!base) return; const now = Date.now() / 1000;
+    vdAlertShow([{...base, st: base.st && base.st > now ? base.st : now + 1800, ls: Math.round(now), ts: Math.round(now)}]);
+  });
+}
+
 function renderSemaforo(s, now) {
   const box = $("semaforo");
   if (!s) { box.innerHTML = `<h2>⚪ Semáforo de riesgo <span class="count">(todavía sin calcular: lo calcula el escáner cada minuto)</span></h2>`; return; }
@@ -1756,6 +1859,7 @@ async function refresh() {
     $("alive").className = "dot" + (alive ? " on" : "");
     $("updated").textContent = (alive ? "escáner activo" : "escáner apagado") + " · actualizado " + new Date().toLocaleTimeString("es");
     renderSemaforo(state.semaforo, state.now);
+    vdAlertInit(); try { vdAlertCheck(state.valordash); } catch (e) {}
     renderTab(activeTab);
   } catch (e) {
     $("updated").textContent = "sin conexión con el panel (" + e.message + ")";

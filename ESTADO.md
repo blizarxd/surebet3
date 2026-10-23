@@ -117,6 +117,12 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   puede apostar); «duró X» cuando cambia; «hasta el inicio» si duró hasta el partido. 581 señales: 99 % siguen a los 30 s, 97 % al
   minuto, 95 % a los 2 min, 91 % a los 5, 86 % a los 15, 81 % a la hora; mediana ~1 h 36. Las de 1er tiempo son las rápidas (mediana
   5 min, 80 % a los 5 min); tenis no cambia. (El análisis previo medía desde la 1.ª vez que la cuota existió y salía subestimado.)
+- **Alerta de pantalla completa + filtros de cuota (23/10)** (`static/index.html`, pestaña 📊): cuando sale una señal nueva de valor de
+  1xBet, en CUALQUIER pestaña del panel salta una pantalla con luces tipo discoteca (copiada del «Señor de la Noche» de
+  Desktop/botpolym/webapp/index.html), emoji del deporte, partido, selección, cuota/mínima/EV, cuenta regresiva, 🟢 vigente / ⚪ cambió,
+  sonido y botón «🚀 APOSTAR EN 1xBET». Botones para encender/apagar alerta y sonido y «▶ Probar alerta» (se guarda en localStorage).
+  Filtros nuevos: cuota mín./máx. y horas antes del partido. Análisis por cuota (12 días): el esperado es ~3 % por apuesta en todos los
+  tramos; lo que ganó de más en cuota ≥ 2 (+$1.842 real vs +$355 esperado) es suerte; no filtrar por cuota todavía.
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.
