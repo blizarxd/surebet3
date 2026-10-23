@@ -2,7 +2,7 @@
 Valor 1xBet A MANO con aviso limpio y botones (20/10): mide si tú, a mano, logras lo que hace el papel.
 
 Cada pick de valor oro de 1xBet que entra a la cuenta de valor en papel (track 'valor', ~47/día) se avisa por Telegram
-solo dentro de tu horario (MANUAL_VALUE_HOURS, hora Colombia; por defecto 8–20) y si estás en el PC (/estoy … /salgo).
+solo dentro de tu horario (MANUAL_VALUE_HOURS, hora Venezuela (UTC−4); por defecto 8–20) y si estás en el PC (/estoy … /salgo).
 Las de fuera de horario se anotan igual ("fuera de horario") para saber cuánto se pierde por no estar.
 
 El aviso trae partido, hora, selección, cuota de ahora, cuota mínima aceptable (EV ≥ +1 % contra Polymarket) y el monto
@@ -24,7 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .safety import OBSERVE_SPORTS
 
-COL = timezone(timedelta(hours=-5))
+VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SOURCES = ("1xbet", "onexbet")
 HOUSES = ("1xBet", "Melbet", "888starz")   # casas donde apuestas a mano (MANUAL_HOUSES en el .env); /casa elige la de hoy
@@ -78,7 +78,7 @@ def _fmt_odds(x: float) -> str:
 
 
 def _day(ts: float) -> str:
-    d = datetime.fromtimestamp(ts, COL)
+    d = datetime.fromtimestamp(ts, VET)
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}"
 
 
@@ -155,7 +155,7 @@ class ManualValor:
         return "⏸ Avisos de valor 1xBet en pausa (se siguen anotando para medir). /estoy cuando vuelvas al PC."
 
     def in_hours(self, ts: float) -> bool:
-        h = datetime.fromtimestamp(ts, COL).hour
+        h = datetime.fromtimestamp(ts, VET).hour
         return self.start_h <= h < self.end_h
 
     # ------------------------------------------------------------------ cada ciclo
@@ -197,8 +197,8 @@ class ManualValor:
         when = ""
         if start:
             mins = max(0, int((start - now) / 60))
-            when = f" · empieza {datetime.fromtimestamp(start, COL):%H:%M} (en {mins // 60} h {mins % 60:02d} min)" \
-                if mins >= 60 else f" · empieza {datetime.fromtimestamp(start, COL):%H:%M} (en {mins} min)"
+            when = f" · empieza {datetime.fromtimestamp(start, VET):%H:%M} (en {mins // 60} h {mins % 60:02d} min)" \
+                if mins >= 60 else f" · empieza {datetime.fromtimestamp(start, VET):%H:%M} (en {mins} min)"
         text = "\n".join([
             f"💰 VALOR {ev:+.1f} % · #{mid} · 🏦 {house}",
             f"{SPORT_ICON.get(sport, '🎯')} {title}{when}",

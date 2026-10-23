@@ -148,7 +148,7 @@ class Settings:
     auto_max_per_op: float = field(default_factory=lambda: _f("AUTO_MAX_PER_OP", 100))   # tope total Azuro + Polymarket
     auto_max_daily: float = field(default_factory=lambda: _f("AUTO_MAX_DAILY", 600))
     auto_max_open: int = field(default_factory=lambda: int(_f("AUTO_MAX_OPEN", 8)))
-    # Valor 1xBet a mano con aviso limpio y botones (surebet/manualvalor.py): monto fijo y horario (hora Colombia)
+    # Valor 1xBet a mano con aviso limpio y botones (surebet/manualvalor.py): monto fijo y horario (hora Venezuela (UTC−4))
     manual_value_stake: float = field(default_factory=lambda: _f("MANUAL_VALUE_STAKE", 30))
     manual_value_hours: str = field(default_factory=lambda: os.getenv("MANUAL_VALUE_HOURS", "8-20"))
     manual_houses: list[str] = field(default_factory=lambda: _list("MANUAL_HOUSES", "1xBet,Melbet,888starz"))

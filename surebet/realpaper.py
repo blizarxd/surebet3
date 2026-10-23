@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from .models import market_label
 
-COL = timezone(timedelta(hours=-5))
+VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
 OBSERVED = ("esports:cs2", "esports:dota2")
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS real_bets (
 
 
 def _day(ts: float) -> str:
-    d = datetime.fromtimestamp(ts, COL)
+    d = datetime.fromtimestamp(ts, VET)
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}"
 
 

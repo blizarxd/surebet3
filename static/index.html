@@ -294,7 +294,7 @@
     juega (solo observación). <b>Esperado</b> = sin suerte, por el CLV (precio de cierre de Polymarket); <b>real</b> = con los resultados.</div>
     <div class="small" id="az-note" style="margin-top:6px"></div></section>
   <section class="kpis" id="az-kpis"></section>
-  <section class="card"><h2>Día por día <span class="count">(valor simple sin red, $30 por pick, lo que haría el bot · hora de Colombia)</span></h2>
+  <section class="card"><h2>Día por día <span class="count">(valor simple sin red, $30 por pick, lo que haría el bot · hora de Venezuela (UTC−4))</span></h2>
     <div class="scroll"><table id="az-days"></table></div>
     <div class="small muted" id="az-days-all" style="margin-top:6px"></div></section>
   <section class="grid2">
@@ -367,11 +367,11 @@
 </div>
 <main id="tab-vd" hidden>
   <section class="card"><div class="small muted"><span class="vd-live"></span><b>En vivo:</b> se actualiza sola cada 15 s y cada vez que se cierra un partido.
-    Es el <b>valor oro de 1xBet (semi-manual)</b> en papel, hora de Colombia. Lo ganado es contra el resultado real; el "esperado sin suerte" (línea
+    Es el <b>valor oro de 1xBet (semi-manual)</b> en papel, hora de Venezuela (UTC−4). Lo ganado es contra el resultado real; el "esperado sin suerte" (línea
     punteada) es lo que dice la ventaja de precio (CLV). <span id="vd-upd"></span> <b id="vd-house"></b></div></section>
   <section class="card vd-filters" style="margin-top:12px">
     <label>Monto por apuesta<select id="vd-f-stake"><option>5</option><option>10</option><option>20</option><option selected>30</option><option>50</option><option>100</option></select></label>
-    <label>Franja (hora Colombia)<select id="vd-f-fr"><option value="all">Todas</option><option value="0">00–04 h</option><option value="1">04–08 h</option><option value="2">08–12 h</option><option value="3">12–16 h</option><option value="4">16–20 h</option><option value="5">20–24 h</option></select></label>
+    <label>Franja (hora Venezuela (UTC−4))<select id="vd-f-fr"><option value="all">Todas</option><option value="0">00–04 h</option><option value="1">04–08 h</option><option value="2">08–12 h</option><option value="3">12–16 h</option><option value="4">16–20 h</option><option value="5">20–24 h</option></select></label>
     <label>Deporte<select id="vd-f-sp"></select></label>
     <label>Mercado<select id="vd-f-mk"></select></label>
     <label>Resultado<select id="vd-f-res"><option value="all">Todos</option><option value="cerr">Cerradas</option><option value="g">Ganadas</option><option value="p">Perdidas</option><option value="a">Anuladas</option><option value="o">Abiertas</option></select></label>
@@ -390,7 +390,7 @@
   <section class="vd-kpis" id="vd-kpis" style="margin-top:12px"></section>
   <section class="vd-kpis" id="vd-risk" style="margin-top:10px"></section>
   <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(azul = real · naranja punteada = esperado sin suerte · franjas = días)</span></h2><div id="vd-all"></div></section>
-  <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h · hora Colombia)</span></h2>
+  <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h · hora Venezuela (UTC−4))</span></h2>
     <div class="vd-chips" id="vd-hf-sp"><span class="muted small">Deporte:</span>
       <button data-sp="all" class="on">Todos</button><button data-sp="soccer">⚽ Fútbol</button><button data-sp="basketball">🏀 Básquet</button><button data-sp="tennis">🎾 Tenis</button><button data-sp="esports">🎮 Esports</button></div>
     <div class="vd-filters" style="padding:8px 0 6px">
@@ -1518,7 +1518,7 @@ function vdFillFilters(all) {
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all"}); $("vd-f-h").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-csv").addEventListener("click", () => {
-    const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha_col", "hora_col", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
+    const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
     F.forEach((p) => rows.push([p.d, vdHm(p.m), p.t, p.sp, p.mk, p.l, p.o, p.ev, p.c ?? "", {g: "ganada", p: "perdida", a: "anulada", o: "abierta"}[p.s], p.p == null ? "" : (p.p * k).toFixed(2), p.y ?? "", p.po ?? "", p.ls ? Math.max(0, p.ls - p.ts) : "", p.u]));
     const csv = "﻿" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = "valor_1xbet_picks.csv"; a.click();

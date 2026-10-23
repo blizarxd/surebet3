@@ -2,7 +2,7 @@
 Pestaña "🟦 Azuro" del panel: todo lo que se mide del valor en Azuro, a $30 por pick (lo decidido para el automático).
 
   - Valor simple (sin red): la cuenta de valor oro (paper_ops track 'valor') con las apuestas de Azuro, recalculadas a
-    $30 fijos: día por día (hora de Colombia), acumulado, esperado por CLV y pick por pick.
+    $30 fijos: día por día (hora de Venezuela (UTC−4)), acumulado, esperado por CLV y pick por pick.
   - Con red vs sin red: los mismos picks de "valor + red" (net_picks) en Azuro, a $30.
   - ¿Qué limita la cantidad de picks?: CLV de todas las señales de valor de Azuro por EV, cuota y horas antes del inicio.
 CS2 y Dota2 se muestran (observación) pero no cuentan en "lo que haría el bot".
@@ -16,14 +16,14 @@ import statistics
 from datetime import datetime, timedelta, timezone
 
 STAKE = 30.0
-COL = timezone(timedelta(hours=-5))          # Colombia, sin horario de verano
+VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
 OBSERVED = ("esports:cs2", "esports:dota2")
 RARE_CLV = 15.0                              # CLV más allá de ±15 %: casi siempre un dato raro (cuenta con la mediana)
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
 
 def _day(ts: float) -> str:
-    d = datetime.fromtimestamp(ts, COL)
+    d = datetime.fromtimestamp(ts, VET)
     return f"{DIAS[d.weekday()]} {d.day:02d}/{d.month:02d}"
 
 
