@@ -378,6 +378,7 @@
     <label>Cuota mín.<input id="vd-f-omin" type="number" step="0.1" min="1" placeholder="1.6" style="width:80px"></label>
     <label>Cuota máx.<input id="vd-f-omax" type="number" step="0.1" min="1" placeholder="4" style="width:80px"></label>
     <label>Horas antes del partido<select id="vd-f-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
+    <label>🏦 Casa para los links de esta web<select id="vd-house-sel"><option>1xBet</option><option>Melbet</option><option>888starz</option></select></label>
     <label>Casa donde la puse<select id="vd-f-h"><option value="all">Todas</option><option>1xBet</option><option>Melbet</option><option>888starz</option></select></label>
     <label>Buscar equipo<input id="vd-f-q" type="search" placeholder="Arsenal, Bucks…"></label>
     <label class="chk"><input id="vd-f-mine" type="checkbox"> Solo las que puse (✅)</label>
@@ -404,6 +405,13 @@
   <section class="card" style="margin-top:12px"><h2>⏱ Cuánto duran las cuotas <span class="count">(desde que el escáner ve la señal hasta que deja de ser valor; con los filtros activos)</span></h2><div class="scroll"><table id="vd-dur"></table></div></section>
   <section class="vd-grid2" id="vd-groups" style="margin-top:12px"></section>
   <section class="card" style="margin-top:12px"><h2>Todas las apuestas <span class="count" id="vd-list-n"></span></h2>
+    <div class="vd-chips" id="vd-lf-sp"><span class="muted small">Deporte:</span>
+      <button data-sp="all" class="on">Todos</button><button data-sp="soccer">⚽ Fútbol</button><button data-sp="basketball">🏀 Básquet</button><button data-sp="tennis">🎾 Tenis</button><button data-sp="esports">🎮 Esports</button></div>
+    <div class="vd-filters" style="padding:8px 0 6px">
+      <label>Mercado<select id="vd-lf-mk"><option value="all">Todos</option><option value="gan">Ganador / 1X2</option><option value="mm">Más/Menos (partido)</option><option value="mm1">Más/Menos 1er tiempo</option><option value="x1">1X2 1er tiempo</option></select></label>
+      <label>Cuota<select id="vd-lf-od"><option value="all">Todas</option><option value="<2">menor a 2</option><option value="2-2.5">2 a 2,5</option><option value="2.5-3">2,5 a 3</option><option value="3+">3 o más</option><option value="2+">2 o más</option></select></label>
+      <label>Horas antes del juego<select id="vd-lf-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
+      <button id="vd-lf-reset" type="button">Quitar filtros de la lista</button></div>
     <div class="vd-filters" style="padding:0 0 8px"><label>Ordenar por<select id="vd-f-sort"><option value="ts">Más recientes</option><option value="win">Mayor ganancia</option><option value="loss">Mayor pérdida</option><option value="ev">Mayor EV</option><option value="odds">Mayor cuota</option><option value="clv">Mejor CLV</option></select></label>
       <button id="vd-csv" type="button">⬇ Descargar CSV (con los filtros)</button></div>
     <div class="scroll"><table id="vd-list"></table></div><div class="vd-pager" id="vd-pager"></div></section>
@@ -1463,14 +1471,15 @@ function renderManual(x) {
 let vdSig = "", vdData = null, vdPage = 1, vdBound = false;
 const vdH = {sp: "all", mk: "all", od: "all", hb: "all"};
 function vdMkKey(mk) { mk = mk || ""; return mk.startsWith("Más/Menos 1T") ? "mm1" : mk.startsWith("Más/Menos") ? "mm" : mk === "1X2 1er tiempo" ? "x1" : "gan"; }
-function vdHeatOk(o) {                      // filtros propios del cuadro, encima de los de arriba
-  const f = vdH;
+const vdL = {sp: "all", mk: "all", od: "all", hb: "all"};   // filtros propios de la lista «Todas las apuestas»
+function vdOkWith(f, o) {                   // filtros por deporte, mercado, cuota y horas antes (cuadro y lista)
   if (f.sp !== "all" && !(f.sp === "esports" ? o.sp.startsWith("esports") : o.sp === f.sp)) return false;
   if (f.mk !== "all" && vdMkKey(o.mk) !== f.mk) return false;
   if (f.od !== "all") { const x = o.o; if (f.od === "<2" ? !(x < 2) : f.od === "3+" ? !(x >= 3) : f.od === "2+" ? !(x >= 2) : !(x >= +f.od.split("-")[0] && x < +f.od.split("-")[1])) return false; }
   if (f.hb !== "all") { if (!o.st) return false; const h = (o.st - o.ts) / 3600, [a, b] = f.hb.split("-").map(Number); if (!(h >= a && h < b)) return false; }
   return true;
 }
+const vdHeatOk = (o) => vdOkWith(vdH, o);
 const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", omin: null, omax: null, hb: "all", h: "all"};
 const VD_FR = [[0,4],[4,8],[8,12],[12,16],[16,20],[20,24]], VD_DN = ["dom","lun","mar","mié","jue","vie","sáb"];
 const vdFm = (v, s = 1) => (v < 0 ? "−" : s ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("es-CO");
@@ -1479,12 +1488,16 @@ const vdDn = (k) => { const [y, m, d] = k.split("-").map(Number); return VD_DN[n
 const vdFam = (mk) => (mk || "?").startsWith("Más/Menos") ? "Más/Menos" : mk;
 const vdFr = (m) => VD_FR.findIndex((r) => m / 60 >= r[0] && m / 60 < r[1]);
 // link del partido en la casa activa: el de 1xBet con el dominio de esa casa (se pone con /dominio en Telegram)
+function vdHouseGet() {            // casa elegida en ESTA web (se guarda en este navegador); si no hay, la activa en Telegram
+  try { const s = localStorage.getItem("vd_house"); if (s) return s; } catch (e) {}
+  return (vdData && vdData.house) || "1xBet";
+}
 function vdUrl(p) {
-  const h = vdData && vdData.house, d = vdData && vdData.domains && vdData.domains[h];
+  const h = vdHouseGet(), d = vdData && vdData.domains && vdData.domains[h];
   if (!p.u || !h || !d) return p.u;
   try { const u = new URL(p.u); return "https://" + d + u.pathname; } catch (e) { return p.u; }
 }
-const vdHouseName = () => (vdData && vdData.house && vdData.domains && vdData.domains[vdData.house]) ? vdData.house : "1xBet";
+const vdHouseName = () => { const h = vdHouseGet(); return (vdData && vdData.domains && vdData.domains[h]) ? h : "1xBet"; };
 const VD_LIVE_S = 120;   // el escáner la vio hace menos de 2 min: sigue vigente (se puede apostar)
 function vdLife(p, now) {
   if (!p.ls) return {live: false, dur: null, kick: false};       // se mide desde el AVISO (p.ts), no desde que la cuota existió por primera vez
@@ -1509,6 +1522,10 @@ function vdFillFilters(all) {
   vdF.sp = $("vd-f-sp").value; vdF.mk = $("vd-f-mk").value;
   if (vdBound) return;
   vdBound = true;
+  $("vd-house-sel").addEventListener("input", (e) => { try { localStorage.setItem("vd_house", e.target.value); } catch (er) {} renderValorDash(vdData); vdNow(vdData.picks); vdListDraw(); });
+  $("vd-lf-sp").addEventListener("click", (e) => { const b = e.target.closest("button[data-sp]"); if (!b) return; vdL.sp = b.dataset.sp; $("vd-lf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); vdPage = 1; vdListDraw(); });
+  [["mk", "vd-lf-mk"], ["od", "vd-lf-od"], ["hb", "vd-lf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdL[k] = e.target.value; vdPage = 1; vdListDraw(); }));
+  $("vd-lf-reset").addEventListener("click", () => { Object.assign(vdL, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-lf-mk", "vd-lf-od", "vd-lf-hb"].forEach((id) => $(id).value = "all"); $("vd-lf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdPage = 1; vdListDraw(); });
   $("vd-hf-sp").addEventListener("click", (e) => { const b = e.target.closest("button[data-sp]"); if (!b) return; vdH.sp = b.dataset.sp; $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); vdDraw(); });
   [["mk", "vd-hf-mk"], ["od", "vd-hf-od"], ["hb", "vd-hf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdH[k] = e.target.value; vdDraw(); }));
   $("vd-hf-reset").addEventListener("click", () => { Object.assign(vdH, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-hf-mk", "vd-hf-od", "vd-hf-hb"].forEach((id) => $(id).value = "all"); $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdDraw(); });
@@ -1518,7 +1535,7 @@ function vdFillFilters(all) {
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all"}); $("vd-f-h").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-csv").addEventListener("click", () => {
-    const F = vdFilters(vdData.picks), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
+    const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
     F.forEach((p) => rows.push([p.d, vdHm(p.m), p.t, p.sp, p.mk, p.l, p.o, p.ev, p.c ?? "", {g: "ganada", p: "perdida", a: "anulada", o: "abierta"}[p.s], p.p == null ? "" : (p.p * k).toFixed(2), p.y ?? "", p.po ?? "", p.ls ? Math.max(0, p.ls - p.ts) : "", p.u]));
     const csv = "﻿" + rows.map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(",")).join("\n");
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"})); a.download = "valor_1xbet_picks.csv"; a.click();
@@ -1552,7 +1569,7 @@ function vdLifeCell(p, now) {
 }
 
 function vdListDraw() {
-  const F = vdFilters(vdData.picks), k = vdF.stake / 30, srt = {
+  const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, srt = {
     ts: (a, b) => b.ts - a.ts, win: (a, b) => (b.p ?? -1e9) - (a.p ?? -1e9), loss: (a, b) => (a.p ?? 1e9) - (b.p ?? 1e9), ev: (a, b) => b.ev - a.ev, odds: (a, b) => b.o - a.o, clv: (a, b) => (b.c ?? -1e9) - (a.c ?? -1e9)};
   const nowS = Date.now() / 1000, rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = 20, pages = Math.max(1, Math.ceil(rows.length / per));
   vdPage = Math.min(Math.max(1, vdPage), pages);
@@ -1573,7 +1590,8 @@ function renderValorDash(x) {
   if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }
   vdData = x;
   $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
-  $("vd-house").textContent = " 🏦 Casa activa en Telegram: " + (x.house || "1xBet") + " (se cambia con /casa melbet, /casa 888starz, /casa 1xbet).";
+  { const h = vdHouseGet(), ok = x.domains && x.domains[h]; $("vd-house-sel").value = h;
+    $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
   vdNow(x.picks);
   const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length;
   if (sig === vdSig) return;          // nada nuevo: no se redibuja (ni parpadea ni gasta)
