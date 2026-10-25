@@ -6,7 +6,7 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   d día · m minuto del día (Venezuela, UTC−4) · ts hora de la señal · st inicio del partido · t partido · l selección · o cuota · ev EV %
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
-  · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
+  · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
   como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
 """
 
@@ -44,6 +44,21 @@ def summary(conn) -> dict | None:
             continue
         raw.append((key, ek, mk, mname, leg, status, ts, start, title, sport, ev,
                     vb.get(f"{ek}#{mk}#{leg['source']}:{''.join(leg.get('covers') or [])}", (None, None, None))))
+    # lote: 3 o más señales nacidas en 60 s; n.º de pick dentro del mismo partido (el aviso se corta en MAX_PER_GAME)
+    lot, i = {}, 0
+    while i < len(raw):
+        j = i
+        while j + 1 < len(raw) and raw[j + 1][6] - raw[j][6] <= 60:
+            j += 1
+        if j - i + 1 >= 3:
+            for k in range(i, j + 1):
+                lot[raw[k][0]] = j - i + 1
+        i = j + 1
+    nth: dict[str, int] = {}
+    ordinal: dict[str, int] = {}
+    for r in raw:
+        nth[r[1]] = nth.get(r[1], 0) + 1
+        ordinal[r[0]] = nth[r[1]]
     vals = sorted(r[11][0] for r in raw if r[11][0] is not None)
     med = vals[len(vals) // 2] if vals else 0.0
     picks = []
@@ -58,7 +73,8 @@ def summary(conn) -> dict | None:
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
                       "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
-                      "fs": round(fs) if fs else None, "ls": round(ls) if ls else None})
+                      "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
+                      "lt": lot.get(key, 0), "n": ordinal.get(key, 1)})
     if not picks:
         return None
     try:

@@ -215,6 +215,11 @@ async def scan_cycle(poly: PolymarketSource, others: list, client: httpx.AsyncCl
     res.values = [v for c in matched for v in find_value_bets(c, cfg, log_min, s.value_max_odds, s.value_min_poly_depth)
                   if (not s.my_books or v.quote.source in s.my_books) and v.quote.source not in API_EXCHANGES - {"azuro"}]
     res.values.sort(key=lambda v: v.ev_pct, reverse=True)
+    hot = {ev.event_id for v in res.values if v.ev_pct >= 1.5 and not v.event.live and v.quote.source in ("1xbet", "onexbet")
+           for ev, _ in v.event.members if ev.feed == "onexbet"}
+    for src in others:
+        if isinstance(src, OneXBetSource):
+            src.hot = hot       # 1xBet reconfirma más seguido los partidos con señal activa
 
     if True:  # radar: siempre se calcula (lo usa el panel); en consola solo se muestra con --radar
         for c in matched:

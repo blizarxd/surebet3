@@ -56,6 +56,7 @@ TOTALS_G, OVER_T, UNDER_T = 17, 9, 10
 REGULATION_DRAW = {"basketball", "hockey", "americanfootball"}
 BATCH_GAMES = 50     # una llamada devuelve como mucho 50 partidos
 BATCH_LEAGUES = 25   # y no conviene una URL enorme
+HOT_S = 45           # partidos con una señal de valor activa: su consulta se repite cada 45 s (el resto, cada prematch_interval_s)
 STALE_LINE_S = 900   # consultas que ya no se repiten (exploración, lotes viejos): se olvidan a los 15 min
 STALE_LIVE_S = 120
 LEAGUES_SAVE_S = 300  # leagues.json se guarda como mucho cada 5 min
@@ -161,6 +162,7 @@ class OneXBetSource(Source):
         self._task: asyncio.Task | None = None
         self._h1: dict[str, tuple[float, list[Quote]]] = {}   # id partido -> (ts, quotes 1er tiempo)
         self._matched: dict[str, float] = {}                   # partidos de fútbol emparejados -> inicio
+        self.hot: set[str] = set()                              # ids de partidos con señal de valor activa (lo pone scan.py)
         self._targets: list[SourceEvent] = []
         self._parents: dict[str, SourceEvent] = {}
         # Partidos ya parseados: solo se rehacen cuando llegan datos nuevos (antes, todo el feed cada ciclo)
@@ -285,6 +287,14 @@ class OneXBetSource(Source):
         for _, eid in sorted(due)[:H1_MAX_PER_PASS]:
             jobs.append(self._load_first_half(client, eid))
 
+        # Reconfirmar rápido: las consultas que traen un partido con señal activa se repiten antes (45 s, no 120 s), así una
+        # cuota que cambió en 1xBet se nota pronto y «vigente» significa algo. Solo las que aún no tocaba el ciclo normal.
+        if self.hot:
+            for key, (ts, rows) in list(self._line.items()):
+                if HOT_S < now - ts <= self.prematch_interval_s and any(str(r.get("I")) in self.hot for r in rows):
+                    args = self._reload_args(key)
+                    if args:
+                        jobs.append(self._load_line(client, key, *args))
         if not jobs:
             return  # nada nuevo: no hace falta volver a emparejar ni guardar
         await asyncio.gather(*jobs, return_exceptions=True)
@@ -315,6 +325,16 @@ class OneXBetSource(Source):
         if explore and champs:
             for li in champs:
                 self.leagues[li]["explored"] = time.time()
+
+    def _reload_args(self, key: str) -> tuple[int, list[str] | None] | None:
+        """(deporte, ligas) para repetir una consulta guardada en self._line; None si no se puede (exploración)."""
+        if key.startswith("top:"):
+            return int(key[4:]), None
+        if key.startswith("champs:"):
+            lis = [x for x in key[7:].split(",") if x]
+            sport = self.leagues.get(lis[0], {}).get("sport") if lis else None
+            return (sport, lis) if sport is not None else None
+        return None
 
     async def _load_first_half(self, client, eid: str) -> None:
         url = (f"{self.base}/service-api/LineFeed/GetGameZip?id={int(eid) + 1}&lng=en&isSubGames=true"

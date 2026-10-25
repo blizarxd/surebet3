@@ -148,6 +148,13 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   605 cerradas, real +$2.139 vs esperado +$571 (z=1,74 ≈ 4 % de azar si el esperado fuera lo verdadero); media real +$3,54/pick con IC95
   [0,6, 6,5]. Bloques de 20: 20 de 30 positivos (no todos). Con Pinnacle de acuerdo (131 señales) el CLV medio es +21,9 %; sin acuerdo
   (250) −4,8 %: posible filtro futuro (OddsPapi limita los datos).
+- **Lotes, tope y reconfirmación (25/10):** (1) un «lote» = 3 o más señales de 1xBet nacidas en 60 s (suele ser 1xBet volviendo de un
+  corte): el aviso trae «⚠️ LOTE… mira la cuota antes» y el dashboard lo marca; 32 picks en lote rindieron 28 % de acierto y −$359 (CLV
+  +3,8 %: muestra chica, solo se mide, no se filtra). (2) Tope `MAX_PER_GAME=2` avisos por partido: el 2.º lleva «2.º pick de este
+  partido»; el 3.º se anota como «sobre el tope» sin avisar (el papel sigue anotando todo). (3) `OneXBetSource.hot` (lo llena scan.py con los
+  partidos con señal EV ≥ 1,5 %): sus consultas de línea se repiten cada 45 s (`HOT_S`) en vez de 120 s, y el dashboard da «vigente» solo si
+  la señal se vio hace < 75 s (`VD_LIVE_S`). Pendiente de ver si baja la diferencia con tu 1xBet (caso Udinese–Milan: 3,83 vs 3,635).
+  Día malo 25/10: 6 de 24 ganadas, papel −$299 (13 de las 32 en lote, −$324).
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

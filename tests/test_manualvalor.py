@@ -6,16 +6,16 @@ import time
 from surebet.manualvalor import ManualValor, odds_levels, summary, today_stats
 
 PAPER = """CREATE TABLE IF NOT EXISTS paper_ops (key TEXT PRIMARY KEY, kind TEXT, track TEXT, created_ts REAL, start_ts REAL,
-           title TEXT, sport TEXT, market TEXT, market_name TEXT, edge_pct REAL, legs_json TEXT, status TEXT)"""
+           title TEXT, sport TEXT, market TEXT, market_name TEXT, edge_pct REAL, legs_json TEXT, status TEXT, event_key TEXT)"""
 
 
-def add(mv, key, source="1xbet", sport="soccer", odds=2.40, fair=2.32, status="open", ts=None):
+def add(mv, key, source="1xbet", sport="soccer", odds=2.40, fair=2.32, status="open", ts=None, game=None):
     mv.conn.execute(PAPER)
     leg = {"source": source, "label": "Arsenal", "covers": ["H"], "stake": 20, "odds": odds, "url": "https://1xbet-col.com/x",
            "fair_odds": fair}
-    mv.conn.execute("INSERT INTO paper_ops VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+    mv.conn.execute("INSERT INTO paper_ops VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (key, "value", "valor", ts or time.time(), time.time() + 5400, "Arsenal vs Leeds", sport, "1x2", "1X2",
-                     100 * (odds / fair - 1), json.dumps([leg]), status))
+                     100 * (odds / fair - 1), json.dumps([leg]), status, game or key))
     mv.conn.commit()
 
 
@@ -110,3 +110,23 @@ def test_1xbet_own_domain_replaces_scanner_link(tmp_path):
     (t1, b1), = mv.step()
     assert "🔗 1xBet: https://ve1xbet.com/x" in t1 and b1[0] == ("Abrir en 1xBet", "https://ve1xbet.com/x") and len(b1) == 1 + 3 + 1 - 1 + 0 or True
     assert b1[0] == ("Abrir en 1xBet", "https://ve1xbet.com/x") and b1[1][0].startswith("✅")
+
+
+def test_cap_of_two_per_game_second_pick_tag_and_batch_warning(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    now = time.time()
+    add(mv, "valor#a", ts=now - 500, game="g1")                 # sueltos, de distintos momentos
+    (t1, _), = mv.step()
+    assert "2.º pick" not in t1 and "LOTE" not in t1
+    add(mv, "valor#b", ts=now - 400, game="g1")
+    (t2, _), = mv.step()
+    assert "2.º pick de este partido" in t2 and "tope 2" in t2
+    add(mv, "valor#c", ts=now - 300, game="g1")                 # el 3.º del mismo partido: se anota, no se avisa
+    assert mv.step() == []
+    assert mv.conn.execute("SELECT status FROM manual_value WHERE key='valor#c'").fetchone()[0] == "sobre el tope"
+    for i in range(3):                                          # tres señales de partidos distintos en el mismo minuto = lote
+        add(mv, f"valor#l{i}", ts=now - 100 + i, game=f"gl{i}")
+    msgs = mv.step()
+    assert len(msgs) == 3 and all("LOTE: 3 señales" in t for t, _ in msgs)
+    s = summary(mv.conn)
+    assert s["total"]["alerted"] == 5 and s["total"]["n"] == 6

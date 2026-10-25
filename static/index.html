@@ -1498,7 +1498,7 @@ function vdUrl(p) {
   try { const u = new URL(p.u); return "https://" + d + u.pathname; } catch (e) { return p.u; }
 }
 const vdHouseName = () => { const h = vdHouseGet(); return (vdData && vdData.domains && vdData.domains[h]) ? h : "1xBet"; };
-const VD_LIVE_S = 120;   // el escáner la vio hace menos de 2 min: sigue vigente (se puede apostar)
+const VD_LIVE_S = 75;     // con la reconfirmación cada 45 s, una señal no vista en 75 s ya cambió   // el escáner la vio hace menos de 2 min: sigue vigente (se puede apostar)
 function vdLife(p, now) {
   if (!p.ls) return {live: false, dur: null, kick: false};       // se mide desde el AVISO (p.ts), no desde que la cuota existió por primera vez
   const kickoff = p.st && p.st <= now, live = !kickoff && now - p.ls < VD_LIVE_S;
@@ -1575,7 +1575,7 @@ function vdListDraw() {
   vdPage = Math.min(Math.max(1, vdPage), pages);
   const slice = rows.slice((vdPage - 1) * per, vdPage * per), res = {g: `<span class="pos">✅ ganada</span>`, p: `<span class="neg">❌ perdida</span>`, a: `<span class="tag void">anulada</span>`, o: `<span class="tag open">abierta</span>`};
   $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
-    (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td class="small">${esc(p.l)}</td>
+    (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
@@ -1753,7 +1753,7 @@ function vdAlertRender() {
   const L = vdLife(p, now), mins = p.st ? Math.max(0, Math.round((p.st - now) / 60)) : null;
   $("vdal-emo").textContent = p.sp.startsWith("esports") ? "🎮" : (VD_EMO[p.sp] || "🎯");
   $("vdal-match").textContent = p.t; $("vdal-pick").textContent = "🎯 " + p.l + " · " + vdFam(p.mk);
-  $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>`;
+  $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>${p.lt ? `<span class="chip">⚠ LOTE ${p.lt}: mira la cuota antes</span>` : ""}${p.n > 1 ? `<span class="chip">${p.n}.º pick del partido</span>` : ""}`;
   const state2 = L.live || !p.ls ? "🟢 VIGENTE — ¡todavía se puede apostar!" : `⚪ la cuota ya cambió (duró ${vdDur(L.dur)})`;
   $("vdal-when").innerHTML = `${mins == null ? "" : mins >= 60 ? `⏳ empieza en ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min` : `⏳ empieza en <b>${mins} min</b>`}<br>${state2}`;
   const a = $("vdal-go"); if (p.u) { a.href = vdUrl(p); a.textContent = "🚀 APOSTAR EN " + vdHouseName().toUpperCase() + " →"; a.style.display = "inline-block"; } else a.style.display = "none";
@@ -1775,7 +1775,7 @@ function vdAlertCheck(x) {                // se llama en cada refresco, desde cu
   if (!x || !x.picks.length) return;
   const now = Date.now() / 1000, maxTs = Math.max(...x.picks.map((p) => p.ts));
   if (vdAl.base === null) { vdAl.base = maxTs; return; }       // primera carga: no se avisa lo viejo
-  const fresh = x.picks.filter((p) => p.ts > vdAl.base && p.s === "o" && p.st && p.st > now - 60 && p.ts > now - 600).sort((a, b) => b.ts - a.ts);
+  const fresh = x.picks.filter((p) => p.ts > vdAl.base && p.s === "o" && p.y !== "sobre el tope" && p.st && p.st > now - 60 && p.ts > now - 600).sort((a, b) => b.ts - a.ts);
   vdAl.base = Math.max(vdAl.base, maxTs);
   if (fresh.length && vdAl.on) vdAlertShow(fresh);
 }

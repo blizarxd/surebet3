@@ -100,3 +100,13 @@ def test_totals_and_first_half():
     assert markets == {"1x2_h1", "ou_h1_0.5"}
     assert sum(1 for q in h1 if q.market == "1x2_h1") == 6   # 1, X, 2 y las tres dobles oportunidades
     assert parse_first_half({**sub, "TG": "Corners"}, parent, 0.0) == []   # sub-partido de córners: no
+
+
+def test_hot_games_reload_args(tmp_path):
+    from surebet.sources.onexbet import OneXBetSource
+    s = OneXBetSource("https://1xbet-col.com", 285, tmp_path, [1])
+    s.leagues = {"11": {"sport": 1}, "22": {"sport": 3}}
+    assert s._reload_args("top:1") == (1, None)
+    assert s._reload_args("champs:11,22") == (1, ["11", "22"])
+    assert s._reload_args("explore:11") is None and s._reload_args("champs:99") is None
+    assert s.hot == set()

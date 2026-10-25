@@ -28,6 +28,8 @@ VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario 
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SOURCES = ("1xbet", "onexbet")
 HOUSES = ("1xBet", "Melbet", "888starz")   # casas donde apuestas a mano (MANUAL_HOUSES en el .env); /casa elige la de hoy
+MAX_PER_GAME = 2             # tope de avisos por partido (2 picks de $30 como máximo; los demás se anotan sin avisar)
+BATCH_S, BATCH_MIN = 60, 3   # «lote»: 3 o más señales nacidas en 60 s (suele ser 1xBet volviendo de un corte)
 MIN_EV = 1.0                 # cuota mínima aceptable: EV ≥ +1 % contra el precio justo de Polymarket
 LOOKBACK_S = 900             # picks del papel de los últimos 15 min (no avisar viejos tras reiniciar)
 SPORT_ICON = {"soccer": "⚽", "basketball": "🏀", "tennis": "🎾", "hockey": "🏒", "baseball": "⚾",
@@ -163,12 +165,12 @@ class ManualValor:
         """Los picks nuevos de 1xBet de la cuenta de valor en papel → mensajes (texto, botones) para Telegram."""
         now = now or time.time()
         rows = self.conn.execute(
-            "SELECT p.key, p.created_ts, p.start_ts, p.title, p.sport, p.market_name, p.market, p.edge_pct, p.legs_json "
+            "SELECT p.key, p.created_ts, p.start_ts, p.title, p.sport, p.market_name, p.market, p.edge_pct, p.legs_json, p.event_key "
             "FROM paper_ops p LEFT JOIN manual_value m ON m.key = p.key WHERE p.track='valor' AND p.kind='value' "
             "AND p.created_ts > ? AND m.key IS NULL ORDER BY p.created_ts", (now - LOOKBACK_S,)).fetchall()
         out = []
         on = self.active()
-        for key, ts, start, title, sport, mname, market, ev, legs in rows:
+        for key, ts, start, title, sport, mname, market, ev, legs, ek in rows:
             leg = (json.loads(legs or "[]") or [{}])[0]
             if leg.get("source") not in SOURCES or (sport or "") in OBSERVE_SPORTS:
                 continue
@@ -178,17 +180,28 @@ class ManualValor:
                 continue
             min_odds = min(math.ceil((1 + MIN_EV / 100) * fair * 100) / 100, round(odds, 2))
             status = "avisada" if on and self.in_hours(now) else ("no estabas" if not on else "fuera de horario")
+            prev = self.conn.execute(
+                "SELECT COUNT(*) FROM manual_value m JOIN paper_ops p ON p.key = m.key WHERE p.event_key = ? "
+                "AND m.status IN ('avisada','puesta','no estaba')", (ek,)).fetchone()[0]
+            if status == "avisada" and prev >= MAX_PER_GAME:
+                status = "sobre el tope"            # el 3.º pick del mismo partido: se anota, no se avisa
+            lote = self.conn.execute(
+                "SELECT COUNT(*) FROM paper_ops WHERE track='valor' AND kind='value' AND legs_json LIKE '%xbet%' "
+                "AND created_ts BETWEEN ? AND ?", (ts - BATCH_S, ts + BATCH_S)).fetchone()[0]
+            tags = ([f"⚠️ LOTE: {lote} señales nacieron juntas (suele pasar cuando 1xBet vuelve de un corte). "
+                     "Mira la cuota en la casa ANTES de apostar."] if lote >= BATCH_MIN else []) + \
+                   ([f"2️⃣ 2.º pick de este partido (tope {MAX_PER_GAME}: no se avisan más)"] if prev == 1 else [])
             cur = self.conn.execute(
                 "INSERT OR IGNORE INTO manual_value (key, created_ts, start_ts, title, sport, market, label, source, odds, "
                 "min_odds, fair_odds, ev_pct, stake, url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (key, now, start, title, sport, mname or market, leg.get("label"), leg.get("source"), odds, min_odds,
                  fair, ev, self.stake, leg.get("url") or "", status))
             if status == "avisada" and cur.rowcount:
-                out.append(self._message(cur.lastrowid, now))
+                out.append(self._message(cur.lastrowid, now, tags))
         self.conn.commit()
         return out
 
-    def _message(self, mid: int, now: float) -> tuple[str, list[tuple[str, str]]]:
+    def _message(self, mid: int, now: float, tags: list[str] | None = None) -> tuple[str, list[tuple[str, str]]]:
         start, title, sport, market, label, odds, min_odds, ev, stake, url = self.conn.execute(
             "SELECT start_ts, title, sport, market, label, odds, min_odds, ev_pct, stake, url FROM manual_value WHERE id=?",
             (mid,)).fetchone()
@@ -206,7 +219,7 @@ class ManualValor:
             (f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más" if house == "1xBet" else
              f"Cuota de 1xBet {_fmt_odds(odds)} · en {house} tómala si está a {_fmt_odds(min_odds)} o más (mira su cuota)"),
             f"Apuesta: ${stake:g} · cambiar de casa: /casa",
-        ] + ([f"🔗 {house}: {hurl}"] + ([f"🔗 1xBet: {url}"] if house != "1xBet" else []) if hurl else
+        ] + (tags or []) + ([f"🔗 {house}: {hurl}"] + ([f"🔗 1xBet: {url}"] if house != "1xBet" else []) if hurl else
               [f"🔗 {'Partido en 1xBet' if house != '1xBet' else 'Partido'}: {url}"] if url.startswith("http") else [])
           + ([f"ℹ️ Para el link en {house}: /dominio {house.lower()} <su dominio>"] if house != "1xBet" and not hurl else []))
         buttons = ([(f"Abrir en {house}", hurl)] if hurl else []) + (
