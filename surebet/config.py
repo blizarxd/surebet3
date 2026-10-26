@@ -82,6 +82,7 @@ class Settings:
     onexbet_sports: list[int] = field(default_factory=lambda: [int(x) for x in _list("ONEXBET_SPORTS", "1,3,4,10,40,2,6")])
     onexbet_prematch_s: float = field(default_factory=lambda: _f("ONEXBET_PREMATCH_S", 120))
     onexbet_live_s: float = field(default_factory=lambda: _f("ONEXBET_LIVE_S", 10))
+    onexbet_live: bool = field(default_factory=lambda: os.getenv("ONEXBET_LIVE", "0") == "1")   # el en vivo de 1xBet: apagado (tráfico de más)
 
     # OddsPapi (1xBet, Stake, Rollbit...). Plan gratis: 250 peticiones/mes, solo prepartido.
     oddspapi_key: str = field(default_factory=lambda: os.getenv("ODDSPAPI_KEY", ""))

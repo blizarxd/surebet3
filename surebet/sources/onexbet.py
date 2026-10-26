@@ -56,6 +56,8 @@ TOTALS_G, OVER_T, UNDER_T = 17, 9, 10
 REGULATION_DRAW = {"basketball", "hockey", "americanfootball"}
 BATCH_GAMES = 50     # una llamada devuelve como mucho 50 partidos
 BATCH_LEAGUES = 25   # y no conviene una URL enorme
+NEAR_H, MID_H = 2.0, 6.0   # partidos que empiezan en < 2 h: consulta normal; entre 2 y 6 h: más espaciada; más lejos: casi nada
+MID_INTERVAL_S, FAR_INTERVAL_S = 300, 900
 HOT_S = 45           # partidos con una señal de valor activa: su consulta se repite cada 45 s (el resto, cada prematch_interval_s)
 STALE_LINE_S = 900   # consultas que ya no se repiten (exploración, lotes viejos): se olvidan a los 15 min
 STALE_LIVE_S = 120
@@ -137,7 +139,7 @@ class OneXBetSource(Source):
     def __init__(self, base_url: str, partner: int, cache_dir: Path, sports: list[int],
                  prematch_interval_s: float = 120, live_interval_s: float = 10,
                  champs_refresh_s: float = 3600, explore_per_cycle: int = 4, horizon_h: float = 24,
-                 concurrency: int = 2, match_cfg: MatchConfig | None = None) -> None:
+                 concurrency: int = 2, match_cfg: MatchConfig | None = None, live_enabled: bool = True) -> None:
         super().__init__()
         self.base = base_url.rstrip("/")
         self.partner = partner
@@ -145,6 +147,7 @@ class OneXBetSource(Source):
         self.sports = sports
         self.prematch_interval_s = prematch_interval_s
         self.live_interval_s = live_interval_s
+        self.live_enabled = live_enabled     # el valor y las surebets que se avisan son de prepartido: el en vivo es tráfico de más
         self.champs_refresh_s = champs_refresh_s
         self.explore_per_cycle = explore_per_cycle
         self.horizon_h = horizon_h
@@ -260,10 +263,10 @@ class OneXBetSource(Source):
                 jobs.append(self._refresh_champs(client, sport))
             # Top 50 prepartido (ligas grandes) sin filtro de liga
             key = f"top:{sport}"
-            if now - self._line.get(key, (0, []))[0] > self.prematch_interval_s:
+            if now - self._line.get(key, (0, []))[0] > self._interval(key, now):
                 jobs.append(self._load_line(client, key, sport, None))
             # Vivo
-            if SPORT_FAMILY[sport] in live_fams and now - self._live.get(sport, (0, []))[0] > self.live_interval_s:
+            if self.live_enabled and SPORT_FAMILY[sport] in live_fams and now - self._live.get(sport, (0, []))[0] > self.live_interval_s:
                 jobs.append(self._load_live(client, sport))
 
         # Ligas con partidos en Polymarket (últimos 3 días): refresco periódico, agrupadas
@@ -271,7 +274,7 @@ class OneXBetSource(Source):
                if info.get("sport") in sports and now - info.get("last_hit", 0) < 3 * 86400]
         for sport, batch in self._batches_by_sport(hot):
             key = "champs:" + ",".join(sorted(batch, key=int))
-            if now - self._line.get(key, (0, []))[0] > self.prematch_interval_s:
+            if now - self._line.get(key, (0, []))[0] > self._interval(key, now):
                 jobs.append(self._load_line(client, key, sport, batch))
 
         # Exploración: ligas aún no vistas, primero las de nombre parecido a las de Polymarket
@@ -291,7 +294,7 @@ class OneXBetSource(Source):
         # cuota que cambió en 1xBet se nota pronto y «vigente» significa algo. Solo las que aún no tocaba el ciclo normal.
         if self.hot:
             for key, (ts, rows) in list(self._line.items()):
-                if HOT_S < now - ts <= self.prematch_interval_s and any(str(r.get("I")) in self.hot for r in rows):
+                if HOT_S < now - ts <= self._interval(key, now) and any(str(r.get("I")) in self.hot for r in rows):
                     args = self._reload_args(key)
                     if args:
                         jobs.append(self._load_line(client, key, *args))
@@ -325,6 +328,15 @@ class OneXBetSource(Source):
         if explore and champs:
             for li in champs:
                 self.leagues[li]["explored"] = time.time()
+
+    def _interval(self, key: str, now: float) -> float:
+        """Cada cuánto repetir una consulta: según lo cerca que esté el primer partido que trae (lo que se avisa es de ≤ 6 h)."""
+        rows = self._line.get(key, (0, []))[1]
+        starts = [r.get("S", 0) for r in rows if r.get("S", 0) > now]
+        if not starts:
+            return self.prematch_interval_s
+        ahead_h = (min(starts) - now) / 3600
+        return self.prematch_interval_s if ahead_h < NEAR_H else MID_INTERVAL_S if ahead_h < MID_H else FAR_INTERVAL_S
 
     def _reload_args(self, key: str) -> tuple[int, list[str] | None] | None:
         """(deporte, ligas) para repetir una consulta guardada en self._line; None si no se puede (exploración)."""

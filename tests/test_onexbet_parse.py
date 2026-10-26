@@ -110,3 +110,16 @@ def test_hot_games_reload_args(tmp_path):
     assert s._reload_args("champs:11,22") == (1, ["11", "22"])
     assert s._reload_args("explore:11") is None and s._reload_args("champs:99") is None
     assert s.hot == set()
+
+
+def test_polling_interval_depends_on_how_soon_the_match_starts(tmp_path):
+    import time as _t
+    from surebet.sources.onexbet import OneXBetSource
+    s = OneXBetSource("https://1xbet-col.com", 285, tmp_path, [1], prematch_interval_s=120, live_enabled=False)
+    now = _t.time()
+    s._line["near"] = (now, [{"S": now + 3600}])
+    s._line["mid"] = (now, [{"S": now + 4 * 3600}, {"S": now + 20 * 3600}])
+    s._line["far"] = (now, [{"S": now + 12 * 3600}])
+    s._line["old"] = (now, [{"S": now - 600}])
+    assert s._interval("near", now) == 120 and s._interval("mid", now) == 300 and s._interval("far", now) == 900
+    assert s._interval("old", now) == 120 and s._interval("nuevo", now) == 120 and s.live_enabled is False

@@ -155,6 +155,11 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   partidos con señal EV ≥ 1,5 %): sus consultas de línea se repiten cada 45 s (`HOT_S`) en vez de 120 s, y el dashboard da «vigente» solo si
   la señal se vio hace < 75 s (`VD_LIVE_S`). Pendiente de ver si baja la diferencia con tu 1xBet (caso Udinese–Milan: 3,83 vs 3,635).
   Día malo 25/10: 6 de 24 ganadas, papel −$299 (13 de las 32 en lote, −$324).
+- **Cortes de 1xBet, la lupa (25/10):** del 23 al 25/10 1xBet estuvo «caído» (nos rechaza) el 39 %, 36 % y 19 % del tiempo; los cortes son de
+  ~10 min y se concentran de 18 h a 24 h hora VE (hasta 80–100 % de esas horas) y casi no ocurren de 4 h a 12 h. No bajaron con la pausa 0,6 s ni con
+  el en vivo a 60 s. Medida nueva (25/10): consulta escalonada por cercanía del partido (`_interval`: < 2 h cada 120 s, 2–6 h cada 300 s, más
+  lejos cada 900 s; los partidos con señal activa cada 45 s) y en vivo de 1xBet APAGADO (`ONEXBET_LIVE=0`). Reglas: nada de VPN/rotar IPs.
+  Ideas pendientes: The Odds API de pago como respaldo de las cuotas de 1xBet (hoy 375 créditos gratis), avisos de corte solo si dura > 5 min.
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

@@ -272,7 +272,7 @@ async def main() -> None:
     if s.onexbet_enabled and not args.no_onexbet:
         others.append(OneXBetSource(
             base_url=s.onexbet_base, partner=s.onexbet_partner, cache_dir=s.db_path.parent / "onexbet",
-            sports=s.onexbet_sports, prematch_interval_s=s.onexbet_prematch_s, live_interval_s=s.onexbet_live_s,
+            sports=s.onexbet_sports, prematch_interval_s=s.onexbet_prematch_s, live_interval_s=s.onexbet_live_s, live_enabled=s.onexbet_live,
             horizon_h=s.horizon_h, match_cfg=mcfg,
         ))
     if s.cloudbet_api_key:
