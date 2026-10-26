@@ -275,7 +275,9 @@ class PaperBook:
                 in_play = _in_play(v.event, now)
                 resolve = None
                 vkey = "valor#" + key[len("value#"):]
-                if (self.cfg.value_account and not in_play and not self._taken(vkey)
+                akey = "amplio#" + key[len("value#"):]
+                # una selección entra UNA sola vez: como oro o como 🥈 (la que llegue primero); si no, llegarían dos avisos de lo mismo
+                if (self.cfg.value_account and not in_play and not self._taken(vkey) and not self._taken(akey)
                         and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
                     st = v.event.anchor.start
                     hrs = (st.timestamp() - now) / 3600 if st else None
@@ -285,8 +287,8 @@ class PaperBook:
                         op = self._enter_value(vkey, v, resolve, "valor")
                         if op:
                             new.append(op)
-                akey = "amplio#" + key[len("value#"):]
                 if (self.cfg.amplio_account and WIDE_EV[0] <= v.ev_pct < WIDE_EV[1] and not in_play and not self._taken(akey)
+                        and not self._taken(vkey)
                         and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
                     st = v.event.anchor.start
                     hrs = (st.timestamp() - now) / 3600 if st else None

@@ -310,3 +310,15 @@ def test_amplio_account_takes_ev_1_5_to_2_only_and_never_touches_the_gold_accoun
     off = PaperBook(tmp_path / "q.db", PaperConfig(min_persist_s=0, value_bankroll=1000, amplio_account=False))
     ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=2.036, label="Arsenal", market="1x2")])
     assert off.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=1.0), lambda k, m: RESOLVE) == []
+
+
+def test_a_selection_enters_once_either_as_amplio_or_as_gold(tmp_path):
+    pb = PaperBook(tmp_path / "p.db", PaperConfig(min_persist_s=0, value_bankroll=1000))
+    poly = [poly_q({o}, p, f"t_{o.lower()}") for o, p in ((HOME, 0.50), (DRAW, 0.28), (AWAY, 0.22))]
+
+    def run(odds):
+        ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=odds, label="Arsenal", market="1x2")])
+        return pb.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=1.0), lambda k, m: RESOLVE)
+    first = [o["track"] for o in run(2.036) if o["track"] in ("valor", "amplio")]       # EV +1,8 %: entra como 🥈
+    later = [o["track"] for o in run(2.10) if o["track"] in ("valor", "amplio")]        # luego sube a +5 %: NO entra otra vez como oro
+    assert first == ["amplio"] and later == []
