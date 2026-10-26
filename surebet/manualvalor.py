@@ -259,6 +259,23 @@ class ManualValor:
         self.conn.commit()
         return f"❌ Anotado: {label} no estaba a la cuota mínima en {self.house()} — {title}."
 
+    def register(self, cmd: str, args: list[str]) -> str:
+        """/puse <n.º> [cuota]  |  /noestaba <n.º>: anotar a mano una señal (p. ej. una «sobre el tope» que sí jugaste)."""
+        try:
+            mid = int(args[0].lstrip("#"))
+        except (IndexError, ValueError):
+            return "Uso: /puse 227 [cuota]  ·  /noestaba 227  (el n.º sale en el aviso y en el dashboard, columna «Tu botón»)"
+        row = self.conn.execute("SELECT odds FROM manual_value WHERE id=?", (mid,)).fetchone()
+        if not row:
+            return f"No encontré la señal #{mid}."
+        if cmd == "/noestaba":
+            return self.click(f"mv:no:{mid}")
+        try:
+            odds = float(args[1].replace(",", ".")) if len(args) > 1 else float(row[0])
+        except ValueError:
+            return "La cuota debe ser un número, por ejemplo: /puse 227 3.19"
+        return self.click(f"mv:ok:{mid}:{odds:.2f}")
+
     def today_line(self) -> str:
         t = today_stats(self.conn)
         return f"Hoy: {t['placed']} puestas de {t['alerted']} avisadas."

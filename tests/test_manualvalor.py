@@ -143,3 +143,18 @@ def test_amplio_alert_has_silver_tag_and_basketball_is_not_alerted(tmp_path):
     assert len(msgs) == 2 and any("🥈 VALOR AMPLIADO" in t for t, _ in msgs) and any(t.startswith("💰 VALOR") for t, _ in msgs)
     assert mv.conn.execute("SELECT status FROM manual_value WHERE key='valor#b'").fetchone()[0] == "sin ventaja (básquet)"
     assert mv.step() == []
+
+
+def test_register_a_signal_by_number_with_commands(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    now = time.time()
+    for i in range(3):
+        add(mv, f"valor#{i}", ts=now - 400 + i * 100, game="g1", odds=2.40)
+    mv.step()
+    third = mv.conn.execute("SELECT id, status FROM manual_value ORDER BY id DESC LIMIT 1").fetchone()
+    assert third[1] == "sobre el tope"                                    # el 3.º del partido no se avisó
+    assert "Uso:" in mv.register("/puse", []) and "No encontré" in mv.register("/puse", ["999"])
+    assert "Anotada" in mv.register("/puse", [f"#{third[0]}", "2,35"])     # la jugaste: se anota con tu cuota
+    r = mv.conn.execute("SELECT status, placed_odds FROM manual_value WHERE id=?", (third[0],)).fetchone()
+    assert r == ("puesta", 2.35) and "Anotado" in mv.register("/noestaba", [str(third[0])])
+    assert "número" in mv.register("/puse", [str(third[0]), "abc"])

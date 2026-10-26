@@ -1546,7 +1546,7 @@ function vdFillFilters(all) {
 // "Para apostar ahora": se refresca en cada pasada (la cuenta regresiva), aunque no haya cambios en los datos
 function vdNow(all) {
   const now = Date.now() / 1000;
-  const open = all.filter((p) => p.s === "o" && p.st && p.st > now + 120 && p.y !== "no estaba" && p.y !== "puesta").sort((a, b) => a.st - b.st);
+  const open = all.filter((p) => p.s === "o" && p.st && p.st > now + 120 && p.y !== "no estaba" && p.y !== "puesta" && p.y !== "sobre el tope").sort((a, b) => a.st - b.st);
   const live = open.filter((p) => vdLife(p, now).live || !p.ls), gone = open.filter((p) => !(vdLife(p, now).live || !p.ls));
   const playing = all.filter((p) => p.s === "o" && p.st && p.st <= now + 120);
   const left = (p) => { const m = Math.max(0, Math.round((p.st - now) / 60)); return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min` : `${m} min`; };
@@ -1580,8 +1580,8 @@ function vdListDraw() {
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
-      <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? "· avisada" : p.y ? esc(p.y) : ""}</td>
-      <td>${p.u ? `<a class="vd-btn ${p.s === "o" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${p.s === "o" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
+      <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}<div class="muted">¿la jugaste? en Telegram: /puse ${p.mid}</div>` : p.y ? esc(p.y) : ""}</td>
+      <td>${p.u ? `<a class="vd-btn ${p.s === "o" && p.y !== "sobre el tope" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${p.s === "o" && p.y !== "sobre el tope" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
   $("vd-list-n").textContent = `(${rows.length} apuestas)`;
   const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`;
   $("vd-pager").innerHTML = rows.length ? b(1, "«", vdPage === 1) + b(vdPage - 1, "‹ Anterior", vdPage === 1) + `<span class="muted">Página ${vdPage} de ${pages}</span>` + b(vdPage + 1, "Siguiente ›", vdPage === pages) + b(pages, "»", vdPage === pages) : "";

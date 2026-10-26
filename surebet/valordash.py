@@ -6,7 +6,7 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   d día · m minuto del día (Venezuela, UTC−4) · ts hora de la señal · st inicio del partido · t partido · l selección · o cuota · ev EV %
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
-  · tr nivel (oro | amplio = EV 1,5–2 %) · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
+  · mid n.º de la señal (para /puse y /noestaba en Telegram) · tr nivel (oro | amplio = EV 1,5–2 %) · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
   como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
 """
 
@@ -31,10 +31,10 @@ def summary(conn) -> dict | None:
     except sqlite3.OperationalError:
         return None
     try:
-        mv = {k: (s, po, mn, h) for k, s, po, mn, h in conn.execute("SELECT key, status, placed_odds, min_odds, house FROM manual_value")}
+        mv = {k: (s, po, mn, h, i) for k, s, po, mn, h, i in conn.execute("SELECT key, status, placed_odds, min_odds, house, id FROM manual_value")}
     except sqlite3.OperationalError:       # base anterior a la columna «house»
         try:
-            mv = {k: (s, po, mn, None) for k, s, po, mn in conn.execute("SELECT key, status, placed_odds, min_odds FROM manual_value")}
+            mv = {k: (s, po, mn, None, i) for k, s, po, mn, i in conn.execute("SELECT key, status, placed_odds, min_odds, id FROM manual_value")}
         except sqlite3.OperationalError:
             mv = {}
     raw = []
@@ -67,14 +67,14 @@ def summary(conn) -> dict | None:
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
         exp = 0.0 if c is None else STAKE * (c if abs(c) <= RARE_CLV else med) / 100
-        y, po, mn, hs = mv.get(key, (None, None, None, None))
+        y, po, mn, hs, mid = mv.get(key, (None, None, None, None, None))
         picks.append({"d": t.strftime("%Y-%m-%d"), "m": t.hour * 60 + t.minute, "ts": round(ts), "st": round(start) if start else None,
                       "t": (title or "")[:34], "l": (leg.get("label") or "")[:22], "o": round(odds, 3), "ev": round(ev or 0, 2),
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
                       "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
-                      "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro"})
+                      "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro"})
     if not picks:
         return None
     try:
