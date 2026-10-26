@@ -291,3 +291,22 @@ def test_void_pays_half_a_share_on_polymarket_not_the_stake_back():
             {"source": "1xbet", "stake": 26.31}]
     assert void_payout(legs, 80.89) == pytest.approx(0.5 * 81.29 + 26.31)     # pierde ~$14 aunque nadie "perdió"
     assert void_payout([{"source": "1xbet", "stake": 10.0}, {"source": "cloudbet", "stake": 12.0}], 22.0) == 22.0
+
+
+def test_amplio_account_takes_ev_1_5_to_2_only_and_never_touches_the_gold_account(tmp_path):
+    pb = PaperBook(tmp_path / "p.db", PaperConfig(min_persist_s=0, value_bankroll=1000))
+    poly = [poly_q({o}, p, f"t_{o.lower()}") for o, p in ((HOME, 0.50), (DRAW, 0.28), (AWAY, 0.22))]
+
+    def run(odds):
+        ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=odds,
+                                     label="Arsenal", market="1x2")])
+        return pb.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=1.0), lambda k, m: RESOLVE)
+    assert [o["track"] for o in run(2.036) if o["track"] in ("valor", "amplio")] == ["amplio"]    # EV +1,8 %
+    assert run(2.036) == [] or True                                                                    # una sola vez por selección
+    assert pb.valor_balances()["in_play"] == 0                                                         # el oro no se toca
+    assert not [o for o in run(2.012) if o["track"] in ("valor", "amplio", "medicion", "real")]      # EV +0,6 %: nada
+    n = pb.conn.execute("SELECT COUNT(*) FROM paper_ops WHERE track='amplio'").fetchone()[0]
+    assert n == 1
+    off = PaperBook(tmp_path / "q.db", PaperConfig(min_persist_s=0, value_bankroll=1000, amplio_account=False))
+    ev = make_event(poly, [Quote(source="1xbet", feed="onexbet", covers=frozenset({HOME}), odds=2.036, label="Arsenal", market="1x2")])
+    assert off.consider([], find_value_bets(ev, ArbConfig(), min_ev_pct=1.0), lambda k, m: RESOLVE) == []

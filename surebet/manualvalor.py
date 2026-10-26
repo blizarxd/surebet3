@@ -28,6 +28,7 @@ VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario 
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SOURCES = ("1xbet", "onexbet")
 HOUSES = ("1xBet", "Melbet", "888starz")   # casas donde apuestas a mano (MANUAL_HOUSES en el .env); /casa elige la de hoy
+NO_ALERT_SPORTS = ("basketball",)   # sin ventaja en 1xBet (CLV −0,1 %, 32 señales oro; 26/10): se anota, no se avisa
 MAX_PER_GAME = 2             # tope de avisos por partido (2 picks de $30 como máximo; los demás se anotan sin avisar)
 BATCH_S, BATCH_MIN = 60, 3   # «lote»: 3 o más señales nacidas en 60 s (suele ser 1xBet volviendo de un corte)
 MIN_EV = 1.0                 # cuota mínima aceptable: EV ≥ +1 % contra el precio justo de Polymarket
@@ -165,12 +166,12 @@ class ManualValor:
         """Los picks nuevos de 1xBet de la cuenta de valor en papel → mensajes (texto, botones) para Telegram."""
         now = now or time.time()
         rows = self.conn.execute(
-            "SELECT p.key, p.created_ts, p.start_ts, p.title, p.sport, p.market_name, p.market, p.edge_pct, p.legs_json, p.event_key "
-            "FROM paper_ops p LEFT JOIN manual_value m ON m.key = p.key WHERE p.track='valor' AND p.kind='value' "
+            "SELECT p.key, p.created_ts, p.start_ts, p.title, p.sport, p.market_name, p.market, p.edge_pct, p.legs_json, p.event_key, "
+            "p.track FROM paper_ops p LEFT JOIN manual_value m ON m.key = p.key WHERE p.track IN ('valor','amplio') AND p.kind='value' "
             "AND p.created_ts > ? AND m.key IS NULL ORDER BY p.created_ts", (now - LOOKBACK_S,)).fetchall()
         out = []
         on = self.active()
-        for key, ts, start, title, sport, mname, market, ev, legs, ek in rows:
+        for key, ts, start, title, sport, mname, market, ev, legs, ek, track in rows:
             leg = (json.loads(legs or "[]") or [{}])[0]
             if leg.get("source") not in SOURCES or (sport or "") in OBSERVE_SPORTS:
                 continue
@@ -183,10 +184,12 @@ class ManualValor:
             prev = self.conn.execute(
                 "SELECT COUNT(*) FROM manual_value m JOIN paper_ops p ON p.key = m.key WHERE p.event_key = ? "
                 "AND m.status IN ('avisada','puesta','no estaba')", (ek,)).fetchone()[0]
+            if status == "avisada" and (sport or "") in NO_ALERT_SPORTS:
+                status = "sin ventaja (básquet)"       # se anota, no se avisa
             if status == "avisada" and prev >= MAX_PER_GAME:
                 status = "sobre el tope"            # el 3.º pick del mismo partido: se anota, no se avisa
             lote = self.conn.execute(
-                "SELECT COUNT(*) FROM paper_ops WHERE track='valor' AND kind='value' AND legs_json LIKE '%xbet%' "
+                "SELECT COUNT(*) FROM paper_ops WHERE track IN ('valor','amplio') AND kind='value' AND legs_json LIKE '%xbet%' "
                 "AND created_ts BETWEEN ? AND ?", (ts - BATCH_S, ts + BATCH_S)).fetchone()[0]
             tags = ([f"⚠️ LOTE: {lote} señales nacieron juntas (suele pasar cuando 1xBet vuelve de un corte). "
                      "Mira la cuota en la casa ANTES de apostar."] if lote >= BATCH_MIN else []) + \
@@ -197,11 +200,11 @@ class ManualValor:
                 (key, now, start, title, sport, mname or market, leg.get("label"), leg.get("source"), odds, min_odds,
                  fair, ev, self.stake, leg.get("url") or "", status))
             if status == "avisada" and cur.rowcount:
-                out.append(self._message(cur.lastrowid, now, tags))
+                out.append(self._message(cur.lastrowid, now, tags, track == "amplio"))
         self.conn.commit()
         return out
 
-    def _message(self, mid: int, now: float, tags: list[str] | None = None) -> tuple[str, list[tuple[str, str]]]:
+    def _message(self, mid: int, now: float, tags: list[str] | None = None, amplio: bool = False) -> tuple[str, list[tuple[str, str]]]:
         start, title, sport, market, label, odds, min_odds, ev, stake, url = self.conn.execute(
             "SELECT start_ts, title, sport, market, label, odds, min_odds, ev_pct, stake, url FROM manual_value WHERE id=?",
             (mid,)).fetchone()
@@ -213,7 +216,7 @@ class ManualValor:
             when = f" · empieza {datetime.fromtimestamp(start, VET):%H:%M} (en {mins // 60} h {mins % 60:02d} min)" \
                 if mins >= 60 else f" · empieza {datetime.fromtimestamp(start, VET):%H:%M} (en {mins} min)"
         text = "\n".join([
-            f"💰 VALOR {ev:+.1f} % · #{mid} · 🏦 {house}",
+            (f"🥈 VALOR AMPLIADO {ev:+.1f} % · #{mid} · 🏦 {house}" if amplio else f"💰 VALOR {ev:+.1f} % · #{mid} · 🏦 {house}"),
             f"{SPORT_ICON.get(sport, '🎯')} {title}{when}",
             f"👉 {market}: {label}",
             (f"Cuota {_fmt_odds(odds)} · tómala si está a {_fmt_odds(min_odds)} o más" if house == "1xBet" else

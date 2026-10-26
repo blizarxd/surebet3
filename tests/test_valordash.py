@@ -39,7 +39,7 @@ def test_picks_at_fixed_30(tmp_path):
     assert abs(P[0]["e"] - 1.2) < 1e-9 and P[0]["mk"] == "1X2" and P[0]["sp"] == "soccer"   # esperado = 30 × CLV 4 %
     assert P[0]["u"] == "https://1xbet-col.com/x" and P[0]["y"] == "puesta" and P[0]["po"] == 2.4 and P[1]["y"] is None and P[0]["h"] == "Melbet" and P[1]["h"] is None
     assert P[0]["ls"] - P[0]["fs"] == 1440 and P[1]["fs"] is not None and P[2]["fs"] is None   # duración de la señal (24 min)
-    assert P[0]["lt"] == 4 and P[0]["n"] == 1                           # 4 señales en pocos segundos = lote; partidos distintos
+    assert P[0]["tr"] == "oro" and P[0]["lt"] == 4 and P[0]["n"] == 1                           # 4 señales en pocos segundos = lote; partidos distintos
     assert summary(sqlite3.connect(tmp_path / "vacia.db")) is None
 
 
@@ -55,3 +55,16 @@ def test_batch_and_nth_pick_of_the_game(tmp_path):
     c.commit()
     P = summary(c)["picks"]
     assert [p["lt"] for p in P] == [3, 3, 3, 0] and [p["n"] for p in P] == [1, 1, 1, 2]
+
+
+def test_amplio_track_is_included_and_tagged(tmp_path):
+    c = sqlite3.connect(tmp_path / "p.db")
+    for q in (PAPER, VB, MV):
+        c.execute(q)
+    now = time.time()
+    for i, tr in enumerate(("valor", "amplio")):
+        c.execute("INSERT INTO paper_ops VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (f"{tr}#{i}", "value", tr, now + i * 500, now + 9000, f"e{i}", "1x2", "1X2", "soccer", 1.8, "P",
+                   json.dumps([{"source": "1xbet", "label": "A", "covers": ["H"], "odds": 2.0, "url": "u"}]), "open"))
+    c.commit()
+    assert [p["tr"] for p in summary(c)["picks"]] == ["oro", "amplio"]

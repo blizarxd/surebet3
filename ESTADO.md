@@ -160,6 +160,11 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
   el en vivo a 60 s. Medida nueva (25/10): consulta escalonada por cercanía del partido (`_interval`: < 2 h cada 120 s, 2–6 h cada 300 s, más
   lejos cada 900 s; los partidos con señal activa cada 45 s) y en vivo de 1xBet APAGADO (`ONEXBET_LIVE=0`). Reglas: nada de VPN/rotar IPs.
   Ideas pendientes: The Odds API de pago como respaldo de las cuotas de 1xBet (hoy 375 créditos gratis), avisos de corte solo si dura > 5 min.
+- **Oro ampliado 🥈 (26/10, decidido por el usuario):** cuenta aparte `track='amplio'` (`PaperConfig.amplio_account`, `AMPLIO_ENABLED=1`) con EV 1,5–2 % (cuota 1,6–4,
+  ≤ 6 h), monto fijo; entra a los avisos (🥈 VALOR AMPLIADO) y al dashboard (filtro «Nivel»), pero NO toca la cuenta oro ni las demás. Motivo: 16,5 días,
+  152 señales, CLV +2,66 % (83 % a favor, mitades +2,85/+2,43), igual que el oro (+2,64 %); suma ~9 señales/día (~$7/día esperado a $30). Básquet:
+  sin aviso (`NO_ALERT_SPORTS`; CLV −0,1 % en 32 señales oro). «Oro» = EV 2–7 %, cuota 1,6–4, ≤ 6 h, prepartido, sin CS2/Dota2 (`safety.golden_value`);
+  «valor normal» = cualquier señal con EV positivo, se anota (se mide su CLV) pero no se avisa. Vigilar el 🥈 aparte unas 2 semanas.
 - **Backtest valor + red en Azuro (18/10, 33 picks en 2,3 días):** regla actual (~$13 Azuro + ~$17 red) esperado +$11,5 con red /
   +$21 sin red (real +$20 / +$101, suerte); con $30 en Azuro: esperado +$27 con red (~$12/día) / +$47 sin red. CLV Azuro: mediana
   +3,6 % (la media +6,5 % la inflan 2 casos raros). 10 de las 21 redes llenas ya eran surebet al entrar.

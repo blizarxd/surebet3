@@ -379,6 +379,7 @@
     <label>Cuota máx.<input id="vd-f-omax" type="number" step="0.1" min="1" placeholder="4" style="width:80px"></label>
     <label>Horas antes del partido<select id="vd-f-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
     <label>🏦 Casa para los links de esta web<select id="vd-house-sel"><option>1xBet</option><option>Melbet</option><option>888starz</option></select></label>
+    <label>Nivel<select id="vd-f-tr"><option value="all">Oro + amplio</option><option value="oro">Oro (EV ≥ 2 %)</option><option value="amplio">🥈 Amplio (EV 1,5–2 %)</option></select></label>
     <label>Casa donde la puse<select id="vd-f-h"><option value="all">Todas</option><option>1xBet</option><option>Melbet</option><option>888starz</option></select></label>
     <label>Buscar equipo<input id="vd-f-q" type="search" placeholder="Arsenal, Bucks…"></label>
     <label class="chk"><input id="vd-f-mine" type="checkbox"> Solo las que puse (✅)</label>
@@ -1480,7 +1481,7 @@ function vdOkWith(f, o) {                   // filtros por deporte, mercado, cuo
   return true;
 }
 const vdHeatOk = (o) => vdOkWith(vdH, o);
-const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", omin: null, omax: null, hb: "all", h: "all"};
+const vdF = {stake: 30, fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", omin: null, omax: null, hb: "all", h: "all", tr: "all"};
 const VD_FR = [[0,4],[4,8],[8,12],[12,16],[16,20],[20,24]], VD_DN = ["dom","lun","mar","mié","jue","vie","sáb"];
 const vdFm = (v, s = 1) => (v < 0 ? "−" : s ? "+" : "") + "$" + Math.abs(Math.round(v)).toLocaleString("es-CO");
 const vdHm = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
@@ -1511,7 +1512,7 @@ function vdFilters(all) {
   const f = vdF, q = f.q.trim().toLowerCase();
   return all.filter((p) => (f.fr === "all" || vdFr(p.m) === +f.fr) && (f.sp === "all" || p.sp === f.sp) && (f.mk === "all" || vdFam(p.mk) === f.mk)
     && (f.res === "all" || (f.res === "cerr" ? p.s !== "o" : p.s === f.res)) && (!f.mine || p.y === "puesta")
-    && (!q || (p.t + " " + p.l).toLowerCase().includes(q)) && (f.h === "all" || p.h === f.h) && (f.omin == null || p.o >= f.omin) && (f.omax == null || p.o <= f.omax)
+    && (!q || (p.t + " " + p.l).toLowerCase().includes(q)) && (f.h === "all" || p.h === f.h) && (f.tr === "all" || p.tr === f.tr) && (f.omin == null || p.o >= f.omin) && (f.omax == null || p.o <= f.omax)
     && (f.hb === "all" || (p.st && (() => { const h = (p.st - p.ts) / 3600, [a, b] = f.hb.split("-").map(Number); return h >= a && h < b; })())));
 }
 
@@ -1530,9 +1531,9 @@ function vdFillFilters(all) {
   [["mk", "vd-hf-mk"], ["od", "vd-hf-od"], ["hb", "vd-hf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdH[k] = e.target.value; vdDraw(); }));
   $("vd-hf-reset").addEventListener("click", () => { Object.assign(vdH, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-hf-mk", "vd-hf-od", "vd-hf-hb"].forEach((id) => $(id).value = "all"); $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdDraw(); });
   const bind = (id, key, num) => $(id).addEventListener("input", (e) => { vdF[key] = e.target.type === "checkbox" ? e.target.checked : (num ? +e.target.value : e.target.value); vdPage = 1; vdDraw(); });
-  bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb"); bind("vd-f-h", "h");
+  bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb"); bind("vd-f-h", "h"); bind("vd-f-tr", "tr");
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
-  $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all"}); $("vd-f-h").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
+  $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-csv").addEventListener("click", () => {
     const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
@@ -1575,7 +1576,7 @@ function vdListDraw() {
   vdPage = Math.min(Math.max(1, vdPage), pages);
   const slice = rows.slice((vdPage - 1) * per, vdPage * per), res = {g: `<span class="pos">✅ ganada</span>`, p: `<span class="neg">❌ perdida</span>`, a: `<span class="tag void">anulada</span>`, o: `<span class="tag open">abierta</span>`};
   $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
-    (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}</td>
+    (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${p.tr === "amplio" ? ` · 🥈 amplio` : ""}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
@@ -1753,7 +1754,7 @@ function vdAlertRender() {
   const L = vdLife(p, now), mins = p.st ? Math.max(0, Math.round((p.st - now) / 60)) : null;
   $("vdal-emo").textContent = p.sp.startsWith("esports") ? "🎮" : (VD_EMO[p.sp] || "🎯");
   $("vdal-match").textContent = p.t; $("vdal-pick").textContent = "🎯 " + p.l + " · " + vdFam(p.mk);
-  $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>${p.lt ? `<span class="chip">⚠ LOTE ${p.lt}: mira la cuota antes</span>` : ""}${p.n > 1 ? `<span class="chip">${p.n}.º pick del partido</span>` : ""}`;
+  $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>${p.tr === "amplio" ? `<span class="chip">🥈 AMPLIADO</span>` : ""}${p.lt ? `<span class="chip">⚠ LOTE ${p.lt}: mira la cuota antes</span>` : ""}${p.n > 1 ? `<span class="chip">${p.n}.º pick del partido</span>` : ""}`;
   const state2 = L.live || !p.ls ? "🟢 VIGENTE — ¡todavía se puede apostar!" : `⚪ la cuota ya cambió (duró ${vdDur(L.dur)})`;
   $("vdal-when").innerHTML = `${mins == null ? "" : mins >= 60 ? `⏳ empieza en ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min` : `⏳ empieza en <b>${mins} min</b>`}<br>${state2}`;
   const a = $("vdal-go"); if (p.u) { a.href = vdUrl(p); a.textContent = "🚀 APOSTAR EN " + vdHouseName().toUpperCase() + " →"; a.style.display = "inline-block"; } else a.style.display = "none";

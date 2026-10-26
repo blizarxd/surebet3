@@ -6,7 +6,7 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   d día · m minuto del día (Venezuela, UTC−4) · ts hora de la señal · st inicio del partido · t partido · l selección · o cuota · ev EV %
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
-  · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
+  · tr nivel (oro | amplio = EV 1,5–2 %) · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
   como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
 """
 
@@ -27,7 +27,7 @@ def summary(conn) -> dict | None:
     try:
         vb = {k: (c, fs, ls) for k, c, fs, ls in conn.execute("SELECT key, clv_pct, first_seen, last_seen FROM value_bets")}
         ops = conn.execute("SELECT key, event_key, market, market_name, legs_json, status, created_ts, start_ts, title, sport, "
-                           "edge_pct FROM paper_ops WHERE track='valor' ORDER BY created_ts").fetchall()
+                           "edge_pct, track FROM paper_ops WHERE track IN ('valor','amplio') ORDER BY created_ts").fetchall()
     except sqlite3.OperationalError:
         return None
     try:
@@ -38,12 +38,12 @@ def summary(conn) -> dict | None:
         except sqlite3.OperationalError:
             mv = {}
     raw = []
-    for key, ek, mk, mname, legs, status, ts, start, title, sport, ev in ops:
+    for key, ek, mk, mname, legs, status, ts, start, title, sport, ev, track in ops:
         leg = (json.loads(legs) or [{}])[0]
         if leg.get("source") not in SOURCES or status not in STATUS:
             continue
         raw.append((key, ek, mk, mname, leg, status, ts, start, title, sport, ev,
-                    vb.get(f"{ek}#{mk}#{leg['source']}:{''.join(leg.get('covers') or [])}", (None, None, None))))
+                    vb.get(f"{ek}#{mk}#{leg['source']}:{''.join(leg.get('covers') or [])}", (None, None, None)), track))
     # lote: 3 o más señales nacidas en 60 s; n.º de pick dentro del mismo partido (el aviso se corta en MAX_PER_GAME)
     lot, i = {}, 0
     while i < len(raw):
@@ -62,7 +62,7 @@ def summary(conn) -> dict | None:
     vals = sorted(r[11][0] for r in raw if r[11][0] is not None)
     med = vals[len(vals) // 2] if vals else 0.0
     picks = []
-    for key, ek, mk, mname, leg, status, ts, start, title, sport, ev, (c, fs, ls) in raw:
+    for key, ek, mk, mname, leg, status, ts, start, title, sport, ev, (c, fs, ls), track in raw:
         t = datetime.fromtimestamp(ts, VET)
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
@@ -74,7 +74,7 @@ def summary(conn) -> dict | None:
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
                       "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
-                      "lt": lot.get(key, 0), "n": ordinal.get(key, 1)})
+                      "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro"})
     if not picks:
         return None
     try:

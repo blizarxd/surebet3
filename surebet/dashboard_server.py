@@ -402,7 +402,7 @@ def build_state(db_path: Path, status_path: Path) -> dict:
     valor_ops = [o for o in ops if o["track"] == "valor"]  # cuenta de apuestas de valor "oro"
     value_measured = [o for o in ops if o["kind"] == "value" and o["track"] == "medicion"]
     ops_all = ops
-    all_ops = [o for o in ops if o["track"] not in ("auto", "valor", "autovivo")]
+    all_ops = [o for o in ops if o["track"] not in ("auto", "valor", "amplio", "autovivo")]
     measure = _measure(all_ops)
     ops = [o for o in all_ops if o["track"] == "real"]  # la cuenta de $1000 (lo demás solo se mide)
     settled = [o for o in ops if o["status"] != "open"]

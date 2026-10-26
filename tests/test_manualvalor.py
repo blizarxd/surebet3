@@ -130,3 +130,16 @@ def test_cap_of_two_per_game_second_pick_tag_and_batch_warning(tmp_path):
     assert len(msgs) == 3 and all("LOTE: 3 señales" in t for t, _ in msgs)
     s = summary(mv.conn)
     assert s["total"]["alerted"] == 5 and s["total"]["n"] == 6
+
+
+def test_amplio_alert_has_silver_tag_and_basketball_is_not_alerted(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", stake=30, hours="0-24")
+    add(mv, "amplio#a")
+    mv.conn.execute("UPDATE paper_ops SET track='amplio' WHERE key='amplio#a'")
+    add(mv, "valor#b", sport="basketball")
+    add(mv, "valor#c")
+    mv.conn.commit()
+    msgs = mv.step()
+    assert len(msgs) == 2 and any("🥈 VALOR AMPLIADO" in t for t, _ in msgs) and any(t.startswith("💰 VALOR") for t, _ in msgs)
+    assert mv.conn.execute("SELECT status FROM manual_value WHERE key='valor#b'").fetchone()[0] == "sin ventaja (básquet)"
+    assert mv.step() == []

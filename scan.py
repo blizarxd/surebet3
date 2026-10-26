@@ -311,7 +311,7 @@ async def main() -> None:
             bankroll=s.paper_bankroll, arb_stake=s.paper_arb_stake, value_max_pct=s.paper_value_max_pct,
             kelly_fraction=s.kelly_fraction, min_persist_s=s.paper_min_persist_s,
             min_margin_pct=s.min_margin_pct, suspicious_margin_pct=cfg.suspicious_margin_pct,
-            value_min_ev_pct=s.value_min_ev_pct, include_live=s.paper_include_live,
+            value_min_ev_pct=s.value_min_ev_pct, include_live=s.paper_include_live, amplio_account=s.amplio_enabled,
             take_value=s.paper_take_value, measure=s.paper_measure, measure_stake=s.paper_measure_stake,
             real_max_hours=s.paper_real_max_hours, live_accept_delay_s=s.paper_live_delay_s,
             real_min_net_pct=s.paper_real_min_net_pct, value_bankroll=s.value_bankroll,

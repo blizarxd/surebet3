@@ -36,7 +36,7 @@ import httpx
 from .arb import POLYMARKET, ValueBet, size_legs
 from .models import Opportunity, market_label
 from .pricing import effective_odds, fill_detail
-from .safety import OBSERVE_SPORTS, golden_value, observe_only
+from .safety import OBSERVE_SPORTS, golden_value, observe_only, WIDE_EV, wide_value
 from .staking import net_limit, value_stake
 
 CLOB = "https://clob.polymarket.com"
@@ -111,6 +111,7 @@ class PaperConfig:
     live_accept_delay_s: float = 8.0
     # Cuenta aparte solo de apuestas de valor "oro" (track 'valor'): Kelly/4 con tope de value_max_pct
     value_account: bool = True
+    amplio_account: bool = True      # «oro ampliado» (EV 1,5–2 %, 23/10): cuenta aparte, track 'amplio', se avisa con 🥈
     value_bankroll: float = 1000.0
     value_min_total: float = 0.0     # mínimo entre casa + red (ver surebet/staking.py)
     # Solo observación (medición), nunca en la real ni en el automático: CS2 y Dota2 (ver safety.OBSERVE_SPORTS)
@@ -268,7 +269,8 @@ class PaperBook:
                 # Una sola anotación por resultado (1xBet llega por dos fuentes): la de mejor cuota, que va primero
                 key = f"value#{v.event.key}#{v.market}#{''.join(sorted(v.quote.covers))}"
                 present.add(key)
-                if not (self.cfg.value_min_ev_pct <= v.ev_pct < self.cfg.value_max_ev_pct):
+                low = min(self.cfg.value_min_ev_pct, WIDE_EV[0]) if self.cfg.amplio_account else self.cfg.value_min_ev_pct
+                if not (low <= v.ev_pct < self.cfg.value_max_ev_pct):
                     continue
                 in_play = _in_play(v.event, now)
                 resolve = None
@@ -283,6 +285,17 @@ class PaperBook:
                         op = self._enter_value(vkey, v, resolve, "valor")
                         if op:
                             new.append(op)
+                akey = "amplio#" + key[len("value#"):]
+                if (self.cfg.amplio_account and WIDE_EV[0] <= v.ev_pct < WIDE_EV[1] and not in_play and not self._taken(akey)
+                        and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
+                    st = v.event.anchor.start
+                    hrs = (st.timestamp() - now) / 3600 if st else None
+                    if wide_value(False, v.ev_pct, v.quote.odds, hrs) and self._ready(key, now, False, v.quote.ts):
+                        op = self._enter_value(akey, v, resolution(v.event, v.market), "amplio")
+                        if op:
+                            new.append(op)
+                if v.ev_pct < self.cfg.value_min_ev_pct:
+                    continue                      # por debajo del mínimo normal solo existe el oro ampliado
                 if self._taken(key):
                     continue
                 real = self.cfg.take_value and (self.cfg.include_live or not in_play) and self._soon(v.event, now)
