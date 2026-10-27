@@ -1470,7 +1470,7 @@ function renderManual(x) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
 }
 
-let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdDayPg = 1;
+let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdHeatAll = false, vdDayPg = 1;
 const VD_DAYS_PER_PAGE = 9;
 // botones «« ‹ Página n de N › »» (data-pg) para un paginador; devuelve el texto HTML
 function vdPagerHtml(page, pages, label) {
@@ -1543,7 +1543,8 @@ function vdFillFilters(all) {
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
-  $("vd-heat-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
+  $("vd-heat-pager").addEventListener("click", (e) => { const a = e.target.closest("button[data-all]"); if (a) { vdHeatAll = a.dataset.all === "1"; vdHeatPg = 1; vdDraw(); return; }
+    const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
   $("vd-days-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdDayPg = +b.dataset.pg; vdDraw(); });
   $("vd-csv").addEventListener("click", () => {
     const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
@@ -1680,10 +1681,18 @@ function vdDraw() {
   const mx = Math.max(1, ...keys.flatMap((kk) => cell[kk].map((c) => Math.abs(c.pnl))));
   const col = (v) => { const a = Math.min(1, Math.abs(v) / mx); return `background:rgba(${v >= 0 ? "62,207,142" : "240,97,109"},${(.14 + .55 * a).toFixed(2)})`; };
   let h = `<tr><th class="l">Día</th>${FR.map((r) => `<th>${String(r[0]).padStart(2, "0")}–${String(r[1]).padStart(2, "0")} h</th>`).join("")}<th>Total del día</th></tr>`;
-  const hpages = Math.max(1, Math.ceil(keys.length / VD_DAYS_PER_PAGE)); vdHeatPg = Math.min(Math.max(1, vdHeatPg), hpages);
-  keys.slice().reverse().slice((vdHeatPg - 1) * VD_DAYS_PER_PAGE, vdHeatPg * VD_DAYS_PER_PAGE).forEach((kk) => { const j = keys.indexOf(kk); h +=`<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
+  // por semana (lunes a domingo, la más reciente primero) o «ver todo»
+  const wk = (kk) => { const d = new Date(kk + "T12:00:00"); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.toISOString().slice(0, 10); };
+  const weeks = [...new Set(keys.slice().reverse().map(wk))], hpages = Math.max(1, weeks.length); vdHeatPg = Math.min(Math.max(1, vdHeatPg), hpages);
+  const shown = vdHeatAll ? keys.slice().reverse() : keys.slice().reverse().filter((kk) => wk(kk) === weeks[vdHeatPg - 1]);
+  shown.forEach((kk) => { const j = keys.indexOf(kk); h +=`<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
   const ft = FR.map((_, f) => keys.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl, e: a.e + cell[kk][f].e}), {n: 0, pnl: 0, e: 0}));
-  $("vd-heat-pager").innerHTML = vdPagerHtml(vdHeatPg, hpages, `Días ${(vdHeatPg - 1) * VD_DAYS_PER_PAGE + 1}–${Math.min(keys.length, vdHeatPg * VD_DAYS_PER_PAGE)} · página`);
+  { const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`, f = shown[shown.length - 1], l = shown[0];
+    $("vd-heat-pager").innerHTML = (vdHeatAll ? "" : (hpages > 1 ? b(vdHeatPg - 1, "‹ Semana más reciente", vdHeatPg === 1) + `<span class="muted">Semana ${dname(f).slice(4)} – ${dname(l).slice(4)} (${vdHeatPg} de ${hpages})</span>` + b(vdHeatPg + 1, "Semana anterior ›", vdHeatPg === hpages) : `<span class="muted">Semana ${dname(f).slice(4)} – ${dname(l).slice(4)}</span>`))
+      + (vdHeatAll || hpages > 1 ? `<button data-all="${vdHeatAll ? 0 : 1}" class="${vdHeatAll ? "" : "on"}">${vdHeatAll ? "Ver por semana" : "Ver todo"}</button>` : ""); }
+  if (!vdHeatAll && shown.length < keys.length) {
+    const wt = FR.map((_, f) => shown.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl}), {n: 0, pnl: 0})), wsum = wt.reduce((s, c) => s + c.pnl, 0);
+    h += `<tr><th class="l">Total de la semana</th>${wt.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${c.n ? fm(c.pnl) : "·"}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${wsum >= 0 ? "pos" : "neg"}">${fm(wsum)}</td></tr>`; }
   h += `<tr><th class="l">Total (todos los días)</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
   $("vd-heat").innerHTML = h;
   const bm = Math.max(1, ...ft.map((c) => Math.max(Math.abs(c.pnl), c.e))) * 1.08;
