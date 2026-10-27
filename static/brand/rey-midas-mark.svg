@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="El Rey Midas">
+  <defs>
+    <linearGradient id="oro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F8DD8E"/><stop offset=".55" stop-color="#E8B54A"/><stop offset="1" stop-color="#B07A1C"/>
+    </linearGradient>
+  </defs>
+  <path d="M9 46 V21 L22.5 34.5 L32 18.5 L41 30.5 L50.5 15 L52 46 Z" fill="url(#oro)"/>
+  <path d="M21 46 L32 28.5 L43 46 Z" fill="#9A6A12" opacity=".5"/>
+  <rect x="8" y="49.5" width="46" height="5" rx="1.2" fill="url(#oro)"/>
+  <circle cx="52" cy="9.5" r="5" fill="url(#oro)"/>
+</svg>

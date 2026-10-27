@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -603,6 +604,11 @@ def _notify_telegram(db_path: Path, mid: int, prev: str | None) -> None:
         pass            # el aviso es un extra: nunca debe romper el panel
 
 
+BRAND_TYPES = {"svg": "image/svg+xml", "png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "mp4": "video/mp4",
+               "webm": "video/webm", "ico": "image/x-icon"}
+BRAND_NAME = re.compile(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*\.[a-z0-9]+")
+
+
 class _Handler(BaseHTTPRequestHandler):
     db_path: Path
     status_path: Path
@@ -610,12 +616,12 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *args) -> None:  # silencioso: no ensucia la consola del escáner
         pass
 
-    def _send(self, code: int, body: bytes, ctype: str, gzip_: bool = False) -> None:
+    def _send(self, code: int, body: bytes, ctype: str, gzip_: bool = False, cache: str = "no-store") -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         if gzip_:
             self.send_header("Content-Encoding", "gzip")
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -658,6 +664,15 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send(200, body[0], "application/json; charset=utf-8")
             except Exception as e:  # el panel nunca debe tumbar al escáner
                 self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+            return
+        if self.path.startswith("/brand/"):            # logo, banner, avatar: archivos fijos de static/brand/
+            name = self.path[len("/brand/"):].split("?")[0]
+            kind = BRAND_TYPES.get(name.rsplit(".", 1)[-1].lower()) if "." in name else None
+            f = STATIC / "brand" / name
+            if kind and BRAND_NAME.fullmatch(name) and ".." not in name and f.is_file():
+                self._send(200, f.read_bytes(), kind, cache="public, max-age=86400")
+            else:
+                self._send(404, b"no encontrado", "text/plain")
             return
         page = STATIC / "index.html"
         if self.path in ("/", "/index.html") and page.exists():

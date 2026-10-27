@@ -3,23 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>surebet3 · Panel</title>
+<title>El Rey Midas</title>
+<meta name="description" content="Señales de valor oro: cuotas de 1xBet contra el precio de Polymarket.">
+<meta property="og:title" content="El Rey Midas"><meta property="og:description" content="Señales de valor · oro">
+<meta property="og:image" content="brand/og.webp"><meta name="theme-color" content="#0b0b0d">
+<link rel="icon" type="image/svg+xml" href="brand/rey-midas-mark.svg"><link rel="apple-touch-icon" href="brand/avatar-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Manrope:wght@400;500;600;700;800&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
+  /* El Rey Midas — obsidiana y oro: el oro marca lo que vale (marca, botones, foco); verde y rojo solo dicen ganó / perdió */
   :root {
-    --bg: #0f1216; --panel: #171b21; --panel2: #1d222a; --line: #2a313b; --text: #e6e9ee;
-    --muted: #8b95a3; --green: #3ecf8e; --red: #f0616d; --amber: #f5b14c; --blue: #5aa9ff; --violet: #a58bff;
+    --bg: #0b0b0d; --panel: #141417; --panel2: #1c1c21; --line: #2b2a30; --text: #efe9dc;
+    --muted: #9c9483; --green: #3ecf8e; --red: #f0616d; --amber: #f2903e; --blue: #e8b54a; --violet: #b49cff;
+    --gold: #e8b54a; --gold-hi: #f8dd8e; --gold-deep: #b07a1c; --on-gold: #1a1204;
+    --font-brand: "Cinzel", "Trajan Pro", Georgia, serif;
+    --font-ui: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: light) {
-    :root { --bg: #f4f6f9; --panel: #ffffff; --panel2: #f0f2f6; --line: #dde2ea; --text: #1a1f27;
-            --muted: #667085; --green: #12915b; --red: #d23b49; --amber: #b7791f; --blue: #2b6fd6; --violet: #6d4fd8; }
+    :root { --bg: #f5f4f0; --panel: #ffffff; --panel2: #f0eee8; --line: #e0dcd2; --text: #19171a;
+            --muted: #6a6458; --green: #12915b; --red: #d23b49; --amber: #b85d12; --blue: #94620a; --violet: #6d4fd8;
+            --gold: #b8860b; --gold-hi: #d9a83a; --gold-deep: #8a5d06; --on-gold: #1a1204; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line);
-           position: sticky; top: 0; background: var(--bg); z-index: 5; flex-wrap: wrap; }
-  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+         font: 14px/1.45 var(--font-ui); }
+  /* cabecera: banda con el banner (corona a la derecha) y la marca; la barra de pestañas queda fija al bajar */
+  header { position: relative; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 30px 28px 28px; min-height: 118px;
+           background: var(--bg) url("brand/banner.webp") right center / cover no-repeat; border-bottom: 1px solid var(--line); overflow: hidden; }
+  header::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 82%, transparent) 42%, color-mix(in srgb, var(--bg) 10%, transparent) 100%); pointer-events: none; }
+  header::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; pointer-events: none;
+                  background: linear-gradient(90deg, transparent, var(--gold-deep) 20%, var(--gold-hi) 50%, var(--gold-deep) 80%, transparent); background-size: 200% 100%; animation: rmShine 6s linear infinite; }
+  header > * { position: relative; }
+  header h1 { margin: 0; display: flex; align-items: center; gap: 14px; }
+  header h1 .rm-mark { width: 58px; height: 58px; flex: none; filter: drop-shadow(0 0 10px color-mix(in srgb, var(--gold) 45%, transparent)); animation: rmGlow 3.6s ease-in-out infinite; }
+  header h1 .rm-name { display: grid; line-height: 1; }
+  header h1 .rm-name b { font: 700 31px/1 var(--font-brand); letter-spacing: .14em; color: var(--gold); background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, var(--gold-deep)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  header h1 .rm-name small { font: 600 11px/1 var(--font-ui); letter-spacing: .22em; text-transform: uppercase; color: var(--muted); margin-top: 7px; }
+  header .rm-status { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; }
+  @keyframes rmShine { from { background-position: 200% 0; } to { background-position: 0 0; } }
+  @keyframes rmGlow { 0%, 100% { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 30%, transparent)); } 50% { filter: drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 60%, transparent)); } }
+  @media (prefers-reduced-motion: reduce) { header::after, header h1 .rm-mark { animation: none; } }
+  @media (max-width: 640px) { header { padding: 16px; } header h1 .rm-name b { font-size: 20px; } header .rm-status { margin-left: 0; width: 100%; } }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
   .dot.on { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 25%, transparent); }
   .muted { color: var(--muted); }
@@ -32,7 +57,8 @@
   .pos { color: var(--green); } .neg { color: var(--red); } .warn { color: var(--amber); }
   .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
   @media (max-width: 980px) { .grid2 { grid-template-columns: 1fr; } }
-  h2 { font-size: 14px; margin: 0 0 10px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  h2 { font-size: 14px; margin: 0 0 10px; font-weight: 700; display: flex; align-items: center; gap: 8px; letter-spacing: .01em; }
+  .card { transition: border-color .2s; } .card:hover { border-color: color-mix(in srgb, var(--gold) 35%, var(--line)); }
   h2 .count { color: var(--muted); font-weight: 500; }
   .chart-box { position: relative; height: 240px; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -40,10 +66,12 @@
   th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
   td.num, th.num { text-align: right; white-space: nowrap; }
   .scroll { overflow-x: auto; }
-  .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px 0; max-width: 1400px; margin: 0 auto; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px; max-width: none; margin: 0; position: sticky; top: 0; z-index: 6;
+          background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
   .tabs button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
                  padding: 8px 14px; font-weight: 600; cursor: pointer; }
-  .tabs button.active { border-color: var(--blue); color: var(--blue); }
+  .tabs button.active { border-color: var(--gold); color: var(--on-gold); background: linear-gradient(180deg, var(--gold-hi), var(--gold)); font-weight: 700; }
+  .tabs button:focus-visible, button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   main[hidden] { display: none !important; }
   .btn { background: var(--blue); color: #fff; border: 0; border-radius: 7px; padding: 6px 10px; margin: 4px 6px 0 0;
          font-size: 12px; font-weight: 600; cursor: pointer; }
@@ -121,7 +149,7 @@
   .vd-filters button, .vd-pager button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13px; }
   .vd-filters button:hover, .vd-pager button:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); } .vd-pager button:disabled { opacity: .35; cursor: default; }
   .vd-pager { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
-  a.vd-btn { display: inline-block; background: var(--green); color: #07140d; font-weight: 700; border-radius: 8px; padding: 6px 12px; text-decoration: none; white-space: nowrap; font-size: 13px; }
+  a.vd-btn { display: inline-block; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: var(--on-gold); font-weight: 800; border-radius: 8px; padding: 6px 12px; text-decoration: none; white-space: nowrap; font-size: 13px; }
   a.vd-btn.ghost { background: var(--panel2); color: var(--blue); border: 1px solid var(--line); font-weight: 500; padding: 4px 10px; }
   a.vd-btn:hover { filter: brightness(1.12); }
   .vd-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -154,9 +182,8 @@
 </head>
 <body>
 <header>
-  <span id="alive" class="dot"></span>
-  <h1>surebet3 · Medición en papel</h1>
-  <span class="muted" id="updated">cargando…</span>
+  <h1><img class="rm-mark" src="brand/rey-midas-mark.svg" alt=""><span class="rm-name"><b>EL REY MIDAS</b><small>Señales de valor · oro</small></span></h1>
+  <span class="rm-status"><span id="alive" class="dot"></span><span class="muted" id="updated">cargando…</span></span>
 </header>
 <nav class="tabs">
   <button data-tab="main" class="active">Principal (manual)</button>

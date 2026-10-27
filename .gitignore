@@ -9,3 +9,4 @@ data/
 *.db-*
 *.log
 .claude/
+static/brand/gen/
