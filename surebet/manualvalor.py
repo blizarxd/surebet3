@@ -150,9 +150,24 @@ def _ensure_row(conn: sqlite3.Connection, key: str) -> int | None:
     return r[0] if r else None
 
 
+WRONG_RESULTS = ("pendiente", "ganada", "perdida", "anulada")
+
+
+def ensure_wrong_cols(conn: sqlite3.Connection) -> None:
+    """Columnas de «jugué otra apuesta»: qué jugaste en realidad, con cuánto y cómo salió (lo pones tú)."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(manual_value)")}
+    for col, kind in (("wrong_pick", "TEXT"), ("wrong_stake", "REAL"), ("wrong_result", "TEXT")):
+        if col not in have:
+            conn.execute(f"ALTER TABLE manual_value ADD COLUMN {col} {kind}")
+    conn.commit()
+
+
 def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: float | None = None, house: str | None = None,
-                key: str | None = None) -> dict:
-    """Lo mismo que los botones de Telegram: 'ok' = la puse (a la cuota que digas) · 'no' = no estaba. Sirve para cualquier señal."""
+                key: str | None = None, pick: str | None = None, stake: float | None = None, result: str | None = None) -> dict:
+    """Lo mismo que los botones de Telegram: 'ok' = la puse (a la cuota que digas) · 'no' = no estaba. Sirve para cualquier señal.
+    'wrong' = jugaste OTRA apuesta del partido (te equivocaste de selección): se guarda qué jugaste, cuota, monto y el resultado
+    que marques tú (el papel solo sabe liquidar la apuesta de la señal)."""
+    ensure_wrong_cols(conn)
     if mid is None and key:
         mid = _ensure_row(conn, key)
     row = conn.execute("SELECT status, odds FROM manual_value WHERE id=?", (mid,)).fetchone() if mid is not None else None
@@ -165,14 +180,33 @@ def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: fl
     if action == "ok":
         if odds is None or not (1.0 < float(odds) < 1000):
             return {"ok": False, "error": "La cuota debe ser un número mayor que 1."}
-        conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
-                     (round(float(odds), 3), time.time(), h, mid))
+        conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=?, wrong_pick=NULL, "
+                     "wrong_stake=NULL, wrong_result=NULL WHERE id=?", (round(float(odds), 3), time.time(), h, mid))
         conn.commit()
         return {"ok": True, "id": mid, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h, "prev": row[0]}
     if action == "no":
-        conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=? WHERE id=?", (time.time(), h, mid))
+        conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=?, wrong_pick=NULL, "
+                     "wrong_stake=NULL, wrong_result=NULL WHERE id=?", (time.time(), h, mid))
         conn.commit()
         return {"ok": True, "id": mid, "status": "no estaba", "placed_odds": None, "house": h, "prev": row[0]}
+    if action == "wrong":
+        pick = (pick or "").strip()[:40]
+        res = (result or "pendiente").strip().lower()
+        try:
+            o, s = float(odds), float(stake)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Pon la cuota y el monto que jugaste."}
+        if not pick:
+            return {"ok": False, "error": "Elige qué apuesta jugaste."}
+        if not (1.0 < o < 1000) or not (0 < s < 100000):
+            return {"ok": False, "error": "La cuota debe ser mayor que 1 y el monto mayor que 0."}
+        if res not in WRONG_RESULTS:
+            return {"ok": False, "error": "Resultado no válido."}
+        conn.execute("UPDATE manual_value SET status='mal jugada', placed_odds=?, clicked_ts=?, house=?, wrong_pick=?, wrong_stake=?, "
+                     "wrong_result=? WHERE id=?", (round(o, 3), time.time(), h, pick, round(s, 2), res, mid))
+        conn.commit()
+        return {"ok": True, "id": mid, "status": "mal jugada", "placed_odds": round(o, 3), "house": h, "prev": row[0],
+                "wp": pick, "ws": round(s, 2), "wr": res}
     return {"ok": False, "error": "Acción no válida."}
 
 
@@ -183,6 +217,7 @@ class ManualValor:
         if "house" not in {r[1] for r in self.conn.execute("PRAGMA table_info(manual_value)")}:
             self.conn.execute("ALTER TABLE manual_value ADD COLUMN house TEXT")
         self.conn.commit()
+        ensure_wrong_cols(self.conn)
         self.stake = stake
         self.start_h, self.end_h = _hours(hours)
         self._load_hours()
@@ -376,10 +411,15 @@ class ManualValor:
 
     def web_text(self, mid: int, prev: str | None = None) -> str:
         """El mismo aviso que dan los botones de Telegram, para cuando se marca desde el panel web."""
-        row = self.conn.execute("SELECT label, title, stake, status, placed_odds, house FROM manual_value WHERE id=?", (mid,)).fetchone()
+        row = self.conn.execute("SELECT label, title, stake, status, placed_odds, house, wrong_pick, wrong_stake, wrong_result "
+                                "FROM manual_value WHERE id=?", (mid,)).fetchone()
         if not row:
             return ""
-        label, title, stake, status, placed, house = row
+        label, title, stake, status, placed, house, wpick, wstake, wres = row
+        if status == "mal jugada":
+            icon = {"ganada": "✅ ganada", "perdida": "❌ perdida", "anulada": "↩️ anulada"}.get(wres, "⏳ pendiente")
+            return (f"🌐 ⚠️ Mal jugada desde el panel en {house}: jugaste {wpick} a {_fmt_odds(placed)} · ${wstake:g} "
+                    f"(la señal era {label}) — {title}. Resultado: {icon}.")
         fixed = " (corregida)" if prev in ("puesta", "no estaba") else ""
         if status == "puesta":
             return f"🌐 ✅ Anotada{fixed} desde el panel en {house}: {label} a {_fmt_odds(placed)} · ${stake:g} — {title}. {self.today_line()}"

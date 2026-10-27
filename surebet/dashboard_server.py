@@ -642,7 +642,7 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     mid = body.get("id")
                     out = mark_signal(conn, int(mid) if mid is not None else None, str(body.get("action")), body.get("odds"),
-                                      body.get("house"), body.get("key"))
+                                      body.get("house"), body.get("key"), body.get("pick"), body.get("stake"), body.get("result"))
                     code = 200 if out.get("ok") else 400
             finally:
                 conn.close()

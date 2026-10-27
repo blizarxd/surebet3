@@ -93,3 +93,20 @@ def test_web_text_matches_telegram_notice(tmp_path):
     assert r["prev"] == "puesta" and "(corregida)" in mv.web_text(7, r["prev"])
     r = mark_signal(mv.conn, 7, "no", None, "1xBet")                      # «en verdad no la tomé»
     assert "no la tomaste" in mv.web_text(7, r["prev"]) and "(corregida)" in mv.web_text(7, r["prev"])
+
+
+def test_wrong_pick_is_recorded_with_own_result(tmp_path):
+    c = _db(tmp_path)
+    from surebet.manualvalor import ManualValor
+    mv = ManualValor(tmp_path / "p.db")
+    r = mark_signal(mv.conn, 7, "wrong", 1.98, "1xBet", None, "W1 · 1T", 30, "perdida")
+    assert r["ok"] and r["status"] == "mal jugada" and r["wp"] == "W1 · 1T" and r["ws"] == 30 and r["wr"] == "perdida"
+    assert mv.conn.execute("SELECT status, placed_odds, wrong_pick, wrong_stake, wrong_result FROM manual_value WHERE id=7").fetchone() == \
+        ("mal jugada", 1.98, "W1 · 1T", 30, "perdida")
+    txt = mv.web_text(7, r["prev"])
+    assert "jugaste W1 · 1T a 1,98" in txt and "la señal era A" in txt and "❌ perdida" in txt
+    assert not mark_signal(mv.conn, 7, "wrong", 1.98, "1xBet", None, "", 30)["ok"]                 # sin elegir qué jugó
+    assert not mark_signal(mv.conn, 7, "wrong", 1.98, "1xBet", None, "X", 30, "rara")["ok"]
+    assert not mark_signal(mv.conn, 7, "wrong", 0.9, "1xBet", None, "X", 30)["ok"]
+    mark_signal(mv.conn, 7, "ok", 2.4, "1xBet")                                                    # volver a «la puse» borra lo mal jugado
+    assert mv.conn.execute("SELECT status, wrong_pick FROM manual_value WHERE id=7").fetchone() == ("puesta", None)

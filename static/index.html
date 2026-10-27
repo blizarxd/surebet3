@@ -147,6 +147,14 @@
   .vd-tvbtns button.on { border-color: var(--blue); color: var(--blue); }
   .vd-tvtip { position: absolute; z-index: 5; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 300px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
   .vd-mkopts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .vd-wrong { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  .vd-wrong summary { cursor: pointer; font-weight: 700; color: var(--amber); }
+  .vd-wrong[open] summary { margin-bottom: 8px; }
+  .vd-chipsel { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  .vd-chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; }
+  .vd-chip.on { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: var(--on-gold); border-color: var(--gold); }
+  .vd-wsave { margin-top: 8px; width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--amber); border-radius: 8px; padding: 9px 12px; cursor: pointer; font: inherit; font-weight: 700; }
+  .vd-wsave:hover { background: color-mix(in srgb, var(--amber) 18%, var(--panel2)); }
   .vd-mkopts button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600; text-align: center; }
   .vd-mkopts button small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
   .vd-mkopts button:hover, .vd-mkman button:hover, .vd-mkno:hover { border-color: var(--blue); color: var(--blue); }
@@ -1649,6 +1657,17 @@ function vdFillFilters(all) {
     if (o) { $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "ok", +o.dataset.odds); }
     else if (m) { const v = parseFloat(String($("vd-mkp-in").value).replace(",", ".")); if (!(v > 1)) { $("vd-mkp-in").focus(); vdToast("Escribe una cuota válida (mayor que 1), por ejemplo 2.50"); return; } $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "ok", v); }
     else if (n) { $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "no", null); }
+    const ch = e.target.closest("button[data-chip]");
+    if (ch) { vdW[ch.dataset.chip] = ch.dataset.v; ch.parentElement.querySelectorAll("button[data-chip]").forEach((x) => x.classList.toggle("on", x === ch)); return; }
+    if (e.target.closest("button[data-wrong]")) {
+      const num = (id) => parseFloat(String($(id).value).replace(",", ".")), line = num("vd-w-line"), o = num("vd-w-odds"), s = num("vd-w-stake");
+      if (!vdW.wp) { vdToast("Elige qué apuesta jugaste (W1, X, Más…)"); return; }
+      if ((vdW.wp === "Más" || vdW.wp === "Menos") && !(line > 0)) { $("vd-w-line").focus(); vdToast("Pon la línea del Más/Menos, por ejemplo 2.5"); return; }
+      if (!(o > 1)) { $("vd-w-odds").focus(); vdToast("Pon la cuota a la que jugaste (mayor que 1)"); return; }
+      if (!(s > 0)) { $("vd-w-stake").focus(); vdToast("Pon el monto que jugaste"); return; }
+      const pick = vdW.wp + ((vdW.wp === "Más" || vdW.wp === "Menos") ? " " + line : "") + (vdW.per === "1T" ? " · 1T" : "");
+      $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "wrong", o, {pick, stake: s, result: vdW.wr});
+    }
   });
   $("vd-lf-star").addEventListener("input", () => { vdPage = 1; vdListDraw(); });
   $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
@@ -1698,10 +1717,12 @@ function vdStartTxt(p, now) {
 function vdMineCell(p) {
   const H = (vdData && vdData.hours) || [12, 20], inH = p.m / 60 >= H[0] && p.m / 60 < H[1];      // el horario sale de la HORA de la señal (/horario en Telegram)
   const hz = `<div class="muted">${inH ? "📍 en tu horario" : "🕒 fuera de tu horario"}${p.y === "no estabas" ? " · 💤 avisos en pausa" : ""}</div>`;
-  const st = p.y === "puesta" ? `<b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b> · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `<b class="neg">❌ no estabas</b> · ${esc(p.h || "1xBet")}`
+  const WR = {ganada: `<span class="pos">✅ ganada</span>`, perdida: `<span class="neg">❌ perdida</span>`, anulada: "↩️ anulada", pendiente: "⏳ pendiente"};
+  const st = p.y === "mal jugada" ? `<b class="warn">⚠️ jugaste ${esc(p.wp || "?")} a ${p.po ? p.po.toFixed(2) : "?"} · $${p.ws ?? "?"}</b> · ${esc(p.h || "1xBet")}<div>${WR[p.wr] || WR.pendiente}${vdMine(p, vdF.stake) != null ? ` <b class="${vdMine(p, vdF.stake) >= 0 ? "pos" : "neg"}">${vdFm(vdMine(p, vdF.stake))}</b>` : ""}</div>`
+    : p.y === "puesta" ? `<b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b> · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `<b class="neg">❌ no estabas</b> · ${esc(p.h || "1xBet")}`
     : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}` : p.y ? esc(p.y) : "";
   const ref = p.mid ? `data-id="${p.mid}"` : p.k ? `data-k="${esc(p.k)}"` : "";
-  const marked = p.y === "puesta" || p.y === "no estaba";
+  const marked = p.y === "puesta" || p.y === "no estaba" || p.y === "mal jugada";
   const btn = !ref ? "" : marked ? `<div class="vd-mk"><button type="button" data-mk="menu" ${ref} title="Cambiar la cuota o decir que no la tomaste">✏️ Editar</button></div>`
     : `<div class="vd-mk"><button type="button" data-mk="menu" ${ref} title="Elegir la cuota a la que la pusiste">✅ La puse</button><button type="button" data-mk="no" ${ref} title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>`;
   return st + hz + btn;
@@ -1724,6 +1745,7 @@ function vdMkMenu(ref) {
   $("vd-mkp-b").innerHTML = `<div class="small muted" style="margin:6px 0">¿A qué cuota la pusiste?</div><div class="vd-mkopts">` +
     vdLevels(p).map(([x, n]) => `<button type="button" data-odds="${x}">✅ ${x.toFixed(2)}<small>${n}</small></button>`).join("") + `</div>
     <div class="vd-mkman"><input id="vd-mkp-in" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="otra cuota, ej. 2.50" value="${p.y === "puesta" && p.po ? p.po.toFixed(2) : ""}"><button type="button" data-manual="1">✅ La puse a esa cuota</button></div>
+    ${vdWrongForm(p)}
     <div style="margin-top:10px"><button type="button" data-no="1" class="vd-mkno">❌ ${p.y === "puesta" ? "No la tomé (quitar)" : "No estaba / no la tomé"}</button></div>
     <div class="small muted" style="margin-top:8px">Se anota en tu registro y te llega el aviso a Telegram.</div>`;
   $("vd-mkp").hidden = false;
@@ -1771,18 +1793,42 @@ function vdCountUp() {             // las cifras de dinero de las tarjetas suben
 function vdToast(msg, kind) {
   const d = document.createElement("div"); d.className = "vd-toast" + (kind ? " " + kind : ""); d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500);
 }
-async function vdMarkSend(ref, act, odds) {
+// ganancia REAL tuya en una señal: lo que pusiste (con el resultado del papel) o lo que jugaste mal (con el resultado que marcaste)
+function vdMine(p, STK) {
+  if (p.y === "puesta") return p.p == null ? null : p.p > 0 ? STK * (p.po - 1) : p.p < 0 ? -STK : 0;
+  if (p.y === "mal jugada") { const s = p.ws || STK; return p.wr === "ganada" ? s * ((p.po || 1) - 1) : p.wr === "perdida" ? -s : p.wr === "anulada" ? 0 : null; }
+  return null;
+}
+// «Jugué otra apuesta»: qué jugaste (W1, X, W2, 1X, X2, 12, Más/Menos; partido o 1.er tiempo), cuota, monto y cómo salió
+const VD_WP = ["W1", "X", "W2", "1X", "X2", "12", "Más", "Menos"];
+let vdW = {};
+function vdWrongForm(p) {
+  const old = p.y === "mal jugada" ? String(p.wp || "") : "", m = /^(\S+)(?: ([\d.]+))?( · 1T)?$/.exec(old) || [];
+  vdW = {wp: m[1] || "", per: m[3] ? "1T" : "P", wr: p.wr || "pendiente"};
+  const chip = (g, v, txt) => `<button type="button" class="vd-chip${vdW[g] === v ? " on" : ""}" data-chip="${g}" data-v="${v}">${txt}</button>`;
+  return `<details class="vd-wrong"${p.y === "mal jugada" ? " open" : ""}><summary>⚠️ Jugué otra apuesta (me equivoqué de pick)</summary>
+    <div class="small muted">¿Qué jugaste en realidad?</div><div class="vd-chipsel">${VD_WP.map((v) => chip("wp", v, v)).join("")}</div>
+    <div class="vd-chipsel">${chip("per", "P", "Partido")}${chip("per", "1T", "1.er tiempo")}</div>
+    <div class="vd-mkman"><input id="vd-w-line" type="number" step="0.5" min="0.5" inputmode="decimal" placeholder="línea (Más/Menos), ej. 2.5" value="${m[2] || ""}"></div>
+    <div class="vd-mkman"><input id="vd-w-odds" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="cuota, ej. 1.98" value="${p.y === "mal jugada" && p.po ? p.po.toFixed(2) : ""}">
+      <input id="vd-w-stake" type="number" step="1" min="1" inputmode="decimal" placeholder="monto" value="${p.ws || vdF.stake}"></div>
+    <div class="small muted">¿Cómo salió? (este resultado lo marcas tú)</div>
+    <div class="vd-chipsel">${chip("wr", "pendiente", "⏳ Pendiente")}${chip("wr", "ganada", "✅ Ganada")}${chip("wr", "perdida", "❌ Perdida")}${chip("wr", "anulada", "↩️ Anulada")}</div>
+    <button type="button" data-wrong="1" class="vd-wsave">Guardar la apuesta que jugué</button></details>`;
+}
+async function vdMarkSend(ref, act, odds, extra) {
   const p = vdData.picks.find((x) => (ref.id != null ? x.mid === ref.id : x.k === ref.k)); if (!p) return;
   let key = ""; try { key = localStorage.getItem("vd_key") || ""; } catch (e) {}
   if (!key) { key = (prompt("Clave del panel (la creas en Telegram con /clave tuclave):") || "").trim(); if (!key) return; }
   try {
-    const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id: ref.id ?? null, key: ref.k ?? null, action: act, odds, house: vdHouseGet()})});
+    const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id: ref.id ?? null, key: ref.k ?? null, action: act, odds, house: vdHouseGet(), ...(extra || {})})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
     try { localStorage.setItem("vd_key", key); } catch (e) {}
     p.y = j.status; p.po = j.placed_odds; p.h = j.house; if (j.id != null) p.mid = j.id; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
-    { const fk = j.status === "puesta" ? "gold" : "ash"; vdBurst(fk); vdRowFx(p.mid, fk); }
-    vdToast(j.status === "puesta" ? `✅ Anotada a ${j.placed_odds.toFixed(2)} · aviso enviado a Telegram` : "❌ Anotado: no la tomaste · aviso enviado a Telegram");
+    if (j.status === "mal jugada") { p.wp = j.wp; p.ws = j.ws; p.wr = j.wr; vdSig = ""; vdDraw(); }
+    { const fk = j.status === "puesta" || (j.status === "mal jugada" && j.wr === "ganada") ? "gold" : "ash"; vdBurst(fk); vdRowFx(p.mid, fk); }
+    vdToast(j.status === "puesta" ? `✅ Anotada a ${j.placed_odds.toFixed(2)} · aviso enviado a Telegram` : j.status === "mal jugada" ? `⚠️ Anotada: jugaste ${j.wp} a ${j.placed_odds.toFixed(2)} · aviso enviado a Telegram` : "❌ Anotado: no la tomaste · aviso enviado a Telegram");
   } catch (e) { alert("Sin conexión con el panel."); }
 }
 function vdMark(ref, act) { if (act === "no") vdMarkSend(ref, "no", null); else vdMkMenu(ref); }
@@ -2003,7 +2049,7 @@ function vdDraw() {
   let run = 0, peak = 0, mdd = 0, ls = 0, mls = 0, ws = 0, mws = 0;
   F.slice().sort((a, b) => a.ts - b.ts).forEach((p) => { if (p.p == null) return; run += p.p * k; peak = Math.max(peak, run); mdd = Math.max(mdd, peak - run);
     if (p.p < 0) { ls++; mls = Math.max(mls, ls); ws = 0; } else if (p.p > 0) { ws++; mws = Math.max(mws, ws); ls = 0; } });
-  const mine = F.filter((p) => p.y === "puesta"), mc = mine.filter((p) => p.p != null), real = mc.reduce((s, p) => s + (p.p > 0 ? STK * (p.po - 1) : p.p < 0 ? -STK : 0), 0), pap = mc.reduce((s, p) => s + p.p * k, 0);
+  const mine = F.filter((p) => p.y === "puesta" || p.y === "mal jugada"), mc = mine.filter((p) => vdMine(p, STK) != null), real = mc.reduce((s, p) => s + vdMine(p, STK), 0), pap = mc.reduce((s, p) => s + (p.p || 0) * k, 0);
   $("vd-risk").innerHTML = [
     ["Caída máxima", `<b class="neg">${fm(-mdd, 0)}</b>`, "de pico a valle con estas apuestas"],
     ["Peor racha", `<b>${mls} perdidas</b>`, `seguidas · mejor racha ${mws} ganadas`],
@@ -2022,10 +2068,10 @@ function vdDraw() {
   const oddsB = (p) => band(p.o, [1.6, 2, 2.5, 3, 4], (a, b) => b ? `cuota ${a}–${b}` : `cuota ${a}+`);
   const evB = (p) => band(p.ev, [2, 3, 4, 5, 7], (a, b) => b ? `EV ${a}–${b} %` : `EV ${a} %+`);
   const hrs = (p) => { const h = p.st ? (p.st - p.ts) / 3600 : null; return h == null ? "?" : h < 1 ? "0–1 h antes" : h < 3 ? "1–3 h antes" : "3–6 h antes"; };
-  const hh = {}; F.forEach((p) => { if (p.y === "puesta" || p.y === "no estaba") (hh[p.h || "1xBet"] = hh[p.h || "1xBet"] || []).push(p); });
+  const hh = {}; F.forEach((p) => { if (p.y === "puesta" || p.y === "no estaba" || p.y === "mal jugada") (hh[p.h || "1xBet"] = hh[p.h || "1xBet"] || []).push(p); });
   const houseCard = `<div class="vd-card"><h2>🏦 Por casa <span class="count">(donde tocaste ✅ / ❌)</span></h2><div class="scroll"><table><tr><th></th><th class="num">✅ Puestas</th><th class="num">❌ No estaba</th><th class="num">Estaba</th><th class="num">G-P</th><th class="num">Tu ganancia</th><th class="num">Papel en las mismas</th><th class="num">Tu cuota vs aviso</th></tr>` +
-    (Object.keys(hh).length ? Object.keys(hh).sort().map((n) => { const r = hh[n], pl = r.filter((p) => p.y === "puesta"), no = r.length - pl.length, c = pl.filter((p) => p.p != null), w = c.filter((p) => p.p > 0).length, l = c.filter((p) => p.p < 0).length;
-      const real = c.reduce((s, p) => s + (p.p > 0 ? STK * (p.po - 1) : p.p < 0 ? -STK : 0), 0), pap = c.reduce((s, p) => s + p.p * k, 0), sl = pl.filter((p) => p.po).map((p) => 100 * (p.po / p.o - 1)), slm = sl.length ? sl.reduce((a, b) => a + b, 0) / sl.length : null;
+    (Object.keys(hh).length ? Object.keys(hh).sort().map((n) => { const r = hh[n], pl = r.filter((p) => p.y === "puesta" || p.y === "mal jugada"), no = r.length - pl.length, c = pl.filter((p) => vdMine(p, STK) != null), w = c.filter((p) => vdMine(p, STK) > 0).length, l = c.filter((p) => vdMine(p, STK) < 0).length;
+      const real = c.reduce((s, p) => s + vdMine(p, STK), 0), pap = c.reduce((s, p) => s + (p.p || 0) * k, 0), sl = pl.filter((p) => p.po && p.y === "puesta").map((p) => 100 * (p.po / p.o - 1)), slm = sl.length ? sl.reduce((a, b) => a + b, 0) / sl.length : null;
       return `<tr><td><b>${esc(n)}</b></td><td class="num">${pl.length}</td><td class="num">${no}</td><td class="num">${Math.round(100 * pl.length / r.length)}%</td><td class="num">${w}-${l}</td><td class="num ${real >= 0 ? "pos" : "neg"}">${c.length ? fm(real) : "-"}</td><td class="num">${c.length ? fm(pap) : "-"}</td><td class="num ${slm == null ? "" : slm >= 0 ? "pos" : "neg"}">${slm == null ? "-" : (slm >= 0 ? "+" : "") + slm.toFixed(1) + "%"}</td></tr>`; }).join("")
       : `<tr><td class="empty" colspan="8">Aún sin ✅/❌. Elige la casa con /casa en Telegram y marca cada aviso: aquí verás cuál de las casas tiene la cuota disponible, cuál paga mejor y cómo te va en cada una.</td></tr>`) + `</table></div></div>`;
   $("vd-groups").innerHTML = houseCard + grp("Por deporte", (p) => p.sp) + grp("Por mercado", (p) => vdFam(p.mk)) +

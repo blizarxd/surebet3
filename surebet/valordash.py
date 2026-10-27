@@ -47,13 +47,13 @@ def summary(conn) -> dict | None:
                            "edge_pct, track FROM paper_ops WHERE track IN ('valor','amplio') ORDER BY created_ts").fetchall()
     except sqlite3.OperationalError:
         return None
-    try:
-        mv = {k: (s, po, mn, h, i) for k, s, po, mn, h, i in conn.execute("SELECT key, status, placed_odds, min_odds, house, id FROM manual_value")}
-    except sqlite3.OperationalError:       # base anterior a la columna «house»
-        try:
-            mv = {k: (s, po, mn, None, i) for k, s, po, mn, i in conn.execute("SELECT key, status, placed_odds, min_odds, id FROM manual_value")}
-        except sqlite3.OperationalError:
-            mv = {}
+    try:                                   # columnas que falten en bases viejas salen como NULL
+        have = {r[1] for r in conn.execute("PRAGMA table_info(manual_value)")}
+        cols = ["status", "placed_odds", "min_odds", "house", "id", "wrong_pick", "wrong_stake", "wrong_result"]
+        sel = ", ".join(c if c in have else f"NULL AS {c}" for c in cols)
+        mv = {r[0]: r[1:] for r in conn.execute(f"SELECT key, {sel} FROM manual_value")} if have else {}
+    except sqlite3.OperationalError:
+        mv = {}
     raw = []
     for key, ek, mk, mname, legs, status, ts, start, title, sport, ev, track in ops:
         leg = (json.loads(legs) or [{}])[0]
@@ -88,15 +88,17 @@ def summary(conn) -> dict | None:
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
         exp = 0.0 if c is None else STAKE * (c if abs(c) <= RARE_CLV else med) / 100
-        y, po, mn, hs, mid = mv.get(key, (None, None, None, None, None))
+        y, po, mn, hs, mid, wp, ws, wr = mv.get(key, (None,) * 8)
         picks.append({"d": t.strftime("%Y-%m-%d"), "m": t.hour * 60 + t.minute, "ts": round(ts), "st": round(start) if start else None,
                       "t": (title or "")[:34], "l": (leg.get("label") or "")[:22], "o": round(odds, 3), "ev": round(ev or 0, 2),
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
                       "p": None if pnl is None else round(pnl, 2), "e": round(exp, 2), "u": leg.get("url") or "",
-                      "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
+                      "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba", "mal jugada") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro",
                       "sy": symbol(mk, leg.get("covers"))})
+        if y == "mal jugada":                 # jugaste otra apuesta: qué, con cuánto y cómo salió (lo marcas tú)
+            picks[-1].update({"wp": wp, "ws": ws, "wr": wr or "pendiente"})
         if mid is None:
             picks[-1]["k"] = key                 # sin fila en manual_value (CS2, etc.): el panel la crea al marcarla
         sc = live.get(game_id(leg.get("url") or "") or "")
