@@ -7,7 +7,7 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
   · mid n.º de la señal (para /puse y /noestaba en Telegram) · tr nivel (oro | amplio = EV 1,5–2 %) · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
-  como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar) · sy símbolo de la apuesta (over/under, W1/W2, X, 1X/X2/12) · lv marcador en vivo
+  como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar) · sy símbolo de la apuesta (over/under, W1/W2, X, 1X/X2/12) · lv marcador en vivo · fin marcador final de las cerradas («0-1»; «últ. …» si no se vio terminar)
   («1-0 · 32'», solo en abiertas cuyo partido ya empezó y con dato de hace menos de 6 min).
 """
 
@@ -18,7 +18,7 @@ import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
-from .livescore import FRESH_S, game_id
+from .livescore import FRESH_S, final_score, game_id
 
 STAKE = 30.0
 VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
@@ -74,8 +74,8 @@ def summary(conn) -> dict | None:
     for r in raw:
         nth[r[1]] = nth.get(r[1], 0) + 1
         ordinal[r[0]] = nth[r[1]]
-    try:       # marcador en vivo de las abiertas (livescore.py): solo si es reciente
-        live = {g: t for g, ts_, t in conn.execute("SELECT game_id, ts, text FROM live_scores WHERE ts > ?", (time.time() - FRESH_S,))}
+    try:       # marcador en vivo de las abiertas y marcador final de las cerradas (livescore.py)
+        live = {g: (ts_, txt, e) for g, ts_, txt, e in conn.execute("SELECT game_id, ts, text, COALESCE(ended, 0) FROM live_scores")}
     except sqlite3.OperationalError:
         live = {}
     vals = sorted(r[11][0] for r in raw if r[11][0] is not None)
@@ -95,8 +95,11 @@ def summary(conn) -> dict | None:
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro",
                       "sy": symbol(mk, leg.get("covers"))})
-        if status == "open" and (lv := live.get(game_id(leg.get("url") or "") or "")):
-            picks[-1]["lv"] = lv
+        sc = live.get(game_id(leg.get("url") or "") or "")
+        if sc and status == "open" and not sc[2] and sc[0] > time.time() - FRESH_S:
+            picks[-1]["lv"] = sc[1]
+        elif sc and status in ("won", "lost"):
+            picks[-1]["fin"] = final_score(sc[1]) if sc[2] else "últ. " + sc[1]
     if not picks:
         return None
     try:

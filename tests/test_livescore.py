@@ -53,21 +53,42 @@ def _db(tmp_path, start_offset=-3600, status="open"):
 def test_only_started_open_games_are_polled(tmp_path):
     c = _db(tmp_path)
     ls = LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285)
-    assert ls._open_games(time.time()) == [("383828712", "soccer")]
+    assert ls._games(time.time()) == [("383828712", "soccer")]
     c.execute("UPDATE paper_ops SET start_ts = ?", (time.time() + 3600,))     # aún no empieza
     c.commit()
-    assert ls._open_games(time.time()) == []
+    assert ls._games(time.time()) == []
     c.execute("UPDATE paper_ops SET start_ts = ?, status='won'", (time.time() - 3600,))   # ya cerrada
     c.commit()
-    assert ls._open_games(time.time()) == []
+    assert ls._games(time.time()) == []
 
 
 def test_dashboard_shows_fresh_score_only_on_open(tmp_path):
     c = _db(tmp_path)
     LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285)        # crea la tabla
-    c.execute("INSERT OR REPLACE INTO live_scores VALUES ('383828712', ?, '1-0 · 32''')", (time.time() - 60,))
+    c.execute("INSERT OR REPLACE INTO live_scores VALUES ('383828712', ?, '1-0 · 32''', 0)", (time.time() - 60,))
     c.commit()
     assert summary(c)["picks"][0]["lv"] == "1-0 · 32'"
     c.execute("UPDATE live_scores SET ts = ?", (time.time() - 3600,))         # dato viejo: vuelve a «abierta»
     c.commit()
     assert "lv" not in summary(c)["picks"][0]
+
+
+def test_final_score_for_closed_picks(tmp_path):
+    c = _db(tmp_path, status="won")
+    ls = LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285)
+    c.execute("INSERT INTO live_scores VALUES ('383828712', ?, '0-1 · 88''', 0)", (time.time() - 300,))
+    c.commit()
+    assert ls._games(time.time()) == [("383828712", "soccer")]            # cerrada pero aún no se vio terminar: se consulta
+    assert summary(c)["picks"][0]["fin"] == "últ. 0-1 · 88'"
+    c.execute("UPDATE live_scores SET ended = 1")
+    c.commit()
+    assert ls._games(time.time()) == []                                    # ya terminó: no se consulta más
+    P = summary(c)["picks"][0]
+    assert P["fin"] == "0-1" and "lv" not in P
+
+
+def test_late_game_is_polled_faster():
+    from surebet.livescore import is_late, final_score
+    assert is_late("soccer", {"SC": {"TS": 80 * 60}}) and not is_late("soccer", {"SC": {"TS": 40 * 60}})
+    assert is_late("basketball", {"SC": {"CPS": "4th quarter"}}) and not is_late("tennis", {"SC": {"CPS": "3rd set"}})
+    assert final_score("sets 2-1 · 3.º set 6-4") == "sets 2-1" and final_score("1-0 · 88'") == "1-0"
