@@ -47,6 +47,7 @@ MENU_COMMANDS = [
     ("dominio", "Guardar el dominio de una casa para armar el link"),
     ("puse", "Anotar a mano una señal que sí jugué: /puse 227 3.19"),
     ("noestaba", "Marcar que no estaba en esa señal: /noestaba 227"),
+    ("clave", "Clave para marcar ✅/❌ desde el panel web: /clave tuclave"),
     ("semaforo", "Estado de las fuentes y cuentas (verde, amarillo, rojo)"),
     ("bloqueada", "Casa que me limitó o cerró: /bloqueada 1xbet"),
     ("reanudar", "Reactivar lo que el semáforo pausó"),
@@ -63,7 +64,8 @@ MENU_TEXT = (
     "/casa [nombre] — ver o cambiar la casa de hoy (1xbet, melbet, 888starz)\n"
     "/dominio [casa dominio] — guardar el dominio de la casa para armar el link del partido\n"
     "/puse <n.º> [cuota] — anotar una señal que sí jugué (p. ej. las «sobre el tope»)\n"
-    "/noestaba <n.º> — marcar una señal en la que no estaba\n\n"
+    "/noestaba <n.º> — marcar una señal en la que no estaba\n"
+    "/clave <texto> — clave para marcar ✅/❌ desde el panel web (sin clave la web no deja marcar)\n\n"
     "🚦 Estado y cuentas\n"
     "/semaforo — estado de las fuentes y cuentas (verde, amarillo, rojo)\n"
     "/bloqueada <casa> — una casa me limitó o cerró: deja de avisar con ella\n"
@@ -265,6 +267,8 @@ class PolyBuyer:
                 await self._say(client, self.manual.set_domain(" ".join(words[1:])))
             elif cmd in ("/puse", "/noestaba") and self.manual:
                 await self._say(client, self.manual.register(cmd, words[1:]))
+            elif cmd == "/clave" and self.manual:
+                await self._say(client, self.manual.set_key(words[1:]))
             elif cmd == "/hoy" and self.manual:
                 await self._say(client, self.manual.text_today())
             elif cmd == "/pausa":
