@@ -1686,6 +1686,7 @@ function vdNow(all) {
 function vdStartTxt(p, now) {
   if (p.s === "a") return "anulada";
   if (p.s !== "o" || p.fin) return "finalizado";            // apuesta cerrada, o el partido ya terminó y falta liquidarla
+  if (p.lv) return "en vivo";                                 // el marcador manda: la hora guardada puede ser una estimación
   if (!p.st) return "";
   const m = Math.round((p.st - now) / 60);
   if (m > 0) return "empieza en " + (m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + String(m % 60).padStart(2, "0") + " min" : "") : m + " min");

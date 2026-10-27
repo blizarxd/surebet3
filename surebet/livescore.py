@@ -29,6 +29,7 @@ ID_RE = re.compile(r"/(\d+)-[^/]+$")
 INTERVAL_S = 120
 LATE_INTERVAL_S = 30      # recta final (fútbol desde el 78', básquet 4.º cuarto): así el último marcador visto es el final
 MAX_PER_CYCLE = 12
+EARLY_S = 45 * 60          # también los que «empiezan» en < 45 min: la hora guardada puede ser la de Polymarket, que en tenis llega 30 min tarde
 BAD_LIMIT, HOLD_S = 3, 600   # 3 fallas seguidas propias: pausa de 10 min
 KEEP_DAYS = 30
 GAP_S = 0.8
@@ -125,7 +126,7 @@ class LiveScores:
         recién cerradas de las que ya se vio el marcador en vivo y aún no se vio terminar el partido."""
         rows = self.conn.execute(
             "SELECT legs_json, sport, status FROM paper_ops WHERE track IN ('valor','amplio') AND kind='value' "
-            "AND start_ts < ? AND start_ts > ?", (now, now - MAX_AGE_H * 3600)).fetchall()
+            "AND start_ts < ? AND start_ts > ?", (now + EARLY_S, now - MAX_AGE_H * 3600)).fetchall()
         seen = {g: e for g, e in self.conn.execute("SELECT game_id, ended FROM live_scores")}
         out: dict[str, str] = {}
         for legs, sport, status in rows:

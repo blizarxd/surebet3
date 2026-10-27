@@ -54,6 +54,9 @@ def test_only_started_open_games_are_polled(tmp_path):
     c = _db(tmp_path)
     ls = LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285)
     assert ls._games(time.time()) == [("383828712", "soccer")]
+    c.execute("UPDATE paper_ops SET start_ts = ?", (time.time() + 20 * 60,))  # «empieza» en 20 min: se consulta igual (la hora puede ser estimada)
+    c.commit()
+    assert ls._games(time.time()) == [("383828712", "soccer")]
     c.execute("UPDATE paper_ops SET start_ts = ?", (time.time() + 3600,))     # aún no empieza
     c.commit()
     assert ls._games(time.time()) == []
