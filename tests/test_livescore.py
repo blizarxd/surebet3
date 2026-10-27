@@ -26,6 +26,14 @@ def test_describe_by_sport():
     assert describe("soccer", {}) == "" and describe("soccer", {"SC": None}) == ""
 
 
+def test_bet_symbol():
+    from surebet.valordash import symbol
+    assert symbol("ou_2.5", ["O"]) == "over" and symbol("ou_3.5", ["U"]) == "under"
+    assert symbol("1x2", ["H"]) == "W1" and symbol("ml", ["A"]) == "W2" and symbol("1x2", ["D"]) == "X"
+    assert symbol("1x2", ["D", "H"]) == "1X" and symbol("1x2", ["A", "D"]) == "X2" and symbol("1x2", ["A", "H"]) == "12"
+    assert symbol("ou_h1_1.5", ["O"]) == "over · 1T" and symbol("1x2_h1", ["H"]) == "W1 · 1T" and symbol("x", []) == ""
+
+
 def test_game_id_from_url():
     assert game_id(URL) == "383828712" and game_id("https://x/y") is None and game_id("") is None
 
