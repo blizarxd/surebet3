@@ -40,7 +40,8 @@
   header h1 .rm-name { display: grid; line-height: 1; }
   header h1 .rm-name b { font: 700 31px/1 var(--font-brand); letter-spacing: .14em; color: var(--gold); background: linear-gradient(180deg, var(--gold-hi), var(--gold) 55%, var(--gold-deep)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
   header h1 .rm-name small { font: 600 11px/1 var(--font-ui); letter-spacing: .22em; text-transform: uppercase; color: var(--muted); margin-top: 7px; }
-  header .rm-status { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; }
+  header .rm-status { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 13px; padding: 6px 12px; border-radius: 999px;
+                      background: color-mix(in srgb, var(--bg) 78%, transparent); border: 1px solid var(--line); backdrop-filter: blur(6px); }
   @keyframes rmShine { from { background-position: 200% 0; } to { background-position: 0 0; } }
   @keyframes rmGlow { 0%, 100% { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--gold) 30%, transparent)); } 50% { filter: drop-shadow(0 0 14px color-mix(in srgb, var(--gold) 60%, transparent)); } }
   @media (prefers-reduced-motion: reduce) { header::after, header h1 .rm-mark { animation: none; } }
