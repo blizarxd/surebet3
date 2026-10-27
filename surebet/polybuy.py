@@ -37,6 +37,43 @@ from .semaforo import ICON
 
 CLOB = "https://clob.polymarket.com"
 OFFER_TTL_S = 10 * 60
+
+MENU_COMMANDS = [
+    ("menu", "Lista de comandos y para qué sirve cada uno"),
+    ("estoy", "Estoy en el PC: activa los avisos de valor"),
+    ("salgo", "Me voy del PC: pausa los avisos (se siguen anotando)"),
+    ("hoy", "Resumen de hoy: avisos, jugadas y resultado"),
+    ("casa", "Ver o cambiar la casa de hoy (1xbet, melbet, 888starz)"),
+    ("dominio", "Guardar el dominio de una casa para armar el link"),
+    ("puse", "Anotar a mano una señal que sí jugué: /puse 227 3.19"),
+    ("noestaba", "Marcar que no estaba en esa señal: /noestaba 227"),
+    ("semaforo", "Estado de las fuentes y cuentas (verde, amarillo, rojo)"),
+    ("bloqueada", "Casa que me limitó o cerró: /bloqueada 1xbet"),
+    ("reanudar", "Reactivar lo que el semáforo pausó"),
+    ("pausa", "Pausa las compras en Polymarket"),
+    ("activar", "Reactiva las compras en Polymarket"),
+    ("estado", "Modo, pausa y gasto del día"),
+]
+MENU_TEXT = (
+    "📋 MENÚ DE COMANDOS\n\n"
+    "💰 Valor manual\n"
+    "/estoy — estoy en el PC: activa los avisos de valor (12–20 h por defecto)\n"
+    "/salgo — me voy del PC: pausa los avisos; se siguen anotando para medir\n"
+    "/hoy — resumen de hoy: avisos, jugadas y resultado\n"
+    "/casa [nombre] — ver o cambiar la casa de hoy (1xbet, melbet, 888starz)\n"
+    "/dominio [casa dominio] — guardar el dominio de la casa para armar el link del partido\n"
+    "/puse <n.º> [cuota] — anotar una señal que sí jugué (p. ej. las «sobre el tope»)\n"
+    "/noestaba <n.º> — marcar una señal en la que no estaba\n\n"
+    "🚦 Estado y cuentas\n"
+    "/semaforo — estado de las fuentes y cuentas (verde, amarillo, rojo)\n"
+    "/bloqueada <casa> — una casa me limitó o cerró: deja de avisar con ella\n"
+    "/reanudar — reactivar lo que el semáforo pausó\n\n"
+    "🔁 Polymarket\n"
+    "/pausa — pausa las compras en Polymarket\n"
+    "/activar — reactiva las compras\n"
+    "/estado — modo (real o demo), pausa y gasto del día\n\n"
+    "/menu — esta lista"
+)
 MANUAL_BOOKS = {"1xbet", "onexbet", "stake", "rollbit"}  # se apuestan a mano; Polymarket va después
 
 SCHEMA = """
@@ -168,6 +205,11 @@ class PolyBuyer:
             self.status = "sin TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"
             return
         async with httpx.AsyncClient(timeout=40) as client:
+            try:    # la lista que Telegram muestra al escribir «/» (si falla no pasa nada)
+                await client.post(f"https://api.telegram.org/bot{self.token}/setMyCommands",
+                                  json={"commands": [{"command": c, "description": d} for c, d in MENU_COMMANDS]})
+            except httpx.HTTPError:
+                pass
             while True:
                 try:
                     r = await client.get(f"https://api.telegram.org/bot{self.token}/getUpdates",
@@ -207,7 +249,9 @@ class PolyBuyer:
         elif msg and (msg.get("text") or "").startswith("/"):
             words = msg["text"].split()
             cmd = words[0].lower().split("@")[0]
-            if cmd in ("/semaforo", "/semáforo") and self.semaforo:
+            if cmd in ("/menu", "/menú", "/ayuda", "/start", "/help"):
+                await self._say(client, MENU_TEXT)
+            elif cmd in ("/semaforo", "/semáforo") and self.semaforo:
                 await self._say(client, self.semaforo.text())
             elif cmd == "/reanudar" and self.semaforo:
                 await self._say(client, self.semaforo.resume())
