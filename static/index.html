@@ -69,6 +69,35 @@
   .scroll { overflow-x: auto; }
   /* polvo de oro: lienzo fijo detrás de todo el panel (z-index -1); las tarjetas quedan encima */
   #rm-dust { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+  /* ===== efectos: botones vivos, monedas al marcar, ceniza al perder, latido de las señales vigentes ===== */
+  a.vd-btn, .vd-mk button, .tabs button, .vd-mkopts button, .vd-filters button, .vd-pager button { transition: transform .15s ease, box-shadow .2s ease, filter .2s ease, background .2s; }
+  a.vd-btn:hover, .vd-mk button:hover, .tabs button:hover, .vd-mkopts button:hover { transform: translateY(-1px); }
+  a.vd-btn:active, .vd-mk button:active, .tabs button:active, .vd-mkopts button:active, .vd-filters button:active { transform: scale(.96); }
+  a.vd-btn { position: relative; overflow: hidden; }
+  a.vd-btn::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.55) 50%, transparent 70%); transform: translateX(-130%); pointer-events: none; }
+  a.vd-btn:hover::after { transform: translateX(130%); transition: transform .65s ease; }
+  a.vd-btn.ghost::after { display: none; }
+  tr.fx-live a.vd-btn:not(.ghost) { animation: fxPulse 1.8s ease-in-out infinite; }
+  .kpi, .vd-k { transition: transform .2s ease, box-shadow .25s ease, border-color .2s; }
+  .kpi:hover, .vd-k:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px color-mix(in srgb, var(--gold) 70%, transparent); }
+  .vd-heat td.vd-cl { transition: transform .15s ease; } .vd-heat td.vd-cl:hover { transform: scale(1.05); }
+  main:not([hidden]) { animation: fxIn .35s ease; }
+  .fx-box { position: fixed; inset: 0; pointer-events: none; z-index: 90; }
+  .fx-coin, .fx-spark, .fx-ash { position: absolute; width: 11px; height: 11px; margin: -5px; border-radius: 50%; animation: fxFly 1.1s cubic-bezier(.2,.7,.3,1) forwards; }
+  .fx-coin { background: radial-gradient(circle at 35% 35%, #fff3c4, #e8b54a 55%, #9a6a12); box-shadow: 0 0 8px rgba(232,181,74,.8); }
+  .fx-spark { width: 4px; height: 4px; margin: -2px; background: #fff6d8; box-shadow: 0 0 10px 3px rgba(248,221,142,.9); }
+  .fx-ash { width: 6px; height: 6px; margin: -3px; background: #6b665c; animation-duration: 1.3s; animation-timing-function: ease-in; }
+  .fx-row-gold > td { animation: fxRowGold 1.5s ease-out; }
+  .fx-row-ash { animation: fxShake .45s ease; } .fx-row-ash > td { animation: fxRowAsh 1.3s ease-out; }
+  .vd-toast.win { border-color: var(--gold); font-size: 16px; font-weight: 800; padding: 14px 22px; box-shadow: 0 0 30px -6px var(--gold); }
+  .vd-toast.loss { border-color: var(--red); }
+  @keyframes fxFly { 0% { transform: translate(0, 0) scale(.5); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) scale(1) rotate(280deg); opacity: 0; } }
+  @keyframes fxRowGold { 0% { background: color-mix(in srgb, var(--gold) 40%, transparent); } 100% { background: transparent; } }
+  @keyframes fxRowAsh { 0% { background: color-mix(in srgb, var(--red) 20%, transparent); } 100% { background: transparent; } }
+  @keyframes fxShake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+  @keyframes fxPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--gold) 60%, transparent); } 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--gold) 0%, transparent); } }
+  @keyframes fxIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { main:not([hidden]), tr.fx-live a.vd-btn, .fx-row-gold > td, .fx-row-ash, .fx-row-ash > td { animation: none; } a.vd-btn::after { display: none; } }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px; max-width: none; margin: 0; position: sticky; top: 0; z-index: 6;
           background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
   .tabs button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
@@ -951,6 +980,7 @@ document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
   ["main", "valor", "red", "auto", "sx", "az", "rp", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  if (b.dataset.tab === "vd" && typeof vdCountUp === "function") setTimeout(vdCountUp, 80);
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
 });
@@ -1697,8 +1727,48 @@ function vdMkMenu(ref) {
     <div class="small muted" style="margin-top:8px">Se anota en tu registro y te llega el aviso a Telegram.</div>`;
   $("vd-mkp").hidden = false;
 }
-function vdToast(msg) {
-  const d = document.createElement("div"); d.className = "vd-toast"; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500);
+// ===== efectos: monedas al marcar «La puse», ceniza al «No estaba», celebración cuando cierra una que jugaste, conteo de cifras =====
+const vdFx = {x: innerWidth / 2, y: innerHeight / 2, reduce: matchMedia("(prefers-reduced-motion: reduce)").matches, prev: null, counted: false};
+document.addEventListener("pointerdown", (e) => { vdFx.x = e.clientX; vdFx.y = e.clientY; }, true);
+function vdBurst(kind, x = vdFx.x, y = vdFx.y, n) {
+  if (vdFx.reduce) return;
+  const gold = kind === "gold", box = document.createElement("div"); box.className = "fx-box"; document.body.appendChild(box);
+  for (let i = 0, N = n || (gold ? 28 : 14); i < N; i++) {
+    const s = document.createElement("i"), a = Math.random() * Math.PI * 2, d = gold ? 60 + Math.random() * 130 : 15 + Math.random() * 45;
+    s.className = gold ? (i % 3 ? "fx-coin" : "fx-spark") : "fx-ash";
+    s.style.left = x + "px"; s.style.top = y + "px"; s.style.animationDelay = Math.random() * 90 + "ms";
+    s.style.setProperty("--dx", Math.cos(a) * d + "px"); s.style.setProperty("--dy", (gold ? Math.sin(a) * d - 50 : 40 + Math.random() * 70) + "px");
+    box.appendChild(s);
+  }
+  setTimeout(() => box.remove(), 1500);
+}
+function vdRowFx(id, kind) {
+  const b = document.querySelector(`#vd-list button[data-id="${id}"]`), tr = b && b.closest("tr"); if (!tr) return;
+  tr.classList.remove("fx-row-gold", "fx-row-ash"); void tr.offsetWidth; tr.classList.add(kind === "gold" ? "fx-row-gold" : "fx-row-ash");
+}
+function vdResults(picks) {        // una que marcaste ✅ acaba de cerrar: celebración o aviso
+  const now = {}; picks.forEach((p) => { if (p.mid != null) now[p.mid] = p.s; });
+  if (vdFx.prev) picks.forEach((p) => {
+    if (p.y !== "puesta" || p.mid == null || vdFx.prev[p.mid] !== "o" || p.s === "o") return;
+    const st = vdF.stake;
+    if (p.s === "g") { vdToast(`💰 ¡GANÓ! ${p.l} · ${p.t} · ${vdFm(st * ((p.po || p.o) - 1))}`, "win"); vdBurst("gold", innerWidth / 2, innerHeight / 2, 60); }
+    else if (p.s === "p") { vdToast(`❌ Perdió ${p.l} · ${p.t} · ${vdFm(-st)}`, "loss"); vdBurst("ash", innerWidth / 2, innerHeight / 2); }
+  });
+  vdFx.prev = now;
+}
+function vdCountUp() {             // las cifras de dinero de las tarjetas suben desde $0 al abrir el dashboard
+  if (vdFx.reduce) return;
+  document.querySelectorAll("#tab-vd .kpi .value, #tab-vd .vd-k b").forEach((el) => {
+    const m = /^([+−-]?)\$([\d.]+)$/.exec(el.textContent.trim()); if (!m) return;
+    const sign = m[1], to = parseInt(m[2].replace(/\./g, ""), 10); if (!(to > 0)) return;
+    const t0 = performance.now(), dur = 900;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur), v = Math.round(to * (1 - Math.pow(1 - k, 3)));
+      el.textContent = sign + "$" + v.toLocaleString("es-CO"); if (k < 1) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+  });
+}
+function vdToast(msg, kind) {
+  const d = document.createElement("div"); d.className = "vd-toast" + (kind ? " " + kind : ""); d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500);
 }
 async function vdMarkSend(ref, act, odds) {
   const p = vdData.picks.find((x) => (ref.id != null ? x.mid === ref.id : x.k === ref.k)); if (!p) return;
@@ -1710,6 +1780,7 @@ async function vdMarkSend(ref, act, odds) {
     if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
     try { localStorage.setItem("vd_key", key); } catch (e) {}
     p.y = j.status; p.po = j.placed_odds; p.h = j.house; if (j.id != null) p.mid = j.id; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
+    { const fk = j.status === "puesta" ? "gold" : "ash"; vdBurst(fk); vdRowFx(p.mid, fk); }
     vdToast(j.status === "puesta" ? `✅ Anotada a ${j.placed_odds.toFixed(2)} · aviso enviado a Telegram` : "❌ Anotado: no la tomaste · aviso enviado a Telegram");
   } catch (e) { alert("Sin conexión con el panel."); }
 }
@@ -1812,7 +1883,7 @@ function vdListDraw() {
   vdPage = Math.min(Math.max(1, vdPage), pages);
   const slice = rows.slice((vdPage - 1) * per, vdPage * per), res = {g: `<span class="pos">✅ ganada</span>`, p: `<span class="neg">❌ perdida</span>`, a: `<span class="tag void">anulada</span>`, o: `<span class="tag open">abierta</span>`};
   $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
-    (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${vdBadges(p)}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}${p.sy ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td>
+    (slice.map((p) => `<tr${p.s === "o" && vdLife(p, nowS).live ? ' class="fx-live"' : ""}><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${vdBadges(p)}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}${p.sy ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${p.lv ? `<span class="tag live">🔴 LIVE</span><div class="small"><b>${esc(p.lv)}</b></div>` : res[p.s] + (p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : "")}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}<div class="muted">${esc(vdStartTxt(p, nowS))}</div></td>
@@ -1825,7 +1896,7 @@ function vdListDraw() {
 
 function renderValorDash(x) {
   if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }
-  vdData = x;
+  vdData = x; vdResults(x.picks);
   $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
   { const h = vdHouseGet(), ok = x.domains && x.domains[h]; $("vd-house-sel").value = h;
     $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
@@ -1833,6 +1904,7 @@ function renderValorDash(x) {
   const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length + "|" + P.map((p) => (p.lv || "") + (p.fin || "")).join(",");
   if (sig === vdSig) { const mn = Math.floor(Date.now() / 60000); if (mn !== vdMinSeen) { vdMinSeen = mn; vdListDraw(); } return; }   // nada nuevo; solo la lista se repinta cada minuto (los «empieza en…»)          // nada nuevo: no se redibuja (ni parpadea ni gasta)
   vdSig = sig; vdFillFilters(P); vdDraw();
+  if (!vdFx.counted && !$("tab-vd").hidden) { vdFx.counted = true; setTimeout(vdCountUp, 60); }
 }
 
 function vdDraw() {
