@@ -1637,7 +1637,7 @@ async function vdMark(id, act) {
   try {
     const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id, action: act, odds, house: vdHouseGet()})});
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error || "No se pudo anotar."); return; }
+    if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
     try { localStorage.setItem("vd_key", key); } catch (e) {}
     p.y = j.status; p.po = j.placed_odds; p.h = j.house; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
   } catch (e) { alert("Sin conexión con el panel."); }
