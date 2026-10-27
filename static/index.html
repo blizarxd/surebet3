@@ -81,6 +81,10 @@
   .vd-heat th { font-weight: 500; color: var(--muted); font-size: 12px; padding: 2px 4px; text-align: center; border: 0; }
   .vd-heat th.l { text-align: left; white-space: nowrap; }
   .vd-heat td { text-align: center; border-radius: 8px; padding: 8px 2px; font-weight: 600; min-width: 62px; border: 0; }
+  .vd-heat td.vd-cl { cursor: pointer; } .vd-heat td.vd-cl:hover { outline: 2px solid var(--blue); outline-offset: -2px; }
+  .vd-pop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; } .vd-pop[hidden] { display: none; }
+  .vd-popc { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; width: min(900px, 100%); max-height: 85vh; overflow: auto; position: relative; }
+  .vd-popt { margin: 0 32px 10px 0; font-size: 15px; } .vd-popx { position: absolute; top: 10px; right: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; padding: 4px 9px; }
   .vd-heat td small { display: block; font-weight: 400; font-size: 11px; opacity: .75; }
   .vd-heat td.t { background: none; font-weight: 700; } .vd-heat td.e { background: var(--panel2); color: var(--muted); font-weight: 400; }
   .vd-bars { display: grid; gap: 10px; } .vd-bar { display: grid; grid-template-columns: 70px 1fr 280px; gap: 10px; align-items: center; font-size: 13px; }
@@ -351,6 +355,7 @@
     <h2 style="margin-top:12px">Uno por uno</h2>
     <div class="scroll" style="max-height:420px"><table id="mv-rows"></table></div></section>
 </main>
+<div id="vd-pop" class="vd-pop" hidden><div class="vd-popc"><button type="button" class="vd-popx" data-close aria-label="Cerrar">✕</button><div id="vd-pop-t" class="vd-popt"></div><div class="scroll"><table id="vd-pop-b"></table></div></div></div>
 <div id="vd-alert" onclick="vdAlertNext()">
   <div class="disco"></div><div class="strobe"></div><div class="dim"></div>
   <div class="inner">
@@ -1470,7 +1475,7 @@ function renderManual(x) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
 }
 
-let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdHeatAll = false, vdDayPg = 1;
+let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdHeatAll = false, vdDayPg = 1, vdCells = {};
 const VD_DAYS_PER_PAGE = 9;
 // botones «« ‹ Página n de N › »» (data-pg) para un paginador; devuelve el texto HTML
 function vdPagerHtml(page, pages, label) {
@@ -1542,6 +1547,9 @@ function vdFillFilters(all) {
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
+  $("vd-heat").addEventListener("click", (e) => { const c = e.target.closest("td[data-c]"); if (c) vdPopOpen(c.dataset.c); });
+  $("vd-pop").addEventListener("click", (e) => { if (e.target.id === "vd-pop" || e.target.closest("[data-close]")) $("vd-pop").hidden = true; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("vd-pop").hidden = true; });
   $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
   $("vd-heat-pager").addEventListener("click", (e) => { const a = e.target.closest("button[data-all]"); if (a) { vdHeatAll = a.dataset.all === "1"; vdHeatPg = 1; vdDraw(); return; }
     const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
@@ -1578,6 +1586,20 @@ function vdLifeCell(p, now) {
   if (L.dur == null) return `<span class="muted">-</span>`;
   if (L.live) return `<span class="pos">🟢 vigente · ${vdDur(L.dur)}</span>`;      // mientras no cambie no se marca: aún se puede apostar
   return L.kick ? `<span class="muted">hasta el inicio · ${vdDur(L.dur)}</span>` : `<span>duró ${vdDur(L.dur)}</span>`;
+}
+
+function vdPopOpen(id) {      // ventana con las apuestas de un cuadro del cuadro por día y franja
+  const list = (vdCells[id] || []).slice().sort((a, b) => a.ts - b.ts), [d, f] = id.split("|"), k = vdF.stake / 30, fr = VD_FR[+f];
+  if (!list.length) return;
+  const pnl = list.filter((p) => p.p != null).reduce((s, p) => s + p.p * k, 0), w = list.filter((p) => p.p > 0).length, l = list.filter((p) => p.p < 0).length, op = list.filter((p) => p.p == null).length;
+  const when = (d === "*" ? "Todos los días" : vdDn(d)) + (f === "*" ? "" : " · " + String(fr[0]).padStart(2, "0") + "–" + String(fr[1]).padStart(2, "0") + " h");
+  const res = (p) => p.lv ? `<span class="tag live">🔴 LIVE</span> <b>${esc(p.lv)}</b>` : p.s === "g" ? `<span class="pos">✅ ganada</span>` : p.s === "p" ? `<span class="neg">❌ perdida</span>` : p.s === "a" ? `<span class="tag void">anulada</span>` : `<span class="tag open">abierta</span>`;
+  $("vd-pop-t").innerHTML = `<b>${esc(when)}</b> <span class="muted">· ${list.length} apuestas · ${w} ganadas · ${l} perdidas${op ? " · " + op + " abiertas" : ""} ·</span> <b class="${pnl >= 0 ? "pos" : "neg"}">${vdFm(pnl, true)}</b>`;
+  $("vd-pop-b").innerHTML = `<tr><th>${d === "*" ? "Día" : ""} Hora</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th>Resultado</th><th class="num">Ganancia</th></tr>` +
+    list.map((p) => `<tr><td class="small nowrap">${d === "*" ? vdDn(p.d) + " " : ""}${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td class="small">${esc(p.l)}${p.sy ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td>
+      <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td>${res(p)}${p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : ""}</td>
+      <td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td></tr>`).join("");
+  $("vd-pop").hidden = false;
 }
 
 function vdListDraw() {
@@ -1674,7 +1696,9 @@ function vdDraw() {
     chart($("vd-all"), all, {W: 1060, H: 320, x: (v) => v / (all.length - 1), ymin: amin, ymax: amax, yt: ticks(amin, amax, 6), bands, area: 1, hi: ah, lo: al, when: (p) => p.day, exp: eall,
       xt: keys.map((kk, j) => [(bands[j][0] + bands[j][1]) / 2, dname(kk).slice(4)]).filter((_, j) => days[keys[j]].length >= 10 || keys.length < 8), aria: "Ganancia acumulada", tip: (p) => tipHtml(p, p.day + " ")});
   }
-  const cell = {}; keys.forEach((kk) => { cell[kk] = FR.map(() => ({n: 0, pnl: 0, e: 0})); days[kk].forEach((p) => { if (!vdHeatOk(p[8])) return; const f = vdFr(p[1]); const c = cell[kk][f]; c.n++; c.pnl += p[2] || 0; c.e += p[3]; }); });
+  const cell = {}; keys.forEach((kk) => { cell[kk] = FR.map(() => ({n: 0, pnl: 0, e: 0, L: []})); days[kk].forEach((p) => { if (!vdHeatOk(p[8])) return; const f = vdFr(p[1]); const c = cell[kk][f]; c.n++; c.pnl += p[2] || 0; c.e += p[3]; c.L.push(p[8]); }); });
+  vdCells = {}; keys.forEach((kk) => { cell[kk].forEach((c, f) => { vdCells[kk + "|" + f] = c.L; }); vdCells[kk + "|*"] = cell[kk].flatMap((c) => c.L); });
+  FR.forEach((_, f) => { vdCells["*|" + f] = keys.flatMap((kk) => cell[kk][f].L); });
   const cd = {}; keys.forEach((kk) => cd[kk] = cell[kk].reduce((s, c) => s + c.pnl, 0));
   const FH = F.filter(vdHeatOk), HC = FH.filter((p) => p.p != null), ctot = HC.reduce((s, p) => s + p.p * k, 0), cexp = FH.reduce((s, p) => s + p.e * k, 0), cw = HC.filter((p) => p.p > 0).length, cl = HC.filter((p) => p.p < 0).length;
   $("vd-heat-sum").innerHTML = FH.length ? `Con estos filtros: <b>${FH.length}</b> apuestas (${HC.length} cerradas) · <b class="${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</b> de ganancia · esperado sin suerte <b>${fm(cexp)}</b> · acierto <b>${cw + cl ? Math.round(100 * cw / (cw + cl)) : 0} %</b> (${cw} ganadas, ${cl} perdidas)` : `<span class="muted">Ninguna apuesta con esos filtros.</span>`;
@@ -1685,7 +1709,7 @@ function vdDraw() {
   const wk = (kk) => { const d = new Date(kk + "T12:00:00"); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.toISOString().slice(0, 10); };
   const weeks = [...new Set(keys.slice().reverse().map(wk))], hpages = Math.max(1, weeks.length); vdHeatPg = Math.min(Math.max(1, vdHeatPg), hpages);
   const shown = vdHeatAll ? keys.slice().reverse() : keys.slice().reverse().filter((kk) => wk(kk) === weeks[vdHeatPg - 1]);
-  shown.forEach((kk) => { const j = keys.indexOf(kk); h +=`<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
+  shown.forEach((kk) => { const j = keys.indexOf(kk); h +=`<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c, f) => c.n ? `<td class="vd-cl" data-c="${kk}|${f}" title="Clic para ver las ${c.n} apuestas" style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t vd-cl ${cd[kk] >= 0 ? "pos" : "neg"}" data-c="${kk}|*" title="Clic para ver las apuestas del día">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
   const ft = FR.map((_, f) => keys.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl, e: a.e + cell[kk][f].e}), {n: 0, pnl: 0, e: 0}));
   { const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`, f = shown[shown.length - 1], l = shown[0];
     $("vd-heat-pager").innerHTML = (vdHeatAll ? "" : (hpages > 1 ? b(vdHeatPg - 1, "‹ Semana más reciente", vdHeatPg === 1) + `<span class="muted">Semana ${dname(f).slice(4)} – ${dname(l).slice(4)} (${vdHeatPg} de ${hpages})</span>` + b(vdHeatPg + 1, "Semana anterior ›", vdHeatPg === hpages) : `<span class="muted">Semana ${dname(f).slice(4)} – ${dname(l).slice(4)}</span>`))
@@ -1693,7 +1717,7 @@ function vdDraw() {
   if (!vdHeatAll && shown.length < keys.length) {
     const wt = FR.map((_, f) => shown.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl}), {n: 0, pnl: 0})), wsum = wt.reduce((s, c) => s + c.pnl, 0);
     h += `<tr><th class="l">Total de la semana</th>${wt.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${c.n ? fm(c.pnl) : "·"}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${wsum >= 0 ? "pos" : "neg"}">${fm(wsum)}</td></tr>`; }
-  h += `<tr><th class="l">Total (todos los días)</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
+  h += `<tr><th class="l">Total (todos los días)</th>${ft.map((c, f) => `<td class="t vd-cl ${c.pnl >= 0 ? "pos" : "neg"}" data-c="*|${f}" title="Clic para ver las ${c.n} apuestas de esta franja (todos los días)">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
   $("vd-heat").innerHTML = h;
   const bm = Math.max(1, ...ft.map((c) => Math.max(Math.abs(c.pnl), c.e))) * 1.08;
   $("vd-bars").innerHTML = ft.map((c, f) => `<div class="vd-bar"><b>${String(FR[f][0]).padStart(2, "0")}–${String(FR[f][1]).padStart(2, "0")} h</b><div class="tr"><div class="f" style="left:0;width:${Math.abs(c.pnl) / bm * 100}%;background:${c.pnl >= 0 ? "var(--green)" : "var(--red)"}"></div><div class="m" style="left:${Math.max(0, c.e) / bm * 100}%"></div></div><div class="v"><b class="${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}</b> <span class="muted">· esperado ${fm(c.e)} · ${(c.n / keys.length).toFixed(1)}/día</span></div></div>`).join("");
