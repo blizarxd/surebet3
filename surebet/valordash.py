@@ -98,7 +98,7 @@ def summary(conn) -> dict | None:
         sc = live.get(game_id(leg.get("url") or "") or "")
         if sc and status == "open" and not sc[2] and sc[0] > time.time() - FRESH_S:
             picks[-1]["lv"] = sc[1]
-        elif sc and status in ("won", "lost"):
+        elif sc and (status in ("won", "lost") or (status == "open" and sc[2])):   # cerrada, o terminó y falta liquidarla
             picks[-1]["fin"] = final_score(sc[1]) if sc[2] else "últ. " + sc[1]
     if not picks:
         return None

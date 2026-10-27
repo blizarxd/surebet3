@@ -87,6 +87,15 @@ def test_final_score_for_closed_picks(tmp_path):
     assert P["fin"] == "0-1" and "lv" not in P
 
 
+def test_open_but_finished_shows_final(tmp_path):
+    c = _db(tmp_path)                                       # abierta (aún sin liquidar)
+    LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285)
+    c.execute("INSERT INTO live_scores VALUES ('383828712', ?, '2-1 · 90''', 1)", (time.time() - 60,))
+    c.commit()
+    P = summary(c)["picks"][0]
+    assert P["fin"] == "2-1" and "lv" not in P
+
+
 def test_late_game_is_polled_faster():
     from surebet.livescore import is_late, final_score
     assert is_late("soccer", {"SC": {"TS": 80 * 60}}) and not is_late("soccer", {"SC": {"TS": 40 * 60}})
