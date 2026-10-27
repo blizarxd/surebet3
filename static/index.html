@@ -86,6 +86,14 @@
   .vd-tvbtns button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
   .vd-tvbtns button.on { border-color: var(--blue); color: var(--blue); }
   .vd-tvtip { position: absolute; z-index: 5; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 300px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+  .vd-mkopts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .vd-mkopts button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600; text-align: center; }
+  .vd-mkopts button small { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+  .vd-mkopts button:hover, .vd-mkman button:hover, .vd-mkno:hover { border-color: var(--blue); color: var(--blue); }
+  .vd-mkman { display: flex; gap: 8px; margin-top: 10px; }
+  .vd-mkman input { flex: 1; min-width: 0; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+  .vd-mkman button, .vd-mkno { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
+  .vd-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 80; background: var(--panel); color: var(--text); border: 1px solid var(--blue); border-radius: 10px; padding: 10px 16px; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
   .vd-mk { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
   .vd-mk button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; cursor: pointer; font: inherit; font-size: 12px; }
   .vd-mk button:hover { border-color: var(--blue); color: var(--blue); }
@@ -363,6 +371,7 @@
     <h2 style="margin-top:12px">Uno por uno</h2>
     <div class="scroll" style="max-height:420px"><table id="mv-rows"></table></div></section>
 </main>
+<div id="vd-mkp" class="vd-pop" hidden><div class="vd-popc" style="width:min(460px,100%)"><button type="button" class="vd-popx" data-close aria-label="Cerrar">✕</button><div id="vd-mkp-t" class="vd-popt"></div><div id="vd-mkp-b"></div></div></div>
 <div id="vd-pop" class="vd-pop" hidden><div class="vd-popc"><button type="button" class="vd-popx" data-close aria-label="Cerrar">✕</button><div id="vd-pop-t" class="vd-popt"></div><div class="scroll"><table id="vd-pop-b"></table></div></div></div>
 <div id="vd-alert" onclick="vdAlertNext()">
   <div class="disco"></div><div class="strobe"></div><div class="dim"></div>
@@ -1572,7 +1581,14 @@ function vdFillFilters(all) {
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-heat").addEventListener("click", (e) => { const c = e.target.closest("td[data-c]"); if (c) vdPopOpen(c.dataset.c); });
   $("vd-pop").addEventListener("click", (e) => { if (e.target.id === "vd-pop" || e.target.closest("[data-close]")) $("vd-pop").hidden = true; });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("vd-pop").hidden = true; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { $("vd-pop").hidden = true; $("vd-mkp").hidden = true; } });
+  $("vd-mkp").addEventListener("click", (e) => {
+    if (e.target.id === "vd-mkp" || e.target.closest("[data-close]")) { $("vd-mkp").hidden = true; return; }
+    const o = e.target.closest("button[data-odds]"), m = e.target.closest("button[data-manual]"), n = e.target.closest("button[data-no]");
+    if (o) { $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "ok", +o.dataset.odds); }
+    else if (m) { const v = parseFloat(String($("vd-mkp-in").value).replace(",", ".")); if (!(v > 1)) { $("vd-mkp-in").focus(); vdToast("Escribe una cuota válida (mayor que 1), por ejemplo 2.50"); return; } $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "ok", v); }
+    else if (n) { $("vd-mkp").hidden = true; vdMarkSend(vdMkRef, "no", null); }
+  });
   $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
   $("vd-heat-pager").addEventListener("click", (e) => { const a = e.target.closest("button[data-all]"); if (a) { vdHeatAll = a.dataset.all === "1"; vdHeatPg = 1; vdDraw(); return; }
     const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
@@ -1622,17 +1638,38 @@ function vdMineCell(p) {
   const st = p.y === "puesta" ? `<b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b> · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `<b class="neg">❌ no estabas</b> · ${esc(p.h || "1xBet")}`
     : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}` : p.y ? esc(p.y) : "";
   const ref = p.mid ? `data-id="${p.mid}"` : p.k ? `data-k="${esc(p.k)}"` : "";
-  const btn = ref ? `<div class="vd-mk"><button type="button" data-mk="ok" ${ref} title="Anotar que la pusiste">✅ La puse</button><button type="button" data-mk="no" ${ref} title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>` : "";
+  const marked = p.y === "puesta" || p.y === "no estaba";
+  const btn = !ref ? "" : marked ? `<div class="vd-mk"><button type="button" data-mk="menu" ${ref} title="Cambiar la cuota o decir que no la tomaste">✏️ Editar</button></div>`
+    : `<div class="vd-mk"><button type="button" data-mk="menu" ${ref} title="Elegir la cuota a la que la pusiste">✅ La puse</button><button type="button" data-mk="no" ${ref} title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>`;
   return st + hz + btn;
 }
-async function vdMark(ref, act) {
+// cuotas que ofrece el botón «La puse» (igual que en Telegram): la de la señal, una intermedia y la mínima aceptable
+function vdLevels(p) {
+  const r2 = (x) => Math.round(x * 100) / 100, o = r2(p.o);
+  const mn = p.mn || Math.min(Math.ceil(1.01 * (p.o / (1 + p.ev / 100)) * 100) / 100, o);
+  const out = [[o, "cuota de la señal"]];
+  const mid = r2((o + mn) / 2); if (mid < o && mid > r2(mn)) out.push([mid, "intermedia"]);
+  if (r2(mn) < o) out.push([r2(mn), "la mínima aceptable"]);
+  return out;
+}
+let vdMkRef = null;
+function vdMkMenu(ref) {
   const p = vdData.picks.find((x) => (ref.id != null ? x.mid === ref.id : x.k === ref.k)); if (!p) return;
-  let odds = null;
-  if (act === "ok") {
-    const r = prompt(`¿A qué cuota la pusiste en ${vdHouseGet()}? (la de la señal: ${p.o.toFixed(2)})`, (p.po || p.o).toFixed(2));
-    if (r === null) return;
-    odds = parseFloat(String(r).replace(",", ".")); if (!(odds > 1)) { alert("Cuota no válida."); return; }
-  }
+  vdMkRef = ref;
+  const now = p.y === "puesta" ? `Ahora: <b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b>` : p.y === "no estaba" ? `Ahora: <b class="neg">❌ no estabas</b>` : "";
+  $("vd-mkp-t").innerHTML = `<b>${esc(p.t)}</b><div class="muted">${esc(p.l)}${p.sy ? ` (${esc(p.sy)})` : ""} · cuota de la señal ${p.o.toFixed(2)} · casa: ${esc(vdHouseGet())}</div>${now ? `<div class="small" style="margin-top:4px">${now}</div>` : ""}`;
+  $("vd-mkp-b").innerHTML = `<div class="small muted" style="margin:6px 0">¿A qué cuota la pusiste?</div><div class="vd-mkopts">` +
+    vdLevels(p).map(([x, n]) => `<button type="button" data-odds="${x}">✅ ${x.toFixed(2)}<small>${n}</small></button>`).join("") + `</div>
+    <div class="vd-mkman"><input id="vd-mkp-in" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="otra cuota, ej. 2.50" value="${p.y === "puesta" && p.po ? p.po.toFixed(2) : ""}"><button type="button" data-manual="1">✅ La puse a esa cuota</button></div>
+    <div style="margin-top:10px"><button type="button" data-no="1" class="vd-mkno">❌ ${p.y === "puesta" ? "No la tomé (quitar)" : "No estaba / no la tomé"}</button></div>
+    <div class="small muted" style="margin-top:8px">Se anota en tu registro y te llega el aviso a Telegram.</div>`;
+  $("vd-mkp").hidden = false;
+}
+function vdToast(msg) {
+  const d = document.createElement("div"); d.className = "vd-toast"; d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500);
+}
+async function vdMarkSend(ref, act, odds) {
+  const p = vdData.picks.find((x) => (ref.id != null ? x.mid === ref.id : x.k === ref.k)); if (!p) return;
   let key = ""; try { key = localStorage.getItem("vd_key") || ""; } catch (e) {}
   if (!key) { key = (prompt("Clave del panel (la creas en Telegram con /clave tuclave):") || "").trim(); if (!key) return; }
   try {
@@ -1641,8 +1678,10 @@ async function vdMark(ref, act) {
     if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
     try { localStorage.setItem("vd_key", key); } catch (e) {}
     p.y = j.status; p.po = j.placed_odds; p.h = j.house; if (j.id != null) p.mid = j.id; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
+    vdToast(j.status === "puesta" ? `✅ Anotada a ${j.placed_odds.toFixed(2)} · aviso enviado a Telegram` : "❌ Anotado: no la tomaste · aviso enviado a Telegram");
   } catch (e) { alert("Sin conexión con el panel."); }
 }
+function vdMark(ref, act) { if (act === "no") vdMarkSend(ref, "no", null); else vdMkMenu(ref); }
 
 function vdLifeCell(p, now) {
   const L = vdLife(p, now);

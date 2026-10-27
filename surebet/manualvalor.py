@@ -168,11 +168,11 @@ def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: fl
         conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
                      (round(float(odds), 3), time.time(), h, mid))
         conn.commit()
-        return {"ok": True, "id": mid, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h}
+        return {"ok": True, "id": mid, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h, "prev": row[0]}
     if action == "no":
         conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=? WHERE id=?", (time.time(), h, mid))
         conn.commit()
-        return {"ok": True, "id": mid, "status": "no estaba", "placed_odds": None, "house": h}
+        return {"ok": True, "id": mid, "status": "no estaba", "placed_odds": None, "house": h, "prev": row[0]}
     return {"ok": False, "error": "Acción no válida."}
 
 
@@ -373,6 +373,17 @@ class ManualValor:
         tag = {"fuera de horario": "🕒 Fuera de tu horario", "no estabas": "💤 No estabas (avisos en pausa)",
                "sobre el tope": "🔝 Sobre el tope de 2 por partido", "avisada": "📍 En tu horario, sin marcar"}
         return [self._message(mid, now, [tag.get(st, st)]) for mid, st in reversed(rows)]
+
+    def web_text(self, mid: int, prev: str | None = None) -> str:
+        """El mismo aviso que dan los botones de Telegram, para cuando se marca desde el panel web."""
+        row = self.conn.execute("SELECT label, title, stake, status, placed_odds, house FROM manual_value WHERE id=?", (mid,)).fetchone()
+        if not row:
+            return ""
+        label, title, stake, status, placed, house = row
+        fixed = " (corregida)" if prev in ("puesta", "no estaba") else ""
+        if status == "puesta":
+            return f"🌐 ✅ Anotada{fixed} desde el panel en {house}: {label} a {_fmt_odds(placed)} · ${stake:g} — {title}. {self.today_line()}"
+        return f"🌐 ❌ Anotado{fixed} desde el panel: {label} no la tomaste / no estaba en {house} — {title}."
 
     def set_key(self, args: list[str]) -> str:
         return set_panel_key(self.conn, " ".join(args))

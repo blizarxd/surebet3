@@ -585,6 +585,24 @@ def _cached_state(db_path: Path, status_path: Path) -> tuple[bytes, bytes]:
         return _CACHE["body"]
 
 
+def _notify_telegram(db_path: Path, mid: int, prev: str | None) -> None:
+    """Lo que marcas en la web también te llega a Telegram, igual que cuando pulsas el botón allá."""
+    try:
+        import httpx
+
+        from .config import Settings
+        from .manualvalor import ManualValor
+        s = Settings()
+        if not (s.telegram_token and s.telegram_chat_id):
+            return
+        text = ManualValor(db_path).web_text(mid, prev)
+        if text:
+            httpx.post(f"https://api.telegram.org/bot{s.telegram_token}/sendMessage",
+                       json={"chat_id": s.telegram_chat_id, "text": text, "disable_web_page_preview": True}, timeout=10)
+    except Exception:
+        pass            # el aviso es un extra: nunca debe romper el panel
+
+
 class _Handler(BaseHTTPRequestHandler):
     db_path: Path
     status_path: Path
@@ -625,6 +643,7 @@ class _Handler(BaseHTTPRequestHandler):
             if code == 200:
                 with _CACHE_LOCK:
                     _CACHE["body"] = None            # que el próximo /api/state ya traiga la marca
+                threading.Thread(target=_notify_telegram, args=(self.db_path, out["id"], out.get("prev")), daemon=True).start()
         except Exception as e:
             code, out = 400, {"ok": False, "error": f"Petición no válida ({e.__class__.__name__})"}
         self._send(code, json.dumps(out, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")

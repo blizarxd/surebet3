@@ -26,7 +26,7 @@ def test_key_and_mark(tmp_path):
     assert "guardada" in set_panel_key(c, "mi clave")
     assert check_panel_key(c, "mi clave") and not check_panel_key(c, "otra") and not check_panel_key(c, "")
     r = mark_signal(c, 7, "ok", 2.35, "melbet")                            # también las «fuera de horario»
-    assert r == {"ok": True, "id": 7, "status": "puesta", "placed_odds": 2.35, "house": "Melbet"}
+    assert r == {"ok": True, "id": 7, "status": "puesta", "placed_odds": 2.35, "house": "Melbet", "prev": "fuera de horario"}
     assert c.execute("SELECT status, placed_odds, house FROM manual_value WHERE id=7").fetchone() == ("puesta", 2.35, "Melbet")
     assert mark_signal(c, 7, "no", None, "x")["status"] == "no estaba"
     assert c.execute("SELECT placed_odds FROM manual_value WHERE id=7").fetchone()[0] is None
@@ -79,3 +79,17 @@ def test_mark_by_key_creates_row_and_hours_command(tmp_path):
     assert "Uso" in mv.set_hours("abc") and "no válidas" in mv.set_hours("20-12")
     mv2 = ManualValor(tmp_path / "q.db", hours="8-20")                         # el horario queda guardado
     assert (mv2.start_h, mv2.end_h) == (12, 20)
+
+
+def test_web_text_matches_telegram_notice(tmp_path):
+    c = _db(tmp_path)
+    from surebet.manualvalor import ManualValor
+    mv = ManualValor(tmp_path / "p.db")
+    r = mark_signal(mv.conn, 7, "ok", 2.35, "1xBet")
+    assert r["prev"] == "fuera de horario"
+    txt = mv.web_text(7, r["prev"])
+    assert "Anotada desde el panel en 1xBet" in txt and "2,35" in txt and "A vs B" in txt and "corregida" not in txt
+    r = mark_signal(mv.conn, 7, "ok", 2.30, "1xBet")                      # editar la cuota
+    assert r["prev"] == "puesta" and "(corregida)" in mv.web_text(7, r["prev"])
+    r = mark_signal(mv.conn, 7, "no", None, "1xBet")                      # «en verdad no la tomé»
+    assert "no la tomaste" in mv.web_text(7, r["prev"]) and "(corregida)" in mv.web_text(7, r["prev"])
