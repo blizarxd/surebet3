@@ -616,7 +616,9 @@ class _Handler(BaseHTTPRequestHandler):
                 if not check_panel_key(conn, self.headers.get("X-Key") or ""):
                     code, out = 403, {"ok": False, "error": "Clave incorrecta o sin crear. En Telegram: /clave tuclave"}
                 else:
-                    out = mark_signal(conn, int(body.get("id")), str(body.get("action")), body.get("odds"), body.get("house"))
+                    mid = body.get("id")
+                    out = mark_signal(conn, int(mid) if mid is not None else None, str(body.get("action")), body.get("odds"),
+                                      body.get("house"), body.get("key"))
                     code = 200 if out.get("ok") else 400
             finally:
                 conn.close()

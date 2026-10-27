@@ -125,11 +125,39 @@ def check_panel_key(conn: sqlite3.Connection, raw: str) -> bool:
     return bool(r and r[0] and raw and hmac.compare_digest(r[0], _hash_key(raw)))
 
 
-def mark_signal(conn: sqlite3.Connection, mid: int, action: str, odds: float | None = None, house: str | None = None) -> dict:
+def _ensure_row(conn: sqlite3.Connection, key: str) -> int | None:
+    """Señales que nunca se avisaron (CS2/Dota2 en observación, etc.) no tienen fila: se crea al marcarlas desde el panel."""
+    r = conn.execute("SELECT id FROM manual_value WHERE key=?", (key,)).fetchone()
+    if r:
+        return r[0]
+    p = conn.execute("SELECT created_ts, start_ts, title, sport, market_name, market, edge_pct, legs_json FROM paper_ops "
+                     "WHERE key=? AND track IN ('valor','amplio')", (key,)).fetchone()
+    if not p:
+        return None
+    ts, start, title, sport, mname, market, ev, legs = p
+    leg = (json.loads(legs or "[]") or [{}])[0]
+    odds = float(leg.get("odds") or 0)
+    fair = float(leg.get("fair_odds") or 0) or (odds / (1 + (ev or 0) / 100) if odds else 0)
+    if odds <= 1 or fair <= 1:
+        return None
+    min_odds = min(math.ceil((1 + MIN_EV / 100) * fair * 100) / 100, round(odds, 2))
+    conn.execute("INSERT OR IGNORE INTO manual_value (key, created_ts, start_ts, title, sport, market, label, source, odds, "
+                 "min_odds, fair_odds, ev_pct, stake, url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                 (key, ts, start, title, sport, mname or market, leg.get("label"), leg.get("source"), odds, min_odds,
+                  fair, ev, 30.0, leg.get("url") or "", "sin aviso"))
+    conn.commit()
+    r = conn.execute("SELECT id FROM manual_value WHERE key=?", (key,)).fetchone()
+    return r[0] if r else None
+
+
+def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: float | None = None, house: str | None = None,
+                key: str | None = None) -> dict:
     """Lo mismo que los botones de Telegram: 'ok' = la puse (a la cuota que digas) · 'no' = no estaba. Sirve para cualquier señal."""
-    row = conn.execute("SELECT status, odds FROM manual_value WHERE id=?", (mid,)).fetchone()
+    if mid is None and key:
+        mid = _ensure_row(conn, key)
+    row = conn.execute("SELECT status, odds FROM manual_value WHERE id=?", (mid,)).fetchone() if mid is not None else None
     if not row:
-        return {"ok": False, "error": f"No encontré la señal #{mid}."}
+        return {"ok": False, "error": f"No encontré la señal #{mid}." if mid is not None else "No encontré esa señal."}
     h = next((x for x in HOUSES if x.lower() == (house or "").strip().lower()), None)
     if h is None:
         m = conn.execute("SELECT v FROM manual_value_meta WHERE k='house'").fetchone()
@@ -140,11 +168,11 @@ def mark_signal(conn: sqlite3.Connection, mid: int, action: str, odds: float | N
         conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
                      (round(float(odds), 3), time.time(), h, mid))
         conn.commit()
-        return {"ok": True, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h}
+        return {"ok": True, "id": mid, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h}
     if action == "no":
         conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=? WHERE id=?", (time.time(), h, mid))
         conn.commit()
-        return {"ok": True, "status": "no estaba", "placed_odds": None, "house": h}
+        return {"ok": True, "id": mid, "status": "no estaba", "placed_odds": None, "house": h}
     return {"ok": False, "error": "Acción no válida."}
 
 
@@ -157,6 +185,7 @@ class ManualValor:
         self.conn.commit()
         self.stake = stake
         self.start_h, self.end_h = _hours(hours)
+        self._load_hours()
         self.houses = tuple(houses) or HOUSES
 
     # ------------------------------------------------------------------ dominio de cada casa (/dominio)
@@ -210,7 +239,29 @@ class ManualValor:
                     "/salgo cuando te vayas del PC.")
         return "⏸ Avisos de valor 1xBet en pausa (se siguen anotando para medir). /estoy cuando vuelvas al PC."
 
+    def _load_hours(self) -> None:
+        """El horario que fijaste con /horario (si no, el de MANUAL_VALUE_HOURS)."""
+        r = self.conn.execute("SELECT v FROM manual_value_meta WHERE k='hours'").fetchone()
+        if r and r[0]:
+            self.start_h, self.end_h = _hours(r[0])
+
+    def set_hours(self, arg: str = "") -> str:
+        words = arg.replace(" ", "")
+        if not words:
+            return f"🕒 Tu horario de avisos: {self.start_h}–{self.end_h} h (hora Venezuela). Cambiarlo: /horario 12-20"
+        try:
+            a, b = (int(x) for x in words.split("-"))
+        except ValueError:
+            return "Uso: /horario 12-20  (hora de inicio y de fin, hora Venezuela)"
+        if not (0 <= a < b <= 24):
+            return "Horas no válidas: la de inicio debe ser menor que la de fin, entre 0 y 24."
+        self.conn.execute("INSERT OR REPLACE INTO manual_value_meta VALUES ('hours', ?)", (f"{a}-{b}",))
+        self.conn.commit()
+        self.start_h, self.end_h = a, b
+        return f"🕒 Horario de avisos: {a}–{b} h (hora Venezuela). Lo que salga fuera de ese rango se anota pero no se avisa."
+
     def in_hours(self, ts: float) -> bool:
+        self._load_hours()
         h = datetime.fromtimestamp(ts, VET).hour
         return self.start_h <= h < self.end_h
 

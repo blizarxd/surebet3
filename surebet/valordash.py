@@ -95,6 +95,8 @@ def summary(conn) -> dict | None:
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro",
                       "sy": symbol(mk, leg.get("covers"))})
+        if mid is None:
+            picks[-1]["k"] = key                 # sin fila en manual_value (CS2, etc.): el panel la crea al marcarla
         sc = live.get(game_id(leg.get("url") or "") or "")
         if sc and status == "open" and not sc[2] and sc[0] > time.time() - FRESH_S:
             picks[-1]["lv"] = sc[1]
@@ -110,4 +112,10 @@ def summary(conn) -> dict | None:
         domains = {k[7:]: v for k, v in conn.execute("SELECT k, v FROM manual_value_meta WHERE k LIKE 'domain:%'") if v}
     except sqlite3.OperationalError:
         domains = {}
-    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet", "domains": domains}
+    try:
+        hrs = (conn.execute("SELECT v FROM manual_value_meta WHERE k='hours'").fetchone() or [None])[0]
+        hours = [int(x) for x in hrs.split("-")] if hrs else None
+    except (sqlite3.OperationalError, ValueError):
+        hours = None
+    return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet", "domains": domains,
+            "hours": hours or [12, 20]}

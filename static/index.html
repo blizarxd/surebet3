@@ -1568,7 +1568,7 @@ function vdFillFilters(all) {
   bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb"); bind("vd-f-h", "h"); bind("vd-f-tr", "tr");
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
-  $("vd-list").addEventListener("click", (e) => { const b = e.target.closest("button[data-mk]"); if (b) vdMark(+b.dataset.id, b.dataset.mk); });
+  $("vd-list").addEventListener("click", (e) => { const b = e.target.closest("button[data-mk]"); if (b) vdMark(b.dataset.id ? {id: +b.dataset.id} : {k: b.dataset.k}, b.dataset.mk); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-heat").addEventListener("click", (e) => { const c = e.target.closest("td[data-c]"); if (c) vdPopOpen(c.dataset.c); });
   $("vd-pop").addEventListener("click", (e) => { if (e.target.id === "vd-pop" || e.target.closest("[data-close]")) $("vd-pop").hidden = true; });
@@ -1617,15 +1617,16 @@ function vdStartTxt(p, now) {
 
 // columna «Tu botón»: horario (en tu horario / fuera de tu horario), lo que marcaste y los mismos ✅ / ❌ de Telegram
 function vdMineCell(p) {
-  const hz = p.y === "fuera de horario" ? `<div class="muted">🕒 fuera de tu horario</div>` : p.y === "no estabas" ? `<div class="muted">💤 no estabas (avisos en pausa)</div>`
-    : (p.y === "avisada" || p.y === "puesta" || p.y === "no estaba" || p.y === "sobre el tope") ? `<div class="muted">📍 en tu horario</div>` : "";
+  const H = (vdData && vdData.hours) || [12, 20], inH = p.m / 60 >= H[0] && p.m / 60 < H[1];      // el horario sale de la HORA de la señal (/horario en Telegram)
+  const hz = `<div class="muted">${inH ? "📍 en tu horario" : "🕒 fuera de tu horario"}${p.y === "no estabas" ? " · 💤 avisos en pausa" : ""}</div>`;
   const st = p.y === "puesta" ? `<b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b> · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `<b class="neg">❌ no estabas</b> · ${esc(p.h || "1xBet")}`
     : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}` : p.y ? esc(p.y) : "";
-  const btn = p.mid ? `<div class="vd-mk"><button type="button" data-mk="ok" data-id="${p.mid}" title="Anotar que la pusiste">✅ La puse</button><button type="button" data-mk="no" data-id="${p.mid}" title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>` : "";
+  const ref = p.mid ? `data-id="${p.mid}"` : p.k ? `data-k="${esc(p.k)}"` : "";
+  const btn = ref ? `<div class="vd-mk"><button type="button" data-mk="ok" ${ref} title="Anotar que la pusiste">✅ La puse</button><button type="button" data-mk="no" ${ref} title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>` : "";
   return st + hz + btn;
 }
-async function vdMark(id, act) {
-  const p = vdData.picks.find((x) => x.mid === id); if (!p) return;
+async function vdMark(ref, act) {
+  const p = vdData.picks.find((x) => (ref.id != null ? x.mid === ref.id : x.k === ref.k)); if (!p) return;
   let odds = null;
   if (act === "ok") {
     const r = prompt(`¿A qué cuota la pusiste en ${vdHouseGet()}? (la de la señal: ${p.o.toFixed(2)})`, (p.po || p.o).toFixed(2));
@@ -1635,11 +1636,11 @@ async function vdMark(id, act) {
   let key = ""; try { key = localStorage.getItem("vd_key") || ""; } catch (e) {}
   if (!key) { key = (prompt("Clave del panel (la creas en Telegram con /clave tuclave):") || "").trim(); if (!key) return; }
   try {
-    const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id, action: act, odds, house: vdHouseGet()})});
+    const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id: ref.id ?? null, key: ref.k ?? null, action: act, odds, house: vdHouseGet()})});
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
     try { localStorage.setItem("vd_key", key); } catch (e) {}
-    p.y = j.status; p.po = j.placed_odds; p.h = j.house; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
+    p.y = j.status; p.po = j.placed_odds; p.h = j.house; if (j.id != null) p.mid = j.id; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
   } catch (e) { alert("Sin conexión con el panel."); }
 }
 
