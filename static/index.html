@@ -67,6 +67,8 @@
   th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
   td.num, th.num { text-align: right; white-space: nowrap; }
   .scroll { overflow-x: auto; }
+  /* polvo de oro: lienzo fijo detrás de todo el panel (z-index -1); las tarjetas quedan encima */
+  #rm-dust { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 16px; max-width: none; margin: 0; position: sticky; top: 0; z-index: 6;
           background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
   .tabs button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
@@ -2182,6 +2184,41 @@ $("filters").addEventListener("click", (e) => {
   if (state) renderOps();
 });
 refresh(); setInterval(refresh, 15000);
+</script>
+<canvas id="rm-dust" aria-hidden="true"></canvas>
+<script>
+// Pepitas y destellos de oro flotando en el fondo. Liviano: ~30 cuadros/s, se detiene con la pestaña oculta y con «reducir movimiento».
+(() => {
+  const cv = document.getElementById("rm-dust"), cx = cv.getContext("2d");
+  if (!cx || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let W = 0, H = 0, P = [], last = 0;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const make = (y) => ({x: Math.random() * W, y: y ?? Math.random() * H, r: Math.random() < .12 ? 1.6 + Math.random() * 1.8 : .5 + Math.random() * 1.2,
+    v: .08 + Math.random() * .28, dx: (Math.random() - .5) * .12, ph: Math.random() * 6.28, sp: .6 + Math.random() * 1.8});
+  function size() {
+    W = innerWidth; H = innerHeight; cv.width = W * dpr; cv.height = H * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    P = Array.from({length: Math.round(Math.min(90, W * H / 16000))}, () => make());
+  }
+  function frame(t) {
+    requestAnimationFrame(frame);
+    if (document.hidden || t - last < 33) return;
+    const dt = Math.min(3, (t - last) / 33); last = t;
+    cx.clearRect(0, 0, W, H);
+    for (const p of P) {
+      p.y -= p.v * dt; p.x += p.dx * dt; p.ph += .03 * p.sp * dt;
+      if (p.y < -6) Object.assign(p, make(H + 6));
+      const a = .25 + .55 * (.5 + .5 * Math.sin(p.ph));
+      const g = cx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
+      g.addColorStop(0, `rgba(248,221,142,${a})`); g.addColorStop(.35, `rgba(232,181,74,${a * .55})`); g.addColorStop(1, "rgba(232,181,74,0)");
+      cx.fillStyle = g; cx.beginPath(); cx.arc(p.x, p.y, p.r * 4, 0, 6.283); cx.fill();
+      if (p.r > 1.6 && a > .7) {                                 // destello en cruz de las pepitas grandes cuando brillan
+        cx.strokeStyle = `rgba(255,240,200,${(a - .7) * 2})`; cx.lineWidth = .8; const L = p.r * 5;
+        cx.beginPath(); cx.moveTo(p.x - L, p.y); cx.lineTo(p.x + L, p.y); cx.moveTo(p.x, p.y - L); cx.lineTo(p.x, p.y + L); cx.stroke();
+      }
+    }
+  }
+  size(); addEventListener("resize", size); requestAnimationFrame(frame);
+})();
 </script>
 </body>
 </html>
