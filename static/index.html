@@ -1505,9 +1505,17 @@ function vdHouseGet() {            // casa elegida en ESTA web (se guarda en est
   try { const s = localStorage.getItem("vd_house"); if (s) return s; } catch (e) {}
   return (vdData && vdData.house) || "1xBet";
 }
+// señales cuya cuota de 1xBet llegó de una fuente externa vienen sin link al partido: se abre la lista del deporte para buscarlo
+const VD_LINE = {soccer: "football", basketball: "basketball", tennis: "tennis"};
+function vdListUrl(p) {
+  const h = vdHouseGet(), d = vdData && vdData.domains && vdData.domains[h]; let host = d;
+  try { host = host || new URL(((vdData.picks.find((x) => x.u) || {}).u)).host; } catch (e) {}
+  return host ? `https://${host}/en/line/${(p.sp || "").startsWith("esports") ? "esports" : (VD_LINE[p.sp] || p.sp)}` : "";
+}
 function vdUrl(p) {
   const h = vdHouseGet(), d = vdData && vdData.domains && vdData.domains[h];
-  if (!p.u || !h || !d) return p.u;
+  if (!p.u) return vdListUrl(p);
+  if (!h || !d) return p.u;
   try { const u = new URL(p.u); return "https://" + d + u.pathname; } catch (e) { return p.u; }
 }
 const vdHouseName = () => { const h = vdHouseGet(); return (vdData && vdData.domains && vdData.domains[h]) ? h : "1xBet"; };
@@ -1574,7 +1582,7 @@ function vdNow(all) {
     return `<tr${isLive ? "" : ' style="opacity:.6"'}><td class="nowrap"><b>${left(p)}</b></td><td>${esc(p.t)}<div class="muted small">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td>${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num muted">${p.mn ? p.mn.toFixed(2) : "-"}</td><td class="num">${p.ev.toFixed(1)}%</td>
       <td class="small nowrap">${isLive ? `<span class="pos">🟢 vigente</span>${L.dur != null ? `<div class="muted">lleva ${vdDur(L.dur)}</div>` : ""}` : `<span class="muted">⚪ cambió</span><div class="muted">duró ${vdDur(L.dur)}</div>`}</td>
-      <td>${p.u ? `<a class="vd-btn ${isLive ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${isLive ? "Apostar en " + vdHouseName() + " ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`; };
+      <td>${vdUrl(p) ? `<a class="vd-btn ${isLive && p.u ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener"${p.u ? "" : ` title="Esta señal no trae link directo: abre la lista del deporte y busca el partido"`}>${!p.u ? "Buscar ↗" : isLive ? "Apostar en " + vdHouseName() + " ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`; };
   const head = `<tr><th>Empieza en</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">Mínima</th><th class="num">EV</th><th>Estado de la cuota</th><th></th></tr>`;
   $("vd-now").innerHTML = (open.length ? head + live.map((p) => row(p, true)).join("") + gone.map((p) => row(p, false)).join("")
     : `<tr><td class="empty">Ninguna pendiente por ahora: cuando salga una señal aparece acá (y te llega a Telegram).</td></tr>`)
@@ -1614,7 +1622,7 @@ function vdListDraw() {
       <td>${p.lv ? `<span class="tag live">🔴 LIVE</span><div class="small"><b>${esc(p.lv)}</b></div>` : res[p.s] + (p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : "")}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
       <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}<div class="muted">¿la jugaste? en Telegram: /puse ${p.mid}</div>` : p.y ? esc(p.y) : ""}</td>
-      <td>${p.u ? `<a class="vd-btn ${p.s === "o" && p.y !== "sobre el tope" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${p.s === "o" && p.y !== "sobre el tope" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
+      <td>${vdUrl(p) ? `<a class="vd-btn ${p.u && p.s === "o" && p.y !== "sobre el tope" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener"${p.u ? "" : ` title="Esta señal no trae link directo: abre la lista del deporte y busca el partido"`}>${!p.u ? "Buscar ↗" : p.s === "o" && p.y !== "sobre el tope" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
   $("vd-list-n").textContent = `(${rows.length} apuestas)`;
   const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`;
   $("vd-pager").innerHTML = rows.length ? b(1, "«", vdPage === 1) + b(vdPage - 1, "‹ Anterior", vdPage === 1) + `<span class="muted">Página ${vdPage} de ${pages}</span>` + b(vdPage + 1, "Siguiente ›", vdPage === pages) + b(pages, "»", vdPage === pages) : "";
@@ -1804,7 +1812,7 @@ function vdAlertRender() {
   $("vdal-chips").innerHTML = `<span class="chip">📈 Cuota ${p.o.toFixed(2)}</span><span class="chip">🛡 Mínima ${p.mn ? p.mn.toFixed(2) : "-"}</span><span class="chip">💎 EV ${p.ev.toFixed(1)}%</span><span class="chip">💵 $${vdF.stake}</span>${p.tr === "amplio" ? `<span class="chip">🥈 AMPLIADO</span>` : ""}${p.lt ? `<span class="chip">⚠ LOTE ${p.lt}: mira la cuota antes</span>` : ""}${p.n > 1 ? `<span class="chip">${p.n}.º pick del partido</span>` : ""}`;
   const state2 = L.live || !p.ls ? "🟢 VIGENTE — ¡todavía se puede apostar!" : `⚪ la cuota ya cambió (duró ${vdDur(L.dur)})`;
   $("vdal-when").innerHTML = `${mins == null ? "" : mins >= 60 ? `⏳ empieza en ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min` : `⏳ empieza en <b>${mins} min</b>`}<br>${state2}`;
-  const a = $("vdal-go"); if (p.u) { a.href = vdUrl(p); a.textContent = "🚀 APOSTAR EN " + vdHouseName().toUpperCase() + " →"; a.style.display = "inline-block"; } else a.style.display = "none";
+  const a = $("vdal-go"); if (vdUrl(p)) { a.href = vdUrl(p); a.textContent = p.u ? "🚀 APOSTAR EN " + vdHouseName().toUpperCase() + " →" : "🔎 BUSCAR EL PARTIDO EN " + vdHouseName().toUpperCase() + " →"; a.style.display = "inline-block"; } else a.style.display = "none";
   $("vdal-more").textContent = vdAl.queue.length ? `➕ ${vdAl.queue.length} señal${vdAl.queue.length > 1 ? "es" : ""} más (toca para ver la siguiente)` : "";
 }
 function vdAlertShow(list) {

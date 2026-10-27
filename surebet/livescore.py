@@ -46,6 +46,8 @@ def _period(name: str) -> str:
     low = n.lower()
     if low in ("half time", "halftime", "break", "interval"):
         return "descanso"
+    if "finish" in low or low in ("ended", "final", "game over"):
+        return "terminado"
     m = re.match(r"(\d+)(?:st|nd|rd|th) (half|quarter|set|map|period|inning)", low)
     if m:
         i, kind = m.group(1), m.group(2)
@@ -64,6 +66,12 @@ def is_late(sport: str, value: dict) -> bool:
         cps = str(sc.get("CPS") or "").lower()
         return cps.startswith("4th") or "overtime" in cps
     return False
+
+
+def is_finished(value: dict) -> bool:
+    """El feed a veces deja el partido un rato con el periodo «game finished» antes de quitarlo."""
+    sc = value.get("SC") if isinstance(value.get("SC"), dict) else {}
+    return _period(str(sc.get("CPS") or "")) == "terminado"
 
 
 def final_score(text: str) -> str:
@@ -156,7 +164,8 @@ class LiveScores:
             value =data.get("Value") if isinstance(data, dict) else None
             text = describe(sport, value) if isinstance(value, dict) else ""
             if text:
-                self.conn.execute("INSERT OR REPLACE INTO live_scores VALUES (?,?,?,0)", (gid, time.time(), text))
+                self.conn.execute("INSERT OR REPLACE INTO live_scores VALUES (?,?,?,?)",
+                                  (gid, time.time(), text, 1 if is_finished(value) else 0))
                 self._due[gid] = time.time() + (LATE_INTERVAL_S if is_late(sport, value) else self.interval_s)
                 ok += 1
             else:        # el feed ya no lo trae: el partido terminó; se queda el último marcador visto como final

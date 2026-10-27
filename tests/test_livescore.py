@@ -120,6 +120,13 @@ def test_brake_pauses_polling_when_1xbet_fails(tmp_path, monkeypatch):
     assert Boom.calls == n
 
 
+def test_game_finished_period_counts_as_ended():
+    from surebet.livescore import is_finished
+    v = {"SC": {"FS": {"S1": 90, "S2": 84}, "CPS": "game finished"}}
+    assert is_finished(v) and describe("basketball", v) == "90-84 · terminado"
+    assert not is_finished({"SC": {"FS": {}, "CPS": "3rd quarter"}})
+
+
 def test_late_game_is_polled_faster():
     from surebet.livescore import is_late, final_score
     assert is_late("soccer", {"SC": {"TS": 80 * 60}}) and not is_late("soccer", {"SC": {"TS": 40 * 60}})
