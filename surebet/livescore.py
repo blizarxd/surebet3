@@ -73,7 +73,10 @@ def is_started(value: dict) -> bool:
     """Hay juego de verdad: un periodo («1st half», «2nd set»…), minutos corridos o marcador por periodos."""
     sc = value.get("SC") if isinstance(value.get("SC"), dict) else {}
     ts = sc.get("TS")
-    return bool(str(sc.get("CPS") or "").strip()) or (isinstance(ts, (int, float)) and ts > 0) or bool(sc.get("PS"))
+    if "pre-match" in str(sc.get("I") or "").lower():                  # 1xBet: «Pre-match betting» = aún no empieza
+        return False
+    scored = any(isinstance(x, dict) and any(k in (x.get("Value") or {}) for k in ("S1", "S2")) for x in (sc.get("PS") or []))
+    return bool(str(sc.get("CPS") or "").strip()) or (isinstance(ts, (int, float)) and ts > 0) or scored
 
 
 def is_finished(value: dict) -> bool:

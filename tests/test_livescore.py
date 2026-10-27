@@ -140,4 +140,6 @@ def test_late_game_is_polled_faster():
 def test_upcoming_game_in_live_feed_is_not_live():
     from surebet.livescore import is_started
     assert not is_started({"SC": {"FS": {}}}) and not is_started({"SC": {}}) and not is_started({})
-    assert is_started({"SC": {"CPS": "1st half", "TS": 60}}) and is_started({"SC": {"PS": [{"Key": 1, "Value": {}}]}})
+    assert is_started({"SC": {"CPS": "1st half", "TS": 60}}) and is_started({"SC": {"PS": [{"Key": 1, "Value": {"S1": 3}}]}})
+    pre = {"SC": {"FS": {}, "PS": [{"Key": 1, "Value": {"NF": "1st half"}}], "CPS": "", "I": "Pre-match betting"}}   # Fleetwood, 27/10
+    assert not is_started(pre) and not is_started({"SC": {"PS": [{"Key": 1, "Value": {"NF": "1st half"}}]}})
