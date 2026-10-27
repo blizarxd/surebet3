@@ -14,6 +14,8 @@ Nunca apuesta nada en 1xBet (no hay bot sobre su web: regla del proyecto).
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import math
 import sqlite3
@@ -93,6 +95,57 @@ def odds_levels(odds: float, min_odds: float) -> list[float]:
         if x not in out and x <= round(odds, 2):
             out.append(x)
     return out
+
+
+# ------------------------------------------------------------------ marcar desde el panel web (los mismos ✅ / ❌ de Telegram)
+def _hash_key(raw: str) -> str:
+    return hashlib.sha256(("surebet3|" + (raw or "").strip()).encode("utf-8")).hexdigest()
+
+
+def set_panel_key(conn: sqlite3.Connection, raw: str) -> str:
+    """La clave del panel se pone SOLO desde Telegram (tu chat): /clave <texto>. Sin clave, el panel no deja marcar."""
+    raw = (raw or "").strip()
+    conn.executescript(SCHEMA)
+    if not raw:
+        conn.execute("DELETE FROM manual_value_meta WHERE k='panel_key'")
+        conn.commit()
+        return "🔒 Clave del panel borrada: los botones de la web quedan desactivados."
+    if len(raw) < 4:
+        return "La clave debe tener al menos 4 caracteres: /clave tuclave"
+    conn.execute("INSERT OR REPLACE INTO manual_value_meta VALUES ('panel_key', ?)", (_hash_key(raw),))
+    conn.commit()
+    return "🔑 Clave del panel guardada. En la web, al marcar ✅/❌ por primera vez te la pide (queda en ese navegador). Borra este mensaje del chat."
+
+
+def check_panel_key(conn: sqlite3.Connection, raw: str) -> bool:
+    try:
+        r = conn.execute("SELECT v FROM manual_value_meta WHERE k='panel_key'").fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return bool(r and r[0] and raw and hmac.compare_digest(r[0], _hash_key(raw)))
+
+
+def mark_signal(conn: sqlite3.Connection, mid: int, action: str, odds: float | None = None, house: str | None = None) -> dict:
+    """Lo mismo que los botones de Telegram: 'ok' = la puse (a la cuota que digas) · 'no' = no estaba. Sirve para cualquier señal."""
+    row = conn.execute("SELECT status, odds FROM manual_value WHERE id=?", (mid,)).fetchone()
+    if not row:
+        return {"ok": False, "error": f"No encontré la señal #{mid}."}
+    h = next((x for x in HOUSES if x.lower() == (house or "").strip().lower()), None)
+    if h is None:
+        m = conn.execute("SELECT v FROM manual_value_meta WHERE k='house'").fetchone()
+        h = (m[0] if m and m[0] in HOUSES else "1xBet")
+    if action == "ok":
+        if odds is None or not (1.0 < float(odds) < 1000):
+            return {"ok": False, "error": "La cuota debe ser un número mayor que 1."}
+        conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
+                     (round(float(odds), 3), time.time(), h, mid))
+        conn.commit()
+        return {"ok": True, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h}
+    if action == "no":
+        conn.execute("UPDATE manual_value SET status='no estaba', placed_odds=NULL, clicked_ts=?, house=? WHERE id=?", (time.time(), h, mid))
+        conn.commit()
+        return {"ok": True, "status": "no estaba", "placed_odds": None, "house": h}
+    return {"ok": False, "error": "Acción no válida."}
 
 
 class ManualValor:
@@ -269,6 +322,9 @@ class ManualValor:
         tag = {"fuera de horario": "🕒 Fuera de tu horario", "no estabas": "💤 No estabas (avisos en pausa)",
                "sobre el tope": "🔝 Sobre el tope de 2 por partido", "avisada": "📍 En tu horario, sin marcar"}
         return [self._message(mid, now, [tag.get(st, st)]) for mid, st in reversed(rows)]
+
+    def set_key(self, args: list[str]) -> str:
+        return set_panel_key(self.conn, " ".join(args))
 
     def register(self, cmd: str, args: list[str]) -> str:
         """/puse <n.º> [cuota]  |  /noestaba <n.º>: anotar a mano una señal (p. ej. una «sobre el tope» que sí jugaste)."""
