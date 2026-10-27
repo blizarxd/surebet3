@@ -1486,7 +1486,7 @@ function renderManual(x) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
 }
 
-let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdHeatAll = false, vdDayPg = 1, vdCells = {};
+let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdHeatAll = false, vdDayPg = 1, vdCells = {}, vdMinSeen = 0;
 const VD_DAYS_PER_PAGE = 9;
 // botones «« ‹ Página n de N › »» (data-pg) para un paginador; devuelve el texto HTML
 function vdPagerHtml(page, pages, label) {
@@ -1600,6 +1600,17 @@ function vdNow(all) {
     + (playing.length ? `<tr><th colspan="8">⏳ En juego o por cerrarse</th></tr>` + playing.map((p) => `<tr><td class="muted small">en juego</td><td>${esc(p.t)}</td><td>${esc(p.l)}</td><td class="num">${p.o.toFixed(2)}</td><td></td><td class="num">${p.ev.toFixed(1)}%</td><td class="small">${p.y === "puesta" ? "✅ la pusiste" : ""}</td><td></td></tr>`).join("") : "");
 }
 
+// estado del partido en gris, bajo la duración de la cuota: «empieza en 1 h 30 min» · «empezado · hace 45 min» · «finalizado»
+function vdStartTxt(p, now) {
+  if (p.s === "a") return "anulada";
+  if (p.s !== "o" || p.fin) return "finalizado";            // apuesta cerrada, o el partido ya terminó y falta liquidarla
+  if (!p.st) return "";
+  const m = Math.round((p.st - now) / 60);
+  if (m > 0) return "empieza en " + (m >= 60 ? Math.floor(m / 60) + " h" + (m % 60 ? " " + String(m % 60).padStart(2, "0") + " min" : "") : m + " min");
+  const a = Math.round(-m);
+  return "empezado" + (a >= 1 ? " · hace " + (a >= 60 ? Math.floor(a / 60) + " h " + String(a % 60).padStart(2, "0") + " min" : a + " min") : "");
+}
+
 function vdLifeCell(p, now) {
   const L = vdLife(p, now);
   if (L.dur == null) return `<span class="muted">-</span>`;
@@ -1693,7 +1704,7 @@ function vdListDraw() {
     (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${p.tr === "amplio" ? ` · 🥈 amplio` : ""}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}${p.sy ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
       <td>${p.lv ? `<span class="tag live">🔴 LIVE</span><div class="small"><b>${esc(p.lv)}</b></div>` : res[p.s] + (p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : "")}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
-      <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
+      <td class="small nowrap">${vdLifeCell(p, nowS)}<div class="muted">${esc(vdStartTxt(p, nowS))}</div></td>
       <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}<div class="muted">¿la jugaste? en Telegram: /puse ${p.mid}</div>` : p.y ? esc(p.y) : ""}</td>
       <td>${vdUrl(p) ? `<a class="vd-btn ${p.u && p.s === "o" && p.y !== "sobre el tope" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener"${p.u ? "" : ` title="Esta señal no trae link directo: abre la lista del deporte y busca el partido"`}>${!p.u ? "Buscar ↗" : p.s === "o" && p.y !== "sobre el tope" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
   $("vd-list-n").textContent = `(${rows.length} apuestas)`;
@@ -1709,7 +1720,7 @@ function renderValorDash(x) {
     $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
   vdNow(x.picks);
   const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length + "|" + P.map((p) => (p.lv || "") + (p.fin || "")).join(",");
-  if (sig === vdSig) return;          // nada nuevo: no se redibuja (ni parpadea ni gasta)
+  if (sig === vdSig) { const mn = Math.floor(Date.now() / 60000); if (mn !== vdMinSeen) { vdMinSeen = mn; vdListDraw(); } return; }   // nada nuevo; solo la lista se repinta cada minuto (los «empieza en…»)          // nada nuevo: no se redibuja (ni parpadea ni gasta)
   vdSig = sig; vdFillFilters(P); vdDraw();
 }
 
