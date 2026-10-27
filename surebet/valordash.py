@@ -19,6 +19,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from .livescore import FRESH_S, final_score, game_id
+from .manualvalor import NO_ALERT_SPORTS
+from .safety import OBSERVE_SPORTS
 
 STAKE = 30.0
 VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
@@ -118,4 +120,5 @@ def summary(conn) -> dict | None:
     except (sqlite3.OperationalError, ValueError):
         hours = None
     return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet", "domains": domains,
-            "hours": hours or [12, 20]}
+            "hours": hours or [12, 20],
+            "work": {"observe": list(OBSERVE_SPORTS), "no_alert": list(NO_ALERT_SPORTS)}}
