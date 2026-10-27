@@ -135,3 +135,9 @@ def test_late_game_is_polled_faster():
     assert is_late("soccer", {"SC": {"TS": 80 * 60}}) and not is_late("soccer", {"SC": {"TS": 40 * 60}})
     assert is_late("basketball", {"SC": {"CPS": "4th quarter"}}) and not is_late("tennis", {"SC": {"CPS": "3rd set"}})
     assert final_score("sets 2-1 · 3.º set 6-4") == "sets 2-1" and final_score("1-0 · 88'") == "1-0"
+
+
+def test_upcoming_game_in_live_feed_is_not_live():
+    from surebet.livescore import is_started
+    assert not is_started({"SC": {"FS": {}}}) and not is_started({"SC": {}}) and not is_started({})
+    assert is_started({"SC": {"CPS": "1st half", "TS": 60}}) and is_started({"SC": {"PS": [{"Key": 1, "Value": {}}]}})

@@ -69,6 +69,13 @@ def is_late(sport: str, value: dict) -> bool:
     return False
 
 
+def is_started(value: dict) -> bool:
+    """Hay juego de verdad: un periodo («1st half», «2nd set»…), minutos corridos o marcador por periodos."""
+    sc = value.get("SC") if isinstance(value.get("SC"), dict) else {}
+    ts = sc.get("TS")
+    return bool(str(sc.get("CPS") or "").strip()) or (isinstance(ts, (int, float)) and ts > 0) or bool(sc.get("PS"))
+
+
 def is_finished(value: dict) -> bool:
     """El feed a veces deja el partido un rato con el periodo «game finished» antes de quitarlo."""
     sc = value.get("SC") if isinstance(value.get("SC"), dict) else {}
@@ -163,6 +170,12 @@ class LiveScores:
                 continue
             self._bad_in_row = 0
             value =data.get("Value") if isinstance(data, dict) else None
+            if isinstance(value, dict) and value and not is_started(value):
+                # 1xBet ya lista en su feed en vivo el partido que está por empezar (0-0, sin minuto): aún no es LIVE
+                self.conn.execute("DELETE FROM live_scores WHERE game_id=?", (gid,))
+                self._due[gid] = time.time() + self.interval_s
+                await asyncio.sleep(GAP_S)
+                continue
             text = describe(sport, value) if isinstance(value, dict) else ""
             if text:
                 self.conn.execute("INSERT OR REPLACE INTO live_scores VALUES (?,?,?,?)",
