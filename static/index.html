@@ -81,6 +81,11 @@
   .vd-heat th { font-weight: 500; color: var(--muted); font-size: 12px; padding: 2px 4px; text-align: center; border: 0; }
   .vd-heat th.l { text-align: left; white-space: nowrap; }
   .vd-heat td { text-align: center; border-radius: 8px; padding: 8px 2px; font-weight: 600; min-width: 62px; border: 0; }
+  .vd-tvbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .vd-tvbtns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .vd-tvbtns button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+  .vd-tvbtns button.on { border-color: var(--blue); color: var(--blue); }
+  .vd-tvtip { position: absolute; z-index: 5; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 300px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
   .vd-heat td.vd-cl { cursor: pointer; } .vd-heat td.vd-cl:hover { outline: 2px solid var(--blue); outline-offset: -2px; }
   .vd-pop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; } .vd-pop[hidden] { display: none; }
   .vd-popc { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; width: min(900px, 100%); max-height: 85vh; overflow: auto; position: relative; }
@@ -396,7 +401,13 @@
   <section class="card" style="margin-top:12px"><h2>🎯 Para apostar ahora <span class="count" id="vd-now-n"></span></h2><div class="scroll"><table id="vd-now"></table></div></section>
   <section class="vd-kpis" id="vd-kpis" style="margin-top:12px"></section>
   <section class="vd-kpis" id="vd-risk" style="margin-top:10px"></section>
-  <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(azul = real · naranja punteada = esperado sin suerte · franjas = días)</span></h2><div id="vd-all"></div></section>
+  <section class="card" style="margin-top:12px"><h2>Ganancia acumulada <span class="count">(línea = real · naranja punteada = esperado sin suerte · cada punto es un pick: verde ganada, rojo perdida, ámbar abierta · pasa el mouse para ver el detalle)</span></h2>
+    <div id="vd-tv-wrap" hidden>
+      <div class="vd-tvbar"><span id="vd-tv-leg" class="small"></span>
+        <span class="vd-tvbtns"><button type="button" data-r="all" class="on">Todo</button><button type="button" data-r="7">7 días</button><button type="button" data-r="1">24 h</button>
+          <label class="small"><input type="checkbox" id="vd-tv-mk" checked> marcar cada pick</label></span></div>
+      <div id="vd-tv" style="position:relative;height:380px"><div id="vd-tv-tip" class="vd-tvtip" hidden></div></div></div>
+    <div id="vd-all"></div></section>
   <section class="card" style="margin-top:12px"><h2>Por día y franja horaria <span class="count">(bloques de 4 h · hora Venezuela (UTC−4))</span></h2>
     <div class="vd-chips" id="vd-hf-sp"><span class="muted small">Deporte:</span>
       <button data-sp="all" class="on">Todos</button><button data-sp="soccer">⚽ Fútbol</button><button data-sp="basketball">🏀 Básquet</button><button data-sp="tennis">🎾 Tenis</button><button data-sp="esports">🎮 Esports</button></div>
@@ -1596,6 +1607,68 @@ function vdLifeCell(p, now) {
   return L.kick ? `<span class="muted">hasta el inicio · ${vdDur(L.dur)}</span>` : `<span>duró ${vdDur(L.dur)}</span>`;
 }
 
+// ===== gráfica de ganancia acumulada estilo TradingView (lightweight-charts); si no carga, queda la gráfica SVG de siempre =====
+let vdTv = null, vdTvMap = {}, vdTvLoad = 0;
+function vdTvEnsure() {
+  if (window.LightweightCharts || vdTvLoad) return;
+  vdTvLoad = 1;
+  const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js";
+  s.onload = () => { if (vdData) { vdSig = ""; vdDraw(); } }; s.onerror = () => { vdTvLoad = 2; };
+  document.head.appendChild(s);
+}
+function vdTvDraw(P, k) {
+  if (!window.LightweightCharts) { vdTvEnsure(); return false; }
+  $("vd-tv-wrap").hidden = false;           // visible ANTES de crear la gráfica: si no, mide ancho 0 y el zoom inicial sale torcido
+  const LC = LightweightCharts, css = getComputedStyle(document.documentElement), c = (n) => css.getPropertyValue(n).trim(), box = $("vd-tv");
+  const rgba = (hex, a) => { const m = /^#([0-9a-f]{6})$/i.exec(hex); if (!m) return hex; const n = parseInt(m[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+  const rows = P.map((r) => r[8]).sort((a, b) => a.ts - b.ts);
+  let cum = 0, ex = 0, last = 0; const R = [], E = [], M = []; vdTvMap = {};
+  rows.forEach((p) => {
+    const tm = Math.max(last + 1, p.ts - 4 * 3600); last = tm;            // hora de Venezuela (UTC−4) como si fuera UTC: así el eje la muestra bien
+    if (p.p != null) { cum += p.p * k; ex += p.e * k; }
+    R.push({time: tm, value: Math.round(cum * 100) / 100}); E.push({time: tm, value: Math.round(ex * 100) / 100}); vdTvMap[tm] = {p, cum, ex};
+    M.push({time: tm, position: "inBar", shape: "circle", size: p.p == null ? 1 : 0.6, color: p.s === "g" ? c("--green") : p.s === "p" ? c("--red") : c("--amber")});
+  });
+  if (!vdTv) {
+    const chart = LC.createChart(box, {autoSize: true, layout: {background: {type: "solid", color: "transparent"}, textColor: c("--muted"), fontSize: 12},
+      grid: {vertLines: {color: rgba(c("--line"), 0.35)}, horzLines: {color: rgba(c("--line"), 0.6)}}, rightPriceScale: {borderColor: c("--line")},
+      timeScale: {borderColor: c("--line"), timeVisible: true, secondsVisible: false}, crosshair: {mode: LC.CrosshairMode.Normal},
+      localization: {priceFormatter: (v) => vdFm(v)}});
+    const real = chart.addBaselineSeries({baseValue: {type: "price", price: 0}, lineWidth: 2, topLineColor: c("--green"), bottomLineColor: c("--red"),
+      topFillColor1: rgba(c("--green"), 0.28), topFillColor2: rgba(c("--green"), 0.02), bottomFillColor1: rgba(c("--red"), 0.02), bottomFillColor2: rgba(c("--red"), 0.28),
+      priceLineVisible: false, lastValueVisible: true});
+    const exp = chart.addLineSeries({color: c("--amber"), lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false});
+    vdTv = {chart, real, exp, first: true};
+    const tip = $("vd-tv-tip");
+    chart.subscribeCrosshairMove((pm) => {
+      const info = pm.time && pm.point ? vdTvMap[pm.time] : null;
+      if (!info) { tip.hidden = true; vdTvLegend(null); return; }
+      const p = info.p, kk = vdF.stake / 30;
+      const res = p.lv ? `<span class="tag live">🔴 LIVE</span> <b>${esc(p.lv)}</b>` : p.s === "g" ? `<b class="pos">✅ ganada ${vdFm(p.p * kk)}</b>` : p.s === "p" ? `<b class="neg">❌ perdida ${vdFm(p.p * kk)}</b>` : p.s === "a" ? `<span class="tag void">anulada</span>` : `<span class="tag open">abierta</span>`;
+      tip.innerHTML = `<b>${vdDn(p.d).slice(4)} ${vdHm(p.m)} · ${esc(p.t)}</b><br>${esc(p.l)}${p.sy ? ` (${esc(p.sy)})` : ""} · cuota <b>${p.o.toFixed(2)}</b> · EV ${p.ev.toFixed(1)}%${p.c != null ? ` · CLV ${p.c >= 0 ? "+" : ""}${p.c.toFixed(1)}%` : ""}<br>${res}${p.fin ? ` <span class="muted">quedó ${esc(p.fin)}</span>` : ""}<br><span class="muted">acumulado ${vdFm(info.cum)} · esperado ${vdFm(info.ex)}</span>`;
+      tip.hidden = false;
+      const w = box.clientWidth; tip.style.left = Math.max(4, Math.min(pm.point.x + 14, w - tip.offsetWidth - 4)) + "px"; tip.style.top = Math.max(4, pm.point.y - tip.offsetHeight - 10 < 4 ? pm.point.y + 16 : pm.point.y - tip.offsetHeight - 10) + "px";
+      vdTvLegend(info);
+    });
+    document.querySelectorAll("#vd-tv-wrap .vd-tvbtns button[data-r]").forEach((b) => b.addEventListener("click", () => {
+      document.querySelectorAll("#vd-tv-wrap .vd-tvbtns button[data-r]").forEach((x) => x.classList.toggle("on", x === b));
+      const ts = vdTv.chart.timeScale(), n = b.dataset.r, to = vdTv.lastT;
+      if (n === "all") ts.fitContent(); else ts.setVisibleRange({from: to - (+n) * 86400, to: to + 3600});
+    }));
+    $("vd-tv-mk").addEventListener("change", () => vdTv.real.setMarkers($("vd-tv-mk").checked ? vdTv.M : []));
+  }
+  vdTv.M = M; vdTv.lastT = last; vdTv.sum = {cum, ex, n: rows.length};
+  vdTv.real.setData(R); vdTv.exp.setData(E); vdTv.real.setMarkers($("vd-tv-mk").checked ? M : []);
+  if (vdTv.first) { vdTv.chart.timeScale().fitContent(); vdTv.first = false; requestAnimationFrame(() => vdTv.chart.timeScale().fitContent()); }
+  vdTvLegend(null);
+  return true;
+}
+function vdTvLegend(info) {
+  if (!vdTv) return;
+  const s = info ? {cum: info.cum, ex: info.ex} : vdTv.sum;
+  $("vd-tv-leg").innerHTML = `Real <b class="${s.cum >= 0 ? "pos" : "neg"}">${vdFm(s.cum)}</b> · esperado sin suerte <b style="color:var(--amber)">${vdFm(s.ex)}</b>${info ? "" : ` · ${vdTv.sum.n} picks`}`;
+}
+
 function vdPopOpen(id) {      // ventana con las apuestas de un cuadro del cuadro por día y franja
   const list = (vdCells[id] || []).slice().sort((a, b) => a.ts - b.ts), [d, f] = id.split("|"), k = vdF.stake / 30, fr = VD_FR[+f];
   if (!list.length) return;
@@ -1698,7 +1771,8 @@ function vdDraw() {
   let acc = 0, ea = 0, i = 0; const all = [], eall = [], bands = [];
   keys.forEach((kk) => { const s = i; days[kk].forEach((p) => { if (p[2] === null) return; acc += p[2]; ea += p[3]; all.push({x: i, v: acc, m: p[1], t: p[4], s: p[5], o: p[6], pnl: p[2], day: dname(kk)}); eall.push({x: i, v: ea}); i++; }); bands.push([s, i]); });
   $("vd-all").innerHTML = "";
-  if (all.length > 1) {
+  const tvOk = vdTvDraw(P, k); $("vd-tv-wrap").hidden = !tvOk; $("vd-all").style.display = tvOk ? "none" : "";
+  if (all.length > 1 && !tvOk) {
     let ah = all[0], al = all[0]; all.forEach((p) => { if (p.v > ah.v) ah = p; if (p.v < al.v) al = p; });
     const amin = Math.min(0, al.v, ...eall.map((p) => p.v)) - 120 * k, amax = Math.max(ah.v, ...eall.map((p) => p.v)) + 160 * k;
     chart($("vd-all"), all, {W: 1060, H: 320, x: (v) => v / (all.length - 1), ymin: amin, ymax: amax, yt: ticks(amin, amax, 6), bands, area: 1, hi: ah, lo: al, when: (p) => p.day, exp: eall,
