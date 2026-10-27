@@ -86,9 +86,6 @@
   .vd-tvbtns button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12px; }
   .vd-tvbtns button.on { border-color: var(--blue); color: var(--blue); }
   .vd-tvtip { position: absolute; z-index: 5; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5; max-width: 300px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
-  .vd-mk { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
-  .vd-mk button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 3px 8px; cursor: pointer; font: inherit; font-size: 12px; }
-  .vd-mk button:hover { border-color: var(--blue); color: var(--blue); }
   .vd-heat td.vd-cl { cursor: pointer; } .vd-heat td.vd-cl:hover { outline: 2px solid var(--blue); outline-offset: -2px; }
   .vd-pop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; } .vd-pop[hidden] { display: none; }
   .vd-popc { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; width: min(900px, 100%); max-height: 85vh; overflow: auto; position: relative; }
@@ -1568,7 +1565,6 @@ function vdFillFilters(all) {
   bind("vd-f-stake", "stake", 1); bind("vd-f-fr", "fr"); bind("vd-f-sp", "sp"); bind("vd-f-mk", "mk"); bind("vd-f-res", "res"); bind("vd-f-mine", "mine"); bind("vd-f-q", "q"); bind("vd-f-sort", "sort"); bind("vd-f-hb", "hb"); bind("vd-f-h", "h"); bind("vd-f-tr", "tr");
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
-  $("vd-list").addEventListener("click", (e) => { const b = e.target.closest("button[data-mk]"); if (b) vdMark(+b.dataset.id, b.dataset.mk); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
   $("vd-heat").addEventListener("click", (e) => { const c = e.target.closest("td[data-c]"); if (c) vdPopOpen(c.dataset.c); });
   $("vd-pop").addEventListener("click", (e) => { if (e.target.id === "vd-pop" || e.target.closest("[data-close]")) $("vd-pop").hidden = true; });
@@ -1621,28 +1617,9 @@ function vdMineCell(p) {
     : (p.y === "avisada" || p.y === "puesta" || p.y === "no estaba" || p.y === "sobre el tope") ? `<div class="muted">📍 en tu horario</div>` : "";
   const st = p.y === "puesta" ? `<b class="pos">✅ la pusiste a ${p.po ? p.po.toFixed(2) : "?"}</b> · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `<b class="neg">❌ no estabas</b> · ${esc(p.h || "1xBet")}`
     : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}` : p.y ? esc(p.y) : "";
-  const btn = p.mid ? `<div class="vd-mk"><button type="button" data-mk="ok" data-id="${p.mid}" title="Anotar que la pusiste">✅ La puse</button><button type="button" data-mk="no" data-id="${p.mid}" title="Anotar que no estabas / la cuota ya no estaba">❌ No estaba</button></div>` : "";
+  const btn = p.mid && p.y !== "puesta" && p.y !== "no estaba" ? `<div class="muted">¿la jugaste? Telegram: /senales (con botones) o /puse ${p.mid}</div>` : "";
   return st + hz + btn;
 }
-async function vdMark(id, act) {
-  const p = vdData.picks.find((x) => x.mid === id); if (!p) return;
-  let odds = null;
-  if (act === "ok") {
-    const r = prompt(`¿A qué cuota la pusiste en ${vdHouseGet()}? (la de la señal: ${p.o.toFixed(2)})`, (p.po || p.o).toFixed(2));
-    if (r === null) return;
-    odds = parseFloat(String(r).replace(",", ".")); if (!(odds > 1)) { alert("Cuota no válida."); return; }
-  }
-  let key = ""; try { key = localStorage.getItem("vd_key") || ""; } catch (e) {}
-  if (!key) { key = (prompt("Clave del panel (la creas en Telegram con /clave tuclave):") || "").trim(); if (!key) return; }
-  try {
-    const r = await fetch("api/mark", {method: "POST", headers: {"Content-Type": "application/json", "X-Key": key}, body: JSON.stringify({id, action: act, odds, house: vdHouseGet()})});
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { if (!j.error) { alert("El servidor (nginx) no deja pasar los POST a /surebet/api/mark todavía: falta habilitar esa ruta en nginx."); return; } if (r.status === 403) { try { localStorage.removeItem("vd_key"); } catch (e) {} } alert(j.error); return; }
-    try { localStorage.setItem("vd_key", key); } catch (e) {}
-    p.y = j.status; p.po = j.placed_odds; p.h = j.house; vdSig = ""; vdDraw(); setTimeout(refresh, 2500);
-  } catch (e) { alert("Sin conexión con el panel."); }
-}
-
 function vdLifeCell(p, now) {
   const L = vdLife(p, now);
   if (L.dur == null) return `<span class="muted">-</span>`;

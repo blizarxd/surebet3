@@ -43,11 +43,11 @@ MENU_COMMANDS = [
     ("estoy", "Estoy en el PC: activa los avisos de valor"),
     ("salgo", "Me voy del PC: pausa los avisos (se siguen anotando)"),
     ("hoy", "Resumen de hoy: avisos, jugadas y resultado"),
+    ("senales", "Señales sin marcar (fuera de horario, sobre el tope…) con botones ✅/❌"),
     ("casa", "Ver o cambiar la casa de hoy (1xbet, melbet, 888starz)"),
     ("dominio", "Guardar el dominio de una casa para armar el link"),
     ("puse", "Anotar a mano una señal que sí jugué: /puse 227 3.19"),
     ("noestaba", "Marcar que no estaba en esa señal: /noestaba 227"),
-    ("clave", "Clave para marcar ✅/❌ desde el panel web: /clave tuclave"),
     ("semaforo", "Estado de las fuentes y cuentas (verde, amarillo, rojo)"),
     ("bloqueada", "Casa que me limitó o cerró: /bloqueada 1xbet"),
     ("reanudar", "Reactivar lo que el semáforo pausó"),
@@ -61,11 +61,11 @@ MENU_TEXT = (
     "/estoy — estoy en el PC: activa los avisos de valor (12–20 h por defecto)\n"
     "/salgo — me voy del PC: pausa los avisos; se siguen anotando para medir\n"
     "/hoy — resumen de hoy: avisos, jugadas y resultado\n"
+    "/senales [n] — las últimas señales sin marcar (fuera de horario, sobre el tope…) con botones ✅/❌ para anotarlas\n"
     "/casa [nombre] — ver o cambiar la casa de hoy (1xbet, melbet, 888starz)\n"
     "/dominio [casa dominio] — guardar el dominio de la casa para armar el link del partido\n"
     "/puse <n.º> [cuota] — anotar una señal que sí jugué (p. ej. las «sobre el tope»)\n"
-    "/noestaba <n.º> — marcar una señal en la que no estaba\n"
-    "/clave <texto> — clave para marcar ✅/❌ desde el panel web (sin clave la web no deja marcar)\n\n"
+    "/noestaba <n.º> — marcar una señal en la que no estaba\n\n"
     "🚦 Estado y cuentas\n"
     "/semaforo — estado de las fuentes y cuentas (verde, amarillo, rojo)\n"
     "/bloqueada <casa> — una casa me limitó o cerró: deja de avisar con ella\n"
@@ -267,8 +267,16 @@ class PolyBuyer:
                 await self._say(client, self.manual.set_domain(" ".join(words[1:])))
             elif cmd in ("/puse", "/noestaba") and self.manual:
                 await self._say(client, self.manual.register(cmd, words[1:]))
-            elif cmd == "/clave" and self.manual:
-                await self._say(client, self.manual.set_key(words[1:]))
+            elif cmd in ("/senales", "/señales", "/pendientes") and self.manual:
+                try:
+                    n = int(words[1]) if len(words) > 1 else 5
+                except ValueError:
+                    n = 5
+                pend = self.manual.pending(min(n, 10))
+                if not pend:
+                    await self._say(client, "No tienes señales por marcar (las de los últimos partidos ya están anotadas).")
+                for text, buttons in pend:
+                    await self._say(client, text, buttons)
             elif cmd == "/hoy" and self.manual:
                 await self._say(client, self.manual.text_today())
             elif cmd == "/pausa":
@@ -286,10 +294,13 @@ class PolyBuyer:
                                         + (f"\nSemáforo: {ICON.get(self.semaforo.state.get('color'), '⚪')} (/semaforo)"
                                            if self.semaforo else ""))
 
-    async def _say(self, client: httpx.AsyncClient, text: str) -> None:
+    async def _say(self, client: httpx.AsyncClient, text: str, buttons: list[tuple[str, str]] | None = None) -> None:
+        payload = {"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True}
+        if buttons:     # «cb:<dato>» = botón que le habla al bot; lo demás abre un link (igual que en alerts.send_telegram)
+            payload["reply_markup"] = {"inline_keyboard": [[{"text": t, "callback_data": u[3:]} if u.startswith("cb:")
+                                                            else {"text": t, "url": u}] for t, u in buttons]}
         try:
-            await client.post(f"https://api.telegram.org/bot{self.token}/sendMessage",
-                              json={"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True})
+            await client.post(f"https://api.telegram.org/bot{self.token}/sendMessage", json=payload)
         except httpx.HTTPError:
             pass
 

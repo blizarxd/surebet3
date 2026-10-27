@@ -158,3 +158,20 @@ def test_register_a_signal_by_number_with_commands(tmp_path):
     r = mv.conn.execute("SELECT status, placed_odds FROM manual_value WHERE id=?", (third[0],)).fetchone()
     assert r == ("puesta", 2.35) and "Anotado" in mv.register("/noestaba", [str(third[0])])
     assert "número" in mv.register("/puse", [str(third[0]), "abc"])
+
+
+def test_pending_signals_come_with_buttons(tmp_path):
+    mv = ManualValor(tmp_path / "p.db", hours="0-0")                    # fuera de horario: se anota pero no se avisa
+    add(mv, "valor#a")
+    add(mv, "valor#b")
+    assert mv.step() == []
+    pend = mv.pending()
+    assert len(pend) == 2 and all("Fuera de tu horario" in t for t, _ in pend)
+    text, buttons = pend[-1]
+    assert any(b[1].startswith("cb:mv:ok:") for b in buttons) and buttons[-1][1].startswith("cb:mv:no:")
+    first = int(buttons[-1][1].split(":")[-1])
+    assert "Anotada" in mv.click(f"mv:ok:{first}:2.40")                  # al marcar una, deja de salir
+    assert len(mv.pending()) == 1
+    mv.conn.execute("UPDATE manual_value SET start_ts = ?", (time.time() - 4 * 3600,))   # partido ya terminado: no se ofrece
+    mv.conn.commit()
+    assert mv.pending() == []

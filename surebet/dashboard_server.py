@@ -602,31 +602,6 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self) -> None:  # noqa: N802
-        """POST /api/mark {id, action: ok|no, odds, house}: los ✅/❌ de Telegram, desde la web. Pide la clave (/clave en Telegram)."""
-        if not self.path.startswith("/api/mark"):
-            self._send(404, b"no encontrado", "text/plain")
-            return
-        from .manualvalor import check_panel_key, mark_signal
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(min(n, 2048)) or b"{}")
-            conn = sqlite3.connect(self.db_path, timeout=30)
-            try:
-                if not check_panel_key(conn, self.headers.get("X-Key") or ""):
-                    code, out = 403, {"ok": False, "error": "Clave incorrecta o sin crear. En Telegram: /clave tuclave"}
-                else:
-                    out = mark_signal(conn, int(body.get("id")), str(body.get("action")), body.get("odds"), body.get("house"))
-                    code = 200 if out.get("ok") else 400
-            finally:
-                conn.close()
-            if code == 200:
-                with _CACHE_LOCK:
-                    _CACHE["body"] = None            # que el próximo /api/state ya traiga la marca
-        except Exception as e:
-            code, out = 400, {"ok": False, "error": f"Petición no válida ({e.__class__.__name__})"}
-        self._send(code, json.dumps(out, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
-
     def do_GET(self) -> None:  # noqa: N802
         if self.path.startswith("/api/state"):
             try:
