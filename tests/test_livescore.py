@@ -96,6 +96,30 @@ def test_open_but_finished_shows_final(tmp_path):
     assert P["fin"] == "2-1" and "lv" not in P
 
 
+def test_brake_pauses_polling_when_1xbet_fails(tmp_path, monkeypatch):
+    import asyncio
+    import surebet.livescore as L
+    monkeypatch.setattr(L, "BAD_LIMIT", 1)            # el test tiene un solo partido: una falla ya activa el freno
+
+    class Boom:
+        calls = 0
+
+        async def get(self, *a, **k):
+            Boom.calls += 1
+            raise __import__("httpx").ConnectError("down")
+
+    _db(tmp_path)
+    ls = LiveScores(str(tmp_path / "p.db"), "https://1xbet-col.com", 285, guard=lambda: True)
+    asyncio.run(ls.update(Boom()))
+    assert Boom.calls == 0 and "pausa" in ls.status                        # guard activo: ni una llamada
+    ls.guard = None
+    asyncio.run(ls.update(Boom()))
+    assert Boom.calls >= 1 and ls._hold_until > time.time()               # fallas propias: se frena 10 min
+    n = Boom.calls
+    asyncio.run(ls.update(Boom()))
+    assert Boom.calls == n
+
+
 def test_late_game_is_polled_faster():
     from surebet.livescore import is_late, final_score
     assert is_late("soccer", {"SC": {"TS": 80 * 60}}) and not is_late("soccer", {"SC": {"TS": 40 * 60}})

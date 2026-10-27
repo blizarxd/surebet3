@@ -29,6 +29,7 @@ ID_RE = re.compile(r"/(\d+)-[^/]+$")
 INTERVAL_S = 120
 LATE_INTERVAL_S = 30      # recta final (fútbol desde el 78', básquet 4.º cuarto): así el último marcador visto es el final
 MAX_PER_CYCLE = 12
+BAD_LIMIT, HOLD_S = 3, 600   # 3 fallas seguidas propias: pausa de 10 min
 KEEP_DAYS = 30
 GAP_S = 0.8
 MAX_AGE_H = 5            # un partido que empezó hace más de esto ya terminó: no se consulta
@@ -93,7 +94,12 @@ def describe(sport: str, value: dict) -> str:
 
 
 class LiveScores:
-    def __init__(self, db_path: str, base: str, partner: str | int, interval_s: float = INTERVAL_S) -> None:
+    def __init__(self, db_path: str, base: str, partner: str | int, interval_s: float = INTERVAL_S,
+                 guard=None) -> None:
+        """guard: función que devuelve True si 1xBet está con problemas (el escáner principal tiene prioridad: aquí se frena)."""
+        self.guard = guard
+        self._hold_until = 0.0
+        self._bad_in_row = 0
         self.conn = sqlite3.connect(db_path, timeout=30)
         self.conn.executescript(SCHEMA)
         try:                     # base anterior a la columna «ended»
@@ -128,6 +134,9 @@ class LiveScores:
 
     async def update(self, client: httpx.AsyncClient) -> None:
         now = time.time()
+        if now < self._hold_until or (self.guard and self.guard()):
+            self.status = "en pausa (1xBet con fallas: el escáner principal tiene prioridad)"
+            return
         games = self._games(now)
         ok = 0
         for gid, sport in games:
@@ -137,8 +146,14 @@ class LiveScores:
                 r = await client.get(url, headers=UA, timeout=15)
                 data = r.json()
             except (httpx.HTTPError, ValueError):
+                self._bad_in_row += 1
+                if self._bad_in_row >= BAD_LIMIT:        # 1xBet no contesta: se deja de insistir un rato
+                    self._hold_until = time.time() + HOLD_S
+                    self._bad_in_row = 0
+                    break
                 continue
-            value = data.get("Value") if isinstance(data, dict) else None
+            self._bad_in_row = 0
+            value =data.get("Value") if isinstance(data, dict) else None
             text = describe(sport, value) if isinstance(value, dict) else ""
             if text:
                 self.conn.execute("INSERT OR REPLACE INTO live_scores VALUES (?,?,?,0)", (gid, time.time(), text))

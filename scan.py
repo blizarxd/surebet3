@@ -345,7 +345,10 @@ async def main() -> None:
     manual = ManualValor(s.db_path, s.manual_value_stake, s.manual_value_hours, tuple(s.manual_houses)) if paper else None
     buyer.manual = manual
     onex = next((src for src in others if isinstance(src, OneXBetSource)), None)
-    livescores = LiveScores(s.db_path, onex.base, onex.partner) if paper and onex else None   # marcador en vivo (cada ~2 min)
+    # marcador en vivo (cada ~2 min); se frena solo si 1xBet está fallando o en pausa (el escáner principal va primero)
+    livescores = (LiveScores(s.db_path, onex.base, onex.partner,
+                             guard=lambda: time.time() < onex._paused_until or onex._fails_in_row >= 2)
+                  if paper and onex else None)
     if executor and sxshadow:
         sxshadow.on_fill = executor.queue_value
 

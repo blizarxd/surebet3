@@ -401,7 +401,7 @@
       <label>Horas antes del juego<select id="vd-hf-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
       <button id="vd-hf-reset" type="button">Quitar filtros del cuadro</button></div>
     <div class="small" id="vd-heat-sum" style="margin-bottom:8px"></div>
-    <div class="scroll"><table class="vd-heat" id="vd-heat"></table></div></section>
+    <div class="scroll"><table class="vd-heat" id="vd-heat"></table></div><div class="vd-pager" id="vd-heat-pager"></div></section>
   <section class="card" style="margin-top:12px"><h2>¿Qué franjas rinden mejor? <span class="count">(barra = real · marca = esperado sin suerte)</span></h2><div class="vd-bars" id="vd-bars"></div></section>
   <section class="card" style="margin-top:12px"><h2>⏱ Cuánto duran las cuotas <span class="count">(desde que el escáner ve la señal hasta que deja de ser valor; con los filtros activos)</span></h2><div class="scroll"><table id="vd-dur"></table></div></section>
   <section class="vd-grid2" id="vd-groups" style="margin-top:12px"></section>
@@ -413,11 +413,12 @@
       <label>Cuota<select id="vd-lf-od"><option value="all">Todas</option><option value="<2">menor a 2</option><option value="2-2.5">2 a 2,5</option><option value="2.5-3">2,5 a 3</option><option value="3+">3 o más</option><option value="2+">2 o más</option></select></label>
       <label>Horas antes del juego<select id="vd-lf-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
       <button id="vd-lf-reset" type="button">Quitar filtros de la lista</button></div>
-    <div class="vd-filters" style="padding:0 0 8px"><label>Ordenar por<select id="vd-f-sort"><option value="ts">Más recientes</option><option value="win">Mayor ganancia</option><option value="loss">Mayor pérdida</option><option value="ev">Mayor EV</option><option value="odds">Mayor cuota</option><option value="clv">Mejor CLV</option></select></label>
+    <div class="vd-filters" style="padding:0 0 8px"><label>Mostrar<select id="vd-per"><option value="20">20 por página</option><option value="50">50 por página</option><option value="100">100 por página</option><option value="0">Todas</option></select></label>
+      <label>Ordenar por<select id="vd-f-sort"><option value="ts">Más recientes</option><option value="win">Mayor ganancia</option><option value="loss">Mayor pérdida</option><option value="ev">Mayor EV</option><option value="odds">Mayor cuota</option><option value="clv">Mejor CLV</option></select></label>
       <button id="vd-csv" type="button">⬇ Descargar CSV (con los filtros)</button></div>
     <div class="scroll"><table id="vd-list"></table></div><div class="vd-pager" id="vd-pager"></div></section>
   <h2 style="margin-top:16px">Cada día, apuesta por apuesta <span class="count">(misma escala en todos; el más reciente primero)</span></h2>
-  <section class="vd-grid" id="vd-days"></section>
+  <section class="vd-grid" id="vd-days"></section><div class="vd-pager" id="vd-days-pager"></div>
 </main>
 <main id="tab-lp" hidden>
   <section class="card"><div class="small muted">Simulación de un bot que pone órdenes límite a los dos lados, cerca del precio, en partidos de
@@ -1469,7 +1470,13 @@ function renderManual(x) {
       <td class="num ${cls(r.pnl)}">${r.pnl == null ? "-" : money(r.pnl, true)}</td><td class="num ${cls(r.paper_pnl)}">${r.paper_pnl == null ? "-" : money(r.paper_pnl, true)}</td></tr>`).join("");
 }
 
-let vdSig = "", vdData = null, vdPage = 1, vdBound = false;
+let vdSig = "", vdData = null, vdPage = 1, vdBound = false, vdPer = 20, vdHeatPg = 1, vdDayPg = 1;
+const VD_DAYS_PER_PAGE = 9;
+// botones «« ‹ Página n de N › »» (data-pg) para un paginador; devuelve el texto HTML
+function vdPagerHtml(page, pages, label) {
+  const b = (pg, txt, dis) => `<button data-pg="${pg}" ${dis ? "disabled" : ""}>${txt}</button>`;
+  return pages <= 1 ? "" : b(1, "«", page === 1) + b(page - 1, "‹ Anterior", page === 1) + `<span class="muted">${label} ${page} de ${pages}</span>` + b(page + 1, "Siguiente ›", page === pages) + b(pages, "»", page === pages);
+}
 const vdH = {sp: "all", mk: "all", od: "all", hb: "all"};
 function vdMkKey(mk) { mk = mk || ""; return mk.startsWith("Más/Menos 1T") ? "mm1" : mk.startsWith("Más/Menos") ? "mm" : mk === "1X2 1er tiempo" ? "x1" : "gan"; }
 const vdL = {sp: "all", mk: "all", od: "all", hb: "all"};   // filtros propios de la lista «Todas las apuestas»
@@ -1535,6 +1542,9 @@ function vdFillFilters(all) {
   ["omin", "omax"].forEach((k) => $("vd-f-" + k).addEventListener("input", (e) => { vdF[k] = e.target.value === "" ? null : +e.target.value; vdPage = 1; vdDraw(); }));
   $("vd-reset").addEventListener("click", () => { Object.assign(vdF, {fr: "all", sp: "all", mk: "all", res: "all", mine: false, q: "", sort: "ts", stake: 30, omin: null, omax: null, hb: "all", h: "all", tr: "all"}); $("vd-f-h").value = "all"; $("vd-f-tr").value = "all"; $("vd-f-omin").value = ""; $("vd-f-omax").value = ""; $("vd-f-hb").value = "all"; ["fr", "sp", "mk", "res", "sort"].forEach((k) => $("vd-f-" + k).value = vdF[k]); $("vd-f-stake").value = 30; $("vd-f-mine").checked = false; $("vd-f-q").value = ""; vdPage = 1; vdDraw(); });
   $("vd-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdPage = +b.dataset.pg; vdListDraw(); });
+  $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
+  $("vd-heat-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
+  $("vd-days-pager").addEventListener("click", (e) => { const b = e.target.closest("button[data-pg]"); if (!b) return; vdDayPg = +b.dataset.pg; vdDraw(); });
   $("vd-csv").addEventListener("click", () => {
     const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, rows = [["fecha", "hora", "partido", "deporte", "mercado", "seleccion", "cuota", "ev_pct", "clv_pct", "resultado", "ganancia", "tu_boton", "tu_cuota", "duracion_cuota_seg", "link"]];
     F.forEach((p) => rows.push([p.d, vdHm(p.m), p.t, p.sp, p.mk, p.l, p.o, p.ev, p.c ?? "", {g: "ganada", p: "perdida", a: "anulada", o: "abierta"}[p.s], p.p == null ? "" : (p.p * k).toFixed(2), p.y ?? "", p.po ?? "", p.ls ? Math.max(0, p.ls - p.ts) : "", p.u]));
@@ -1572,7 +1582,7 @@ function vdLifeCell(p, now) {
 function vdListDraw() {
   const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o)), k = vdF.stake / 30, srt = {
     ts: (a, b) => b.ts - a.ts, win: (a, b) => (b.p ?? -1e9) - (a.p ?? -1e9), loss: (a, b) => (a.p ?? 1e9) - (b.p ?? 1e9), ev: (a, b) => b.ev - a.ev, odds: (a, b) => b.o - a.o, clv: (a, b) => (b.c ?? -1e9) - (a.c ?? -1e9)};
-  const nowS = Date.now() / 1000, rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = 20, pages = Math.max(1, Math.ceil(rows.length / per));
+  const nowS = Date.now() / 1000, rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = vdPer || Math.max(1, F.length), pages = Math.max(1, Math.ceil(rows.length / per));
   vdPage = Math.min(Math.max(1, vdPage), pages);
   const slice = rows.slice((vdPage - 1) * per, vdPage * per), res = {g: `<span class="pos">✅ ganada</span>`, p: `<span class="neg">❌ perdida</span>`, a: `<span class="tag void">anulada</span>`, o: `<span class="tag open">abierta</span>`};
   $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
@@ -1670,9 +1680,11 @@ function vdDraw() {
   const mx = Math.max(1, ...keys.flatMap((kk) => cell[kk].map((c) => Math.abs(c.pnl))));
   const col = (v) => { const a = Math.min(1, Math.abs(v) / mx); return `background:rgba(${v >= 0 ? "62,207,142" : "240,97,109"},${(.14 + .55 * a).toFixed(2)})`; };
   let h = `<tr><th class="l">Día</th>${FR.map((r) => `<th>${String(r[0]).padStart(2, "0")}–${String(r[1]).padStart(2, "0")} h</th>`).join("")}<th>Total del día</th></tr>`;
-  keys.slice().reverse().forEach((kk) => { const j = keys.indexOf(kk); h += `<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
+  const hpages = Math.max(1, Math.ceil(keys.length / VD_DAYS_PER_PAGE)); vdHeatPg = Math.min(Math.max(1, vdHeatPg), hpages);
+  keys.slice().reverse().slice((vdHeatPg - 1) * VD_DAYS_PER_PAGE, vdHeatPg * VD_DAYS_PER_PAGE).forEach((kk) => { const j = keys.indexOf(kk); h +=`<tr><th class="l">${dname(kk)}</th>` + cell[kk].map((c) => c.n ? `<td style="${col(c.pnl)}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>` : `<td class="e">·</td>`).join("") + `<td class="t ${cd[kk] >= 0 ? "pos" : "neg"}">${cd[kk] || cell[kk].some((c) => c.n) ? fm(cd[kk]) : "·"}</td></tr>`; });
   const ft = FR.map((_, f) => keys.reduce((a, kk) => ({n: a.n + cell[kk][f].n, pnl: a.pnl + cell[kk][f].pnl, e: a.e + cell[kk][f].e}), {n: 0, pnl: 0, e: 0}));
-  h += `<tr><th class="l">Total</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
+  $("vd-heat-pager").innerHTML = vdPagerHtml(vdHeatPg, hpages, `Días ${(vdHeatPg - 1) * VD_DAYS_PER_PAGE + 1}–${Math.min(keys.length, vdHeatPg * VD_DAYS_PER_PAGE)} · página`);
+  h += `<tr><th class="l">Total (todos los días)</th>${ft.map((c) => `<td class="t ${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}<small>${c.n} apuestas</small></td>`).join("")}<td class="t ${ctot >= 0 ? "pos" : "neg"}">${fm(ctot)}</td></tr>`;
   $("vd-heat").innerHTML = h;
   const bm = Math.max(1, ...ft.map((c) => Math.max(Math.abs(c.pnl), c.e))) * 1.08;
   $("vd-bars").innerHTML = ft.map((c, f) => `<div class="vd-bar"><b>${String(FR[f][0]).padStart(2, "0")}–${String(FR[f][1]).padStart(2, "0")} h</b><div class="tr"><div class="f" style="left:0;width:${Math.abs(c.pnl) / bm * 100}%;background:${c.pnl >= 0 ? "var(--green)" : "var(--red)"}"></div><div class="m" style="left:${Math.max(0, c.e) / bm * 100}%"></div></div><div class="v"><b class="${c.pnl >= 0 ? "pos" : "neg"}">${fm(c.pnl)}</b> <span class="muted">· esperado ${fm(c.e)} · ${(c.n / keys.length).toFixed(1)}/día</span></div></div>`).join("");
@@ -1725,7 +1737,9 @@ function vdDraw() {
   const dd = keys.map((kk) => { let a = 0; const pts = [{x: 0, v: 0, m: 0, t: "inicio del día", s: "", o: "", pnl: 0, st: 1}]; days[kk].forEach((p) => { if (p[2] === null) return; a += p[2]; pts.push({x: p[1], v: a, m: p[1], t: p[4], s: p[5], o: p[6], pnl: p[2]}); });
     let hi = pts[0], lo = pts[0]; pts.forEach((p) => { if (p.v > hi.v) hi = p; if (p.v < lo.v) lo = p; }); gmin = Math.min(gmin, lo.v); gmax = Math.max(gmax, hi.v); return {k: kk, pts, hi, lo, fin: a, nopen: days[kk].length - (pts.length - 1)}; });
   gmin -= 70 * k; gmax += 90 * k; const g = $("vd-days"); g.innerHTML = "";
-  dd.slice().reverse().forEach((d) => { const c = document.createElement("div"); c.className = "vd-card"; const w = d.pts.filter((p) => p.pnl > 0).length, l = d.pts.filter((p) => p.pnl < 0).length;
+  const dpages = Math.max(1, Math.ceil(dd.length / VD_DAYS_PER_PAGE)); vdDayPg = Math.min(Math.max(1, vdDayPg), dpages);
+  $("vd-days-pager").innerHTML = vdPagerHtml(vdDayPg, dpages, `Días ${(vdDayPg - 1) * VD_DAYS_PER_PAGE + 1}–${Math.min(dd.length, vdDayPg * VD_DAYS_PER_PAGE)} · página`);
+  dd.slice().reverse().slice((vdDayPg - 1) * VD_DAYS_PER_PAGE, vdDayPg * VD_DAYS_PER_PAGE).forEach((d) => { const c = document.createElement("div"); c.className = "vd-card"; const w = d.pts.filter((p) => p.pnl > 0).length, l = d.pts.filter((p) => p.pnl < 0).length;
     c.innerHTML = `<div class="vd-dh"><b>${dname(d.k)}</b><b class="${d.fin >= 0 ? "pos" : "neg"}" style="font-size:18px">${fm(d.fin)}</b></div><p class="vd-dm">${d.pts.length - 1} cerradas · ${w} ganadas · ${l} perdidas${d.nopen ? ` · ${d.nopen} abiertas` : ""}</p>`; g.appendChild(c);
     chart(c, d.pts, {W: 520, H: 210, x: (v) => v / 1440, ymin: gmin, ymax: gmax, yt: ticks(gmin, gmax, 5), dots: 1, sw: 2, xt: [[0, "0h"], [360, "6h"], [720, "12h"], [1080, "18h"], [1440, "24h"]],
       hi: d.hi.v > 0 ? d.hi : null, lo: d.lo.v < 0 ? d.lo : null, when: (p) => hm(p.m), aria: "Ganancia del " + dname(d.k), tip: (p) => p.st ? "inicio del día · $0" : tipHtml(p, "")}); });
