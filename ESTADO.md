@@ -183,3 +183,5 @@ Con tope $30 por surebet: ~$1–2/día; $300: ~$14/día. 8 de 9 anuladas eran CS
 4. **Usuario:** 25 toques de botones (✅ ❌ 🛟) para el semáforo de la fase 1 (lleva 5/30); luego Fase 1 real a $50 por surebet.
 5. **Antes de real automático:** programar el envío de órdenes (Polymarket, SX, Cloudbet, Kalshi, Azuro), protección de pata suelta, topes
    diarios, pausa por Telegram. Capital ~$3.000-4.000 repartido; empezar con $10-20 por surebet.
+- **Marcador en vivo (27/10):** `surebet/livescore.py` consulta cada ~2 min a 1xBet (LiveFeed/GetGameZip, solo partidos de apuestas abiertas ya empezadas, ≤25 por vuelta) y guarda en tabla `live_scores`; el dashboard muestra «🔴 LIVE + marcador/minuto» en vez de «abierta» (dato de <6 min; si no, vuelve a «abierta»). Flashscore descartado (sin API pública).
+- **/menu (27/10):** `/menu` o `/ayuda` lista todos los comandos de Telegram; además se registran con setMyCommands (menú al escribir «/»).

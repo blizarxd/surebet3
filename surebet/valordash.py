@@ -7,14 +7,18 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
   c CLV % (None si aún no hay cierre) · sp deporte · mk mercado · s g/p/a/o (ganada, perdida, anulada, abierta) · p ganancia a $30
   (None si abierta) · e esperado sin suerte a $30 · u link al partido en 1xBet · y tu botón (puesta / no estaba / avisada / …)
   · mid n.º de la señal (para /puse y /noestaba en Telegram) · tr nivel (oro | amplio = EV 1,5–2 %) · lt tamaño del lote (0 = suelta) · n n.º de pick en el mismo partido · h casa donde la pusiste (o donde no estaba) · po cuota a la que dijiste que la pusiste · mn cuota mínima del aviso · fs/ls primera y última vez que el escáner vio la señal
-  como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar).
+  como valor (la duración de la cuota: mientras ls siga reciente, la señal está vigente y se puede apostar) · lv marcador en vivo
+  («1-0 · 32'», solo en abiertas cuyo partido ya empezó y con dato de hace menos de 6 min).
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
+
+from .livescore import FRESH_S, game_id
 
 STAKE = 30.0
 VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario de verano
@@ -59,6 +63,10 @@ def summary(conn) -> dict | None:
     for r in raw:
         nth[r[1]] = nth.get(r[1], 0) + 1
         ordinal[r[0]] = nth[r[1]]
+    try:       # marcador en vivo de las abiertas (livescore.py): solo si es reciente
+        live = {g: t for g, ts_, t in conn.execute("SELECT game_id, ts, text FROM live_scores WHERE ts > ?", (time.time() - FRESH_S,))}
+    except sqlite3.OperationalError:
+        live = {}
     vals = sorted(r[11][0] for r in raw if r[11][0] is not None)
     med = vals[len(vals) // 2] if vals else 0.0
     picks = []
@@ -75,6 +83,8 @@ def summary(conn) -> dict | None:
                       "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro"})
+        if status == "open" and (lv := live.get(game_id(leg.get("url") or "") or "")):
+            picks[-1]["lv"] = lv
     if not picks:
         return None
     try:

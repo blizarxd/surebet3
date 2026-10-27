@@ -44,6 +44,7 @@ from surebet.sources.azuro import AzuroSource
 from surebet.safety import blocked, golden_value, observe_only, risk_flags, wide_value
 from surebet.semaforo import Semaforo
 from surebet.livehedge import LiveHedgeTracker
+from surebet.livescore import LiveScores
 from surebet.sxshadow import SXShadow
 from surebet.executor import Executor
 from surebet.dashboard_server import build_state
@@ -343,6 +344,8 @@ async def main() -> None:
     # Valor 1xBet a mano: aviso limpio con botones de cada pick de la cuenta de valor (solo en tu horario)
     manual = ManualValor(s.db_path, s.manual_value_stake, s.manual_value_hours, tuple(s.manual_houses)) if paper else None
     buyer.manual = manual
+    onex = next((src for src in others if isinstance(src, OneXBetSource)), None)
+    livescores = LiveScores(s.db_path, onex.base, onex.partner) if paper and onex else None   # marcador en vivo (cada ~2 min)
     if executor and sxshadow:
         sxshadow.on_fill = executor.queue_value
 
@@ -532,6 +535,7 @@ async def main() -> None:
                             l.quote.source in API_EXCHANGES for l in o.legs)],
                             [v for v in res.values if v.quote.source not in API_EXCHANGES - {"azuro"}], resolution)),
                         ("valor-manual", lambda: send_manual(client)),
+                        *([("marcador", lambda: livescores.update(client))] if livescores else []),
                         ("automático", lambda: execsim.step(res.opps, paper.eligible_auto, on_auto_fill)),
                         ("ejecución", lambda: execsim.verify(client)),
                         ("cuotas", lambda: live_odds.update(res.clusters)),

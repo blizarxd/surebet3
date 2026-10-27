@@ -1578,7 +1578,7 @@ function vdListDraw() {
   $("vd-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th>Cuota (duración)</th><th>Tu botón</th><th></th></tr>` +
     (slice.map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}${p.tr === "amplio" ? ` · 🥈 amplio` : ""}${p.lt ? ` · <span class="warn" title="Nacieron ${p.lt} señales juntas: suele ser 1xBet volviendo de un corte">⚠ lote ${p.lt}</span>` : ""}${p.n > 1 ? ` · <b>${p.n}.º pick del partido${p.n > 2 ? " (sobre el tope)" : ""}</b>` : ""}</div></td><td class="small">${esc(p.l)}</td>
       <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
-      <td>${res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
+      <td>${p.lv ? `<span class="tag live">🔴 LIVE</span><div class="small"><b>${esc(p.lv)}</b></div>` : res[p.s]}</td><td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : vdFm(p.p * k)}</td>
       <td class="small nowrap">${vdLifeCell(p, nowS)}</td>
       <td class="small">${p.y === "puesta" ? `✅ a ${p.po ? p.po.toFixed(2) : "?"} · ${esc(p.h || "1xBet")}` : p.y === "no estaba" ? `❌ no estaba · ${esc(p.h || "1xBet")}` : p.y === "avisada" ? `· avisada · #${p.mid}` : p.y === "sobre el tope" ? `sobre el tope · #${p.mid}<div class="muted">¿la jugaste? en Telegram: /puse ${p.mid}</div>` : p.y ? esc(p.y) : ""}</td>
       <td>${p.u ? `<a class="vd-btn ${p.s === "o" && p.y !== "sobre el tope" ? "" : "ghost"}" href="${esc(vdUrl(p))}" target="_blank" rel="noopener">${p.s === "o" && p.y !== "sobre el tope" ? "Apostar ↗" : "Abrir ↗"}</a>` : ""}</td></tr>`).join("") || `<tr><td class="empty" colspan="11">Ninguna apuesta con esos filtros.</td></tr>`);
@@ -1594,7 +1594,7 @@ function renderValorDash(x) {
   { const h = vdHouseGet(), ok = x.domains && x.domains[h]; $("vd-house-sel").value = h;
     $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
   vdNow(x.picks);
-  const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length;
+  const P = x.picks, sig = P.length + "|" + P.reduce((s, p) => s + (p.p || 0), 0).toFixed(2) + "|" + P.filter((p) => p.s === "o").length + "|" + P.filter((p) => p.y).length + "|" + P.filter((p) => p.s === "o" && vdLife(p, Date.now() / 1000).live).length + "|" + P.map((p) => p.lv || "").join(",");
   if (sig === vdSig) return;          // nada nuevo: no se redibuja (ni parpadea ni gasta)
   vdSig = sig; vdFillFilters(P); vdDraw();
 }
