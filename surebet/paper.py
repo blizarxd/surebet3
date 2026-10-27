@@ -213,7 +213,7 @@ class PaperBook:
         """Como eligible_real pero con ventana propia: el bot automático tiene su capital libre y pocas señales,
         así que no se limita a las que empiezan en 2 h."""
         now = time.time()
-        start = o.event.anchor.start
+        start = o.event.start
         return (self.cfg.min_margin_pct <= o.margin_pct < self.cfg.suspicious_margin_pct
                 and not _in_play(o.event, now) and start is not None and start.timestamp() - now <= max_hours * 3600
                 and not any(w.startswith("⛔") for w in o.warnings)
@@ -229,7 +229,7 @@ class PaperBook:
         return now - first >= self.cfg.min_persist_s
 
     def _soon(self, event, now: float) -> bool:
-        start = event.anchor.start
+        start = event.start
         return start is not None and start.timestamp() - now <= self.cfg.real_max_hours * 3600
 
     # ------------------------------------------------------------------ entradas
@@ -279,7 +279,7 @@ class PaperBook:
                 # una selección entra UNA sola vez: como oro o como 🥈 (la que llegue primero); si no, llegarían dos avisos de lo mismo
                 if (self.cfg.value_account and not in_play and not self._taken(vkey) and not self._taken(akey)
                         and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
-                    st = v.event.anchor.start
+                    st = v.event.start
                     hrs = (st.timestamp() - now) / 3600 if st else None
                     # la cuenta de valor: solo lo que se avisa (filtro "oro"), con Kelly/4
                     if golden_value(False, v.ev_pct, v.quote.odds, hrs) and self._ready(key, now, False, v.quote.ts):
@@ -290,7 +290,7 @@ class PaperBook:
                 if (self.cfg.amplio_account and WIDE_EV[0] <= v.ev_pct < WIDE_EV[1] and not in_play and not self._taken(akey)
                         and not self._taken(vkey)
                         and not (self.gate and self.gate.blocks("valor", {v.quote.source, POLYMARKET}))):
-                    st = v.event.anchor.start
+                    st = v.event.start
                     hrs = (st.timestamp() - now) / 3600 if st else None
                     if wide_value(False, v.ev_pct, v.quote.odds, hrs) and self._ready(key, now, False, v.quote.ts):
                         op = self._enter_value(akey, v, resolution(v.event, v.market), "amplio")
@@ -511,7 +511,7 @@ def void_payout(legs: list[dict], total: float) -> float:
 
 def _in_play(event, now: float) -> bool:
     """En vivo, o ya pasó la hora de inicio (aunque la fuente no lo marque todavía)."""
-    start = event.anchor.start
+    start = event.start
     return event.live or (start is not None and start.timestamp() <= now)
 
 

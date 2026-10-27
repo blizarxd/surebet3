@@ -135,6 +135,13 @@ class MatchedEvent:
         return f"{self.anchor.feed}:{self.anchor.event_id}"
 
     @property
+    def start(self):
+        """La hora de inicio MÁS TEMPRANA entre las fuentes. Polymarket a veces estima (tenis: 30 min más tarde que
+        1xBet el 27/10) y una señal «a 26 min del inicio» era en realidad un partido ya en vivo."""
+        starts = [ev.start for ev, _ in self.members if ev.start] + ([self.anchor.start] if self.anchor.start else [])
+        return min(starts) if starts else None
+
+    @property
     def feeds(self) -> set[str]:
         return {ev.feed for ev, _ in self.members}
 

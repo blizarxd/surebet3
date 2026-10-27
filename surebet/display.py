@@ -58,7 +58,7 @@ def opportunities_table(opps: list[Opportunity], title: str, stake: float) -> Ta
 
 
 def _starts_in(o_event) -> str:
-    st = o_event.anchor.start
+    st = o_event.start
     if not st:
         return "-"
     h = (st - datetime.now(timezone.utc)).total_seconds() / 3600

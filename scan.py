@@ -400,7 +400,7 @@ async def main() -> None:
     def worth_alert(o) -> bool:
         """Solo prepartido que empieza pronto, neto real de comisiones, con capacidad y sin repetir."""
         now = time.time()
-        st_ = o.event.anchor.start
+        st_ = o.event.start
         if o.event.live or st_ is None or not (0 < st_.timestamp() - now <= s.alert_max_hours * 3600):
             return False
         if blocked(o) or not (s.alert_min_margin_pct <= o.margin_pct < cfg.suspicious_margin_pct):
@@ -499,7 +499,7 @@ async def main() -> None:
                                             + cap_warning(buyer.in_play(), min(s.alert_arb_stake, o.max_total_stake or s.alert_arb_stake),
                                                           s.value_max_in_play), buttons)
                 for v in fresh_values:
-                    st_ = v.event.anchor.start
+                    st_ = v.event.start
                     hrs = (st_.timestamp() - time.time()) / 3600 if st_ else None
                     if worth_value(v, hrs):  # solo el valor "oro", una vez por partido
                         stake = value_stake(v.quote.odds, v.ev_pct, s.bankroll, s.kelly_fraction, 0.03,

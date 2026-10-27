@@ -57,10 +57,11 @@ def risk_flags(o: Opportunity, tennis_min_margin: float = TENNIS_MIN_MARGIN_PCT,
 GOLD_EV = (2.0, 7.0)
 GOLD_ODDS = (1.6, 4.0)
 GOLD_MAX_HOURS = 6.0
+MIN_LEAD_H = 3 / 60      # una señal a menos de 3 min del inicio no da tiempo de apostar (27/10: salían segundos antes)
 
 
 def golden_value(live: bool, ev_pct: float, odds: float, hours_to_start: float | None) -> bool:
-    return (not live and hours_to_start is not None and 0 < hours_to_start <= GOLD_MAX_HOURS
+    return (not live and hours_to_start is not None and MIN_LEAD_H < hours_to_start <= GOLD_MAX_HOURS
             and GOLD_EV[0] <= ev_pct < GOLD_EV[1] and GOLD_ODDS[0] <= odds < GOLD_ODDS[1])
 
 
@@ -70,7 +71,7 @@ WIDE_EV = (1.5, 2.0)
 
 
 def wide_value(live: bool, ev_pct: float, odds: float, hours_to_start: float | None) -> bool:
-    return (not live and hours_to_start is not None and 0 < hours_to_start <= GOLD_MAX_HOURS
+    return (not live and hours_to_start is not None and MIN_LEAD_H < hours_to_start <= GOLD_MAX_HOURS
             and WIDE_EV[0] <= ev_pct < WIDE_EV[1] and GOLD_ODDS[0] <= odds < GOLD_ODDS[1])
 
 

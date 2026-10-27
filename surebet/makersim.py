@@ -143,7 +143,7 @@ class MakerSimulator:
         """Abre la prueba "valor con red de seguridad" para cada apuesta oro nueva (el avance va en step)."""
         now = time.time()
         for v in values:
-            st = v.event.anchor.start
+            st = v.event.start
             hrs = (st.timestamp() - now) / 3600 if st else None
             if v.event.live or not golden(False, v.ev_pct, v.quote.odds, hrs):
                 continue
@@ -183,7 +183,7 @@ class MakerSimulator:
         limit = round(min(max(bid + TICK, TICK), best_ask - TICK, max_price), 2)
         if limit <= 0:
             return
-        start = o.event.anchor.start.timestamp() if o.event.anchor.start else None
+        start = o.event.start.timestamp() if o.event.start else None
         self.conn.execute(
             "INSERT INTO maker_sim (key, created_ts, title, market, start_ts, book_payout, book_stake, token, shares, "
             "taker_cost, limit_price, status, taker_net_pct, mode, book_ref, book_odds, track) "

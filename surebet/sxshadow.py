@@ -158,7 +158,7 @@ class SXShadow:
         rows = []
         seen: set[str] = set()
         for v in sorted(values, key=lambda v: v.ev_pct, reverse=True):
-            st = v.event.anchor.start
+            st = v.event.start
             if st is None:
                 continue
             hrs = (st.timestamp() - now) / 3600
