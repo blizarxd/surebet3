@@ -14,8 +14,10 @@ Cada apuesta es un dict con claves cortas (el panel lo recibe comprimido):
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from .livescore import FRESH_S, final_score, game_id
@@ -29,9 +31,33 @@ RARE_CLV = 15.0              # CLV más allá de ±15 %: casi siempre un dato ra
 STATUS = {"won": "g", "lost": "p", "void": "a", "open": "o"}
 
 
-def symbol(market: str, covers: list[str]) -> str:
-    """Símbolo corto de la apuesta (debajo de la selección): over/under, W1/W2, X, 1X/X2/12; «· 1T» si es del primer tiempo."""
+def book_flipped(title: str, url: str) -> bool:
+    """¿1xBet lista los equipos al revés que el título (orden de Polymarket)? En EE. UU. Polymarket pone primero al visitante
+    y 1xBet al local: «Heat vs Hawks» allá es «Atlanta Hawks – Miami Heat». Se compara el orden en el link del partido."""
+    if " vs " not in (title or ""):
+        return False
+    m = re.search(r"/\d+-([^/?#]+)$", url or "")
+    if not m:
+        return False
+    tail = m.group(1)
+
+    def pos(name: str) -> int:
+        ascii_ = unicodedata.normalize("NFKD", name.lower()).encode("ascii", "ignore").decode()
+        for w in reversed([w for w in re.findall(r"[a-z0-9]+", ascii_) if len(w) > 2]):   # el apodo (última palabra) primero
+            if w in tail:
+                return tail.find(w)
+        return -1
+    home, away = title.split(" vs ", 1)
+    ph, pa = pos(home), pos(away)
+    return ph >= 0 and pa >= 0 and pa < ph
+
+
+def symbol(market: str, covers: list[str], flip: bool = False) -> str:
+    """Símbolo corto de la apuesta (debajo de la selección): over/under, W1/W2, X, 1X/X2/12; «· 1T» si es del primer tiempo.
+    Con flip, W1/W2 (y 1X/X2) se cuentan en el orden de 1xBet, que es donde se apuesta."""
     cov = set(covers or [])
+    if flip:
+        cov = {{"H": "A", "A": "H"}.get(x, x) for x in cov}
     if cov in ({"O"}, {"U"}):
         s = "over" if cov == {"O"} else "under"
     else:
@@ -89,6 +115,10 @@ def summary(conn) -> dict | None:
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
         exp = 0.0 if c is None else STAKE * (c if abs(c) <= RARE_CLV else med) / 100
         y, po, mn, hs, mid, wp, ws, wr = mv.get(key, (None,) * 8)
+        flip = leg["flip"] if "flip" in leg else book_flipped(title, leg.get("url") or "")
+        if flip and " vs " in (title or ""):
+            a, b = title.split(" vs ", 1)
+            title = f"{b} vs {a}"             # el partido tal como lo ve el usuario en 1xBet (local primero)
         picks.append({"d": t.strftime("%Y-%m-%d"), "m": t.hour * 60 + t.minute, "ts": round(ts), "st": round(start) if start else None,
                       "t": (title or "")[:34], "l": (leg.get("label") or "")[:22], "o": round(odds, 3), "ev": round(ev or 0, 2),
                       "c": None if c is None else round(c, 2), "sp": sport or "?", "mk": mname or mk, "s": STATUS[status],
@@ -96,7 +126,7 @@ def summary(conn) -> dict | None:
                       "y": y, "po": po, "mn": mn, "h": (hs or "1xBet") if y in ("puesta", "no estaba", "mal jugada") else None,
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro",
-                      "sy": symbol(mk, leg.get("covers"))})
+                      "sy": symbol(mk, leg.get("covers"), flip)})
         if y == "mal jugada":                 # jugaste otra apuesta: qué, con cuánto y cómo salió (lo marcas tú)
             picks[-1].update({"wp": wp, "ws": ws, "wr": wr or "pendiente"})
         if mid is None:

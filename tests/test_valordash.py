@@ -68,3 +68,14 @@ def test_amplio_track_is_included_and_tagged(tmp_path):
                    json.dumps([{"source": "1xbet", "label": "A", "covers": ["H"], "odds": 2.0, "url": "u"}]), "open"))
     c.commit()
     assert [p["tr"] for p in summary(c)["picks"]] == ["oro", "amplio"]
+
+
+def test_book_order_flips_wins_and_title():
+    from surebet.valordash import book_flipped, symbol
+    url = "https://1xbet-col.com/en/line/basketball/139460-nba/383000000-atlanta-hawks-miami-heat"
+    assert book_flipped("Heat vs Hawks", url)                                    # Polymarket: visitante primero; 1xBet: local primero
+    assert not book_flipped("Hawks vs Heat", url)
+    assert not book_flipped("Arsenal vs Leeds", "https://x/en/line/football/1-epl/5-arsenal-leeds-united")
+    assert not book_flipped("Heat vs Hawks", "") and not book_flipped("Solo", url)
+    assert symbol("ml", ["A"], True) == "W1" and symbol("ml", ["A"]) == "W2"
+    assert symbol("1x2", ["A", "D"], True) == "1X" and symbol("ou_2.5", ["O"], True) == "over"

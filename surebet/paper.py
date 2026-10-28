@@ -383,6 +383,10 @@ class PaperBook:
             stake = self.cfg.measure_stake  # monto fijo: así el ROI de cada tipo se compara directo
         row = _leg_row(v.quote, round(stake, 2), v.quote.odds)
         row["fair_odds"] = round(1 / v.fair_prob, 3)   # cuota justa según Polymarket al entrar
+        for ev, swapped in v.event.members:            # ¿la casa lista local/visitante al revés que el ancla (Polymarket)?
+            if any(q.source == v.quote.source and q.label == v.quote.label for q in ev.quotes):
+                row["flip"] = bool(swapped)
+                break
         expected = row["stake"] * (v.quote.odds * v.fair_prob - 1)
         return self._insert(key, "value", v.event, market, v.ev_pct, [row], 0.0, expected, resolve, track)
 
