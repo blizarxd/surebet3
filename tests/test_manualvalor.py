@@ -140,8 +140,9 @@ def test_amplio_alert_has_silver_tag_and_basketball_is_not_alerted(tmp_path):
     add(mv, "valor#c")
     mv.conn.commit()
     msgs = mv.step()
-    assert len(msgs) == 2 and any("🥈 VALOR AMPLIADO" in t for t, _ in msgs) and any(t.startswith("💰 VALOR") for t, _ in msgs)
-    assert mv.conn.execute("SELECT status FROM manual_value WHERE key='valor#b'").fetchone()[0] == "sin ventaja (básquet)"
+    assert len(msgs) == 3 and any("🥈 VALOR AMPLIADO" in t for t, _ in msgs) and any(t.startswith("💰 VALOR") for t, _ in msgs)
+    assert mv.conn.execute("SELECT status FROM manual_value WHERE key='valor#b'").fetchone()[0] == "avisada"   # 28/10: el básquet vuelve, en prueba
+    assert sum("🏀 BÁSQUET EN PRUEBA" in t for t, _ in msgs) == 1
     assert mv.step() == []
 
 

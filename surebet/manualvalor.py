@@ -30,7 +30,8 @@ VET = timezone(timedelta(hours=-4))          # Venezuela (UTC−4), sin horario 
 DIAS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 SOURCES = ("1xbet", "onexbet")
 HOUSES = ("1xBet", "Melbet", "888starz")   # casas donde apuestas a mano (MANUAL_HOUSES en el .env); /casa elige la de hoy
-NO_ALERT_SPORTS = ("basketball",)   # sin ventaja en 1xBet (CLV −0,1 %, 32 señales oro; 26/10): se anota, no se avisa
+NO_ALERT_SPORTS: tuple[str, ...] = ()   # 26/10 se sacó el básquet (CLV −0,1 %, 32 señales); 28/10 vuelve en prueba (CLV +2,8 %, 57)
+TRIAL_SPORTS = {"basketball": "🏀 BÁSQUET EN PRUEBA: volvió el 28/10 (CLV +2,8 % en 57 señales); se mide 2 semanas"}
 MAX_PER_GAME = 2             # tope de avisos por partido (2 picks de $30 como máximo; los demás se anotan sin avisar)
 BATCH_S, BATCH_MIN = 60, 3   # «lote»: 3 o más señales nacidas en 60 s (suele ser 1xBet volviendo de un corte)
 MIN_EV = 1.0                 # cuota mínima aceptable: EV ≥ +1 % contra el precio justo de Polymarket
@@ -332,7 +333,7 @@ class ManualValor:
                 "AND created_ts BETWEEN ? AND ?", (ts - BATCH_S, ts + BATCH_S)).fetchone()[0]
             tags = ([f"⚠️ LOTE: {lote} señales nacieron juntas (suele pasar cuando 1xBet vuelve de un corte). "
                      "Mira la cuota en la casa ANTES de apostar."] if lote >= BATCH_MIN else []) + \
-                   ([f"2️⃣ 2.º pick de este partido (tope {MAX_PER_GAME}: no se avisan más)"] if prev == 1 else [])
+                   ([f"2️⃣ 2.º pick de este partido (tope {MAX_PER_GAME}: no se avisan más)"] if prev == 1 else []) +                    ([TRIAL_SPORTS[sport]] if sport in TRIAL_SPORTS else [])
             cur = self.conn.execute(
                 "INSERT OR IGNORE INTO manual_value (key, created_ts, start_ts, title, sport, market, label, source, odds, "
                 "min_odds, fair_odds, ev_pct, stake, url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
