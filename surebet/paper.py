@@ -261,6 +261,8 @@ class PaperBook:
             cands.append((self._net_pct(o), key, o, track))
         # Las mejores del momento primero, por ganancia NETA: comisión de Polymarket y libro recorrido al monto real
         for _net, key, o, track in sorted(cands, key=lambda c: c[0], reverse=True):
+            if self._taken(key):
+                continue                     # la mejor combinación de patas del mismo partido y mercado ya entró en este ciclo
             op = self._enter_arb(key, o, resolution(o.event, o.market), track)
             if op:
                 new.append(op)
@@ -391,10 +393,13 @@ class PaperBook:
                 ev.start.timestamp() if ev.start else None, int(event.live), edge, total, round(fees, 4),
                 round(expected, 4), json.dumps(rows, ensure_ascii=False),
                 json.dumps({o: list(t) for o, t in resolve.items()}), "open", track)
-        self.conn.execute(
-            """INSERT INTO paper_ops (key, kind, created_ts, event_key, title, sport, market, market_name,
-               start_ts, live, edge_pct, total_stake, fees, expected_profit, legs_json, resolve_json, status, track)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", data)
+        try:
+            self.conn.execute(
+                """INSERT INTO paper_ops (key, kind, created_ts, event_key, title, sport, market, market_name,
+                   start_ts, live, edge_pct, total_stake, fees, expected_profit, legs_json, resolve_json, status, track)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", data)
+        except sqlite3.IntegrityError:
+            return None                      # esa clave ya está anotada: nunca debe tumbar el resto del paso
         return {"kind": kind, "title": ev.title, "market": market_label(market), "edge": edge,
                 "total": total, "expected": expected, "legs": rows, "track": track}
 

@@ -50,7 +50,9 @@ H1_INTERVAL_S = 600        # primer tiempo (sub-partido): cada 10 min; 2 min si 
 H1_MAX_PER_PASS = 3        # llamadas de primer tiempo por pasada (repartidas: sin ráfagas al arrancar)
 REQUEST_TIMEOUT_S = 10
 REQUEST_GAP_S = 0.6        # pausa entre llamadas (23/10: subida de 0,3 a 0,6 s: 1xBet nos rechazaba por ratos, probable límite de ritmo)
-BACKOFF_S = [600, 1200, 2400, 3600]  # si deja de responder: pausa 10, 20, 40, 60 min
+BACKOFF_S = [120, 300, 900, 2400, 3600]  # si deja de responder: pausa 2, 5, 15, 40, 60 min (los tropiezos de segundos se superan solos)
+FAIL_LIMIT = 8                           # fallos SEGUIDOS para pausar (con 4 se pausaba por tropiezos normales de 1xBet: ~2-4 % de errores)
+NOTIFY_AFTER_S = 15 * 60                 # solo se avisa por Telegram si la caída dura al menos esto (antes: 4 avisos por hora de noche)
 TOTALS_G, OVER_T, UNDER_T = 17, 9, 10
 # Deportes donde el tiempo reglamentario puede terminar empatado: su G=1 sin empate NO es "ganador"
 REGULATION_DRAW = {"basketball", "hockey", "americanfootball"}
@@ -179,6 +181,7 @@ class OneXBetSource(Source):
         self._backoff_level = 0
         self._paused_until = 0.0
         self._down_since: float | None = None
+        self._down_notified = False
         self.notices: list[str] = []  # avisos para Telegram (caída / vuelta del feed)
 
     # ------------------------------------------------------------------ http
@@ -204,22 +207,26 @@ class OneXBetSource(Source):
         if r is None or r.status_code != 200:
             self._errors += 1
             self._fails_in_row += 1
-            if self._fails_in_row >= 4 and time.time() >= self._paused_until:
+            if self._fails_in_row >= FAIL_LIMIT and time.time() >= self._paused_until:
                 pause = BACKOFF_S[min(self._backoff_level, len(BACKOFF_S) - 1)]
                 self._paused_until = time.time() + pause
                 self._backoff_level += 1
                 if self._down_since is None:
                     self._down_since = time.time()
-                    self.notices.append("⚠️ 1xBet dejó de responder (posible bloqueo temporal de la IP). "
-                                        "El escáner sigue con las demás fuentes y lo reintenta solo; te aviso cuando vuelva.")
+            if self._down_since is not None and not self._down_notified and time.time() - self._down_since >= NOTIFY_AFTER_S:
+                self._down_notified = True
+                self.notices.append(f"⚠️ 1xBet lleva {(time.time() - self._down_since) / 60:.0f} min sin responder (posible bloqueo "
+                                    "temporal de la IP). El escáner sigue con las demás fuentes y lo reintenta solo; te aviso cuando vuelva.")
             return None
         self._fails_in_row = 0
         self._backoff_level = 0
         if self._down_since is not None:
             mins = (time.time() - self._down_since) / 60
             self._down_since = None
-            self.notices.append(f"✅ 1xBet volvió a responder (estuvo caído {mins:.0f} min). "
-                                "El escáner ya está usando sus cuotas otra vez.")
+            if self._down_notified:                       # si nunca se avisó de la caída, tampoco de la vuelta
+                self.notices.append(f"✅ 1xBet volvió a responder (estuvo caído {mins:.0f} min). "
+                                    "El escáner ya está usando sus cuotas otra vez.")
+            self._down_notified = False
         try:
             return r.json()
         except ValueError:

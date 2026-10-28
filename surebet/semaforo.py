@@ -4,7 +4,7 @@ Semáforo de riesgo (🟢 / 🟡 / 🔴) de cada cuenta y de las APIs, con PAUSA
   🟢 verde:    caída < 10 % (y en valor, CLV de las oro a favor en la semana)
   🟡 amarillo: caída del 10 al 20 %, o CLV medio de las oro negativo 3 días seguidos (o en toda la semana)
   🔴 rojo:     caída > 20 %, cuenta bloqueada (la casa rechaza la clave, 1xBet no responde, o lo marcas con
-               /bloqueada) o una API caída más de 5 min
+               /bloqueada) o una API caída más de 20 min
 
 El rojo PAUSA solo entradas NUEVAS (avisos de Telegram y cuentas en papel). Las coberturas de lo ya apostado
 (botones ✅ y 🛟) siguen funcionando: una pata suelta es peor que cualquier caída.
@@ -27,7 +27,7 @@ from pathlib import Path
 DD_YELLOW, DD_RED = 10.0, 20.0
 DD_BACK_GREEN = 8.0        # de amarillo vuelve a verde bajo 8 %: sin esto una caída de ~10 % titila y llena Telegram
 CLV_DAYS, CLV_DAY_MIN_N, CLV_WEEK_MIN_N = 3, 5, 10
-API_DOWN_S, API_OK_S = 300.0, 600.0
+API_DOWN_S, API_OK_S = 1200.0, 600.0   # 28/10: con 5 min, cada tropiezo de 1xBet (2-4 % de errores) daba rojo y pausa; ahora 20 min
 EVERY_S = 60.0
 CORE = ("polymarket", "onexbet", "cloudbet", "sxbet", "kalshi", "azuro")   # casas que se operan: su caída pausa
 ALIASES = {"onexbet": {"onexbet", "1xbet"}, "1xbet": {"onexbet", "1xbet"}}  # la fuente se llama onexbet; sus cuotas, 1xbet

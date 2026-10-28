@@ -123,3 +123,40 @@ def test_polling_interval_depends_on_how_soon_the_match_starts(tmp_path):
     s._line["old"] = (now, [{"S": now - 600}])
     assert s._interval("near", now) == 120 and s._interval("mid", now) == 300 and s._interval("far", now) == 900
     assert s._interval("old", now) == 120 and s._interval("nuevo", now) == 120 and s.live_enabled is False
+
+
+def test_short_1xbet_hiccups_do_not_pause_nor_notify(tmp_path):
+    import asyncio
+    import time
+    import httpx
+    from surebet.sources import onexbet as ox
+    src = ox.OneXBetSource("https://x.test", 285, tmp_path, [1])
+    src.requests = 0
+
+    class Fail:
+        async def get(self, *a, **k):
+            raise httpx.ConnectError("down")
+
+    class Ok:
+        async def get(self, *a, **k):
+            return httpx.Response(200, json={"Value": []})
+
+    async def go(client, n):
+        for _ in range(n):
+            await src._raw_get(client, "https://x.test/a")
+    ox.REQUEST_GAP_S = 0
+    asyncio.run(go(Fail(), ox.FAIL_LIMIT - 1))
+    assert src._paused_until == 0                                     # 7 fallos seguidos: todavía no pausa
+    asyncio.run(go(Ok(), 1))
+    assert src._fails_in_row == 0 and src.notices == []              # se recuperó solo: ni aviso de caída ni de vuelta
+    asyncio.run(go(Fail(), ox.FAIL_LIMIT))
+    assert src._paused_until > time.time() and src._down_since and src.notices == []   # pausa corta, sin avisar todavía
+    src._down_since -= ox.NOTIFY_AFTER_S + 5                          # ya lleva más de 15 min caída
+    src._paused_until = 0
+    asyncio.run(go(Fail(), 1))
+    assert len(src.notices) == 1 and "min sin responder" in src.notices[0]
+    asyncio.run(go(Fail(), 3))
+    assert len(src.notices) == 1                                      # un solo aviso por caída
+    src._paused_until = 0
+    asyncio.run(go(Ok(), 1))
+    assert len(src.notices) == 2 and "volvió" in src.notices[1]

@@ -322,3 +322,13 @@ def test_a_selection_enters_once_either_as_amplio_or_as_gold(tmp_path):
     first = [o["track"] for o in run(2.036) if o["track"] in ("valor", "amplio")]       # EV +1,8 %: entra como 🥈
     later = [o["track"] for o in run(2.10) if o["track"] in ("valor", "amplio")]        # luego sube a +5 %: NO entra otra vez como oro
     assert first == ["amplio"] and later == []
+
+
+def test_two_arbs_same_event_and_market_do_not_break_the_step(tmp_path):
+    pb = book(tmp_path)
+    opps = find_opportunities(arb_event(), ArbConfig())
+    assert opps
+    new = pb.consider(opps + opps, [], lambda k, m: RESOLVE)         # la misma clave dos veces en un ciclo (27/10 01:36: UNIQUE paper_ops.key)
+    assert len(new) == 1
+    assert pb._insert("arb#dup", "arb", arb_event(), "1x2", 1.0, [{"stake": 1}], 0.0, 0.0, RESOLVE) is not None
+    assert pb._insert("arb#dup", "arb", arb_event(), "1x2", 1.0, [{"stake": 1}], 0.0, 0.0, RESOLVE) is None
