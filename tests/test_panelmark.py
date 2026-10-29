@@ -110,3 +110,17 @@ def test_wrong_pick_is_recorded_with_own_result(tmp_path):
     assert not mark_signal(mv.conn, 7, "wrong", 0.9, "1xBet", None, "X", 30)["ok"]
     mark_signal(mv.conn, 7, "ok", 2.4, "1xBet")                                                    # volver a «la puse» borra lo mal jugado
     assert mv.conn.execute("SELECT status, wrong_pick FROM manual_value WHERE id=7").fetchone() == ("puesta", None)
+
+
+def test_real_stake_is_saved_per_mark_and_monto_command(tmp_path):
+    from surebet.manualvalor import ManualValor, get_real_stake
+    mv = ManualValor(tmp_path / "r.db")
+    mv.conn.execute("INSERT INTO manual_value (id, key, status, odds, min_odds, title, label, stake) VALUES (1, 'a', 'avisada', 2.0, 1.9, 'A vs B', 'A', 30)")
+    mv.conn.execute("INSERT INTO manual_value (id, key, status, odds, min_odds, title, label, stake) VALUES (2, 'b', 'avisada', 2.0, 1.9, 'C vs D', 'C', 30)")
+    mv.conn.commit()
+    assert get_real_stake(mv.conn) == 5.0 and "$5" in mv.set_real_stake([])
+    mark_signal(mv.conn, 1, "ok", 2.0)
+    assert "$5 → $10" in mv.set_real_stake(["10"]) and get_real_stake(mv.conn) == 10.0
+    mark_signal(mv.conn, 2, "ok", 2.0)                                      # lo nuevo guarda el monto nuevo; lo viejo no cambia
+    assert [r[0] for r in mv.conn.execute("SELECT real_stake FROM manual_value ORDER BY id")] == [5.0, 10.0]
+    assert "Uso" in mv.set_real_stake(["abc"]) and get_real_stake(mv.conn) == 10.0

@@ -42,6 +42,7 @@ MENU_COMMANDS = [
     ("menu", "Lista de comandos y para qué sirve cada uno"),
     ("estoy", "Estoy en el PC: activa los avisos de valor"),
     ("horario", "Ver o cambiar tu horario de avisos: /horario 12-20"),
+    ("monto", "Ver o cambiar tu monto real por jugada: /monto 10"),
     ("salgo", "Me voy del PC: pausa los avisos (se siguen anotando)"),
     ("hoy", "Resumen de hoy: avisos, jugadas y resultado"),
     ("senales", "Señales sin marcar (fuera de horario, sobre el tope…) con botones ✅/❌"),
@@ -63,6 +64,7 @@ MENU_TEXT = (
     "/estoy — estoy en el PC: activa los avisos de valor (12–20 h por defecto)\n"
     "/salgo — me voy del PC: pausa los avisos; se siguen anotando para medir\n"
     "/horario [12-20] — ver o cambiar tu horario de avisos (hora Venezuela)\n"
+    "/monto [10] — ver o cambiar tu monto real por jugada (lo que marques desde ahora usa el nuevo monto)\n"
     "/hoy — resumen de hoy: avisos, jugadas y resultado\n"
     "/senales [n] — las últimas señales sin marcar (fuera de horario, sobre el tope…) con botones ✅/❌ para anotarlas\n"
     "/casa [nombre] — ver o cambiar la casa de hoy (1xbet, melbet, 888starz)\n"
@@ -281,6 +283,8 @@ class PolyBuyer:
                     await self._say(client, "No tienes señales por marcar (las de los últimos partidos ya están anotadas).")
                 for text, buttons in pend:
                     await self._say(client, text, buttons)
+            elif cmd == "/monto" and self.manual:
+                await self._say(client, self.manual.set_real_stake(words[1:]))
             elif cmd == "/horario" and self.manual:
                 await self._say(client, self.manual.set_hours(" ".join(words[1:])))
             elif cmd == "/clave" and self.manual:

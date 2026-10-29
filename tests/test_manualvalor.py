@@ -176,3 +176,17 @@ def test_pending_signals_come_with_buttons(tmp_path):
     mv.conn.execute("UPDATE manual_value SET start_ts = ?", (time.time() - 4 * 3600,))   # partido ya terminado: no se ofrece
     mv.conn.commit()
     assert mv.pending() == []
+
+
+def test_top_filter_marks_alert_and_dashboard(tmp_path):
+    from surebet.manualvalor import is_top
+    t0 = 1_000_000.0
+    assert is_top("Ganador", 2.4, t0 + 3600, t0) and is_top("1X2", 2.0, t0 + 1800, t0)
+    assert not is_top("Más/Menos 2.5", 2.4, t0 + 3600, t0)                   # solo el ganador del partido
+    assert not is_top("1X2 1er tiempo", 2.4, t0 + 3600, t0)
+    assert not is_top("Ganador", 1.9, t0 + 3600, t0) and not is_top("Ganador", 3.0, t0 + 3600, t0)   # cuota 2 a 3
+    assert not is_top("Ganador", 2.4, t0 + 600, t0) and not is_top("Ganador", 2.4, None, t0)         # 30 min o más antes
+    mv = ManualValor(tmp_path / "p.db", hours="0-24")
+    add(mv, "valor#a", odds=2.40, fair=2.32)                                  # el partido empieza en 90 min, mercado 1X2
+    text = mv.step()[0][0]
+    assert "🏆 FILTRO TOP" in text

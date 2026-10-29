@@ -458,7 +458,7 @@
 <main id="tab-mj" hidden>
   <section class="card"><div class="small muted">Lo que tú marcaste con <b>✅ La puse</b> (y lo que anotaste como «jugué otra apuesta»), con tu monto real y el resultado de cada partido. Sin tocar nada del papel.</div>
     <div class="vd-filters" style="padding:10px 0 0">
-      <label>Monto por jugada <input id="mj-stake" type="number" min="1" step="1" value="5" style="width:90px"></label>
+      <span class="small">💵 Monto real actual: <b id="mj-stake-now">$5</b> <span class="muted">(cada jugada guarda el monto de ese día; para subirlo, en Telegram: /monto 10)</span></span>
       <label>Periodo<select id="mj-range"><option value="all">Todo</option><option value="7">Últimos 7 días</option><option value="1">Solo el último día</option></select></label>
     </div></section>
   <section class="kpis" id="mj-kpis"></section>
@@ -521,6 +521,7 @@
       <label>Horas antes del juego<select id="vd-lf-hb"><option value="all">Todas</option><option value="0-1">0–1 h</option><option value="1-3">1–3 h</option><option value="3-6">3–6 h</option></select></label>
       <button id="vd-lf-reset" type="button">Quitar filtros de la lista</button></div>
     <div class="vd-filters" style="padding:0 0 8px"><label class="small" style="align-self:flex-end;padding-bottom:6px"><input type="checkbox" id="vd-lf-star"> Solo ⭐ mis señales <span class="muted">(tu horario y deportes que se operan)</span></label>
+      <label class="small" style="align-self:flex-end;padding-bottom:6px"><input type="checkbox" id="vd-lf-top"> Solo 🏆 filtro top <span class="muted">(ganador, cuota 2–3, 30+ min antes)</span></label>
       <label>Mostrar<select id="vd-per"><option value="20">20 por página</option><option value="50">50 por página</option><option value="100">100 por página</option><option value="0">Todas</option></select></label>
       <label>Ordenar por<select id="vd-f-sort"><option value="ts">Más recientes</option><option value="win">Mayor ganancia</option><option value="loss">Mayor pérdida</option><option value="ev">Mayor EV</option><option value="odds">Mayor cuota</option><option value="clv">Mejor CLV</option></select></label>
       <button id="vd-csv" type="button">⬇ Descargar CSV (con los filtros)</button></div>
@@ -1654,7 +1655,7 @@ function vdFillFilters(all) {
   $("vd-house-sel").addEventListener("input", (e) => { try { localStorage.setItem("vd_house", e.target.value); } catch (er) {} renderValorDash(vdData); vdNow(vdData.picks); vdListDraw(); });
   $("vd-lf-sp").addEventListener("click", (e) => { const b = e.target.closest("button[data-sp]"); if (!b) return; vdL.sp = b.dataset.sp; $("vd-lf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); vdPage = 1; vdListDraw(); });
   [["mk", "vd-lf-mk"], ["od", "vd-lf-od"], ["hb", "vd-lf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdL[k] = e.target.value; vdPage = 1; vdListDraw(); }));
-  $("vd-lf-reset").addEventListener("click", () => { $("vd-lf-star").checked = false; Object.assign(vdL, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-lf-mk", "vd-lf-od", "vd-lf-hb"].forEach((id) => $(id).value = "all"); $("vd-lf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdPage = 1; vdListDraw(); });
+  $("vd-lf-reset").addEventListener("click", () => { $("vd-lf-star").checked = false; $("vd-lf-top").checked = false; Object.assign(vdL, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-lf-mk", "vd-lf-od", "vd-lf-hb"].forEach((id) => $(id).value = "all"); $("vd-lf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdPage = 1; vdListDraw(); });
   $("vd-hf-sp").addEventListener("click", (e) => { const b = e.target.closest("button[data-sp]"); if (!b) return; vdH.sp = b.dataset.sp; $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); vdDraw(); });
   [["mk", "vd-hf-mk"], ["od", "vd-hf-od"], ["hb", "vd-hf-hb"]].forEach(([k, id]) => $(id).addEventListener("input", (e) => { vdH[k] = e.target.value; vdDraw(); }));
   $("vd-hf-reset").addEventListener("click", () => { Object.assign(vdH, {sp: "all", mk: "all", od: "all", hb: "all"}); ["vd-hf-mk", "vd-hf-od", "vd-hf-hb"].forEach((id) => $(id).value = "all"); $("vd-hf-sp").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.sp === "all")); vdDraw(); });
@@ -1686,6 +1687,7 @@ function vdFillFilters(all) {
     }
   });
   $("vd-lf-star").addEventListener("input", () => { vdPage = 1; vdListDraw(); });
+  $("vd-lf-top").addEventListener("input", () => { vdPage = 1; vdListDraw(); });
   $("vd-per").addEventListener("input", (e) => { vdPer = +e.target.value; vdPage = 1; vdListDraw(); });
   $("vd-heat-pager").addEventListener("click", (e) => { const a = e.target.closest("button[data-all]"); if (a) { vdHeatAll = a.dataset.all === "1"; vdHeatPg = 1; vdDraw(); return; }
     const b = e.target.closest("button[data-pg]"); if (!b) return; vdHeatPg = +b.dataset.pg; vdDraw(); });
@@ -1810,9 +1812,10 @@ function vdToast(msg, kind) {
   const d = document.createElement("div"); d.className = "vd-toast" + (kind ? " " + kind : ""); d.textContent = msg; document.body.appendChild(d); setTimeout(() => d.remove(), 3500);
 }
 // ganancia REAL tuya en una señal: lo que pusiste (con el resultado del papel) o lo que jugaste mal (con el resultado que marcaste)
-function vdMine(p, STK) {
-  if (p.y === "puesta") return p.p == null ? null : p.p > 0 ? STK * (p.po - 1) : p.p < 0 ? -STK : 0;
-  if (p.y === "mal jugada") { const s = p.ws || STK; return p.wr === "ganada" ? s * ((p.po || 1) - 1) : p.wr === "perdida" ? -s : p.wr === "anulada" ? 0 : null; }
+function vdMine(p, STK) {          // STK = monto base de la vista (dashboard: el elegido, p. ej. $30); null = el monto REAL guardado en cada jugada
+  const s = STK == null ? (p.rs || p.ws || 5) : STK;
+  if (p.y === "puesta") return p.p == null ? null : p.p > 0 ? s * (p.po - 1) : p.p < 0 ? -s : 0;
+  if (p.y === "mal jugada") return p.wr === "ganada" ? s * ((p.po || 1) - 1) : p.wr === "perdida" ? -s : p.wr === "anulada" ? 0 : null;
   return null;
 }
 // «Jugué otra apuesta»: qué jugaste (W1, X, W2, 1X, X2, 12, Más/Menos; partido o 1.er tiempo), cuota, monto y cómo salió
@@ -1827,7 +1830,7 @@ function vdWrongForm(p) {
     <div class="vd-chipsel">${chip("per", "P", "Partido")}${chip("per", "1T", "1.er tiempo")}</div>
     <div class="vd-mkman"><input id="vd-w-line" type="number" step="0.5" min="0.5" inputmode="decimal" placeholder="línea (Más/Menos), ej. 2.5" value="${m[2] || ""}"></div>
     <div class="vd-mkman"><input id="vd-w-odds" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="cuota, ej. 1.98" value="${p.y === "mal jugada" && p.po ? p.po.toFixed(2) : ""}">
-      <input id="vd-w-stake" type="number" step="1" min="1" inputmode="decimal" placeholder="monto" value="${p.ws || (+(($("mj-stake") || {}).value) || 5)}"></div>
+      <input id="vd-w-stake" type="number" step="1" min="1" inputmode="decimal" placeholder="monto" value="${p.ws || (vdData && vdData.real_stake) || 5}"></div>
     <div class="small muted">¿Cómo salió? (este resultado lo marcas tú)</div>
     <div class="vd-chipsel">${chip("wr", "pendiente", "⏳ Pendiente")}${chip("wr", "ganada", "✅ Ganada")}${chip("wr", "perdida", "❌ Perdida")}${chip("wr", "anulada", "↩️ Anulada")}</div>
     <button type="button" data-wrong="1" class="vd-wsave">Guardar la apuesta que jugué</button></details>`;
@@ -1854,7 +1857,7 @@ function vdOurs(p) {
   const H = (vdData && vdData.hours) || [12, 20], W = (vdData && vdData.work) || {observe: ["esports:cs2", "esports:dota2"], no_alert: ["basketball"]}, h = p.m / 60;
   return h >= H[0] && h < H[1] && !W.observe.includes(p.sp) && !W.no_alert.includes(p.sp);
 }
-const vdBadges = (p) => (vdOurs(p) || p.tr === "amplio") ? " · " + [vdOurs(p) ? "⭐" : "", p.tr === "amplio" ? "🥈 amplio" : ""].filter(Boolean).join(" ") : "";
+const vdBadges = (p) => (vdOurs(p) || p.tr === "amplio" || p.tp) ? " · " + [vdOurs(p) ? "⭐" : "", p.tp ? `<span title="Filtro top: ganador, cuota 2–3 y 30+ min de anticipación">🏆</span>` : "", p.tr === "amplio" ? "🥈 amplio" : ""].filter(Boolean).join(" ") : "";
 
 function vdLifeCell(p, now) {
   const L = vdLife(p, now);
@@ -1940,7 +1943,7 @@ function vdPopOpen(id) {      // ventana con las apuestas de un cuadro del cuadr
 }
 
 function vdListDraw() {
-  const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o) && (!$("vd-lf-star").checked || vdOurs(o))), k = vdF.stake / 30, srt = {
+  const F = vdFilters(vdData.picks).filter((o) => vdOkWith(vdL, o) && (!$("vd-lf-star").checked || vdOurs(o)) && (!$("vd-lf-top").checked || o.tp)), k = vdF.stake / 30, srt = {
     ts: (a, b) => b.ts - a.ts, win: (a, b) => (b.p ?? -1e9) - (a.p ?? -1e9), loss: (a, b) => (a.p ?? 1e9) - (b.p ?? 1e9), ev: (a, b) => b.ev - a.ev, odds: (a, b) => b.o - a.o, clv: (a, b) => (b.c ?? -1e9) - (a.c ?? -1e9)};
   const nowS = Date.now() / 1000, rows = F.slice().sort(srt[vdF.sort] || srt.ts), per = vdPer || Math.max(1, F.length), pages = Math.max(1, Math.ceil(rows.length / per));
   vdPage = Math.min(Math.max(1, vdPage), pages);
@@ -1959,23 +1962,23 @@ function vdListDraw() {
 
 // ===== 🎯 Mis jugadas: lo que marcaste, con tu monto real, el esperado y cuánto fue suerte =====
 let mjChart = null;
-const mjExp = (p, S) => (p.y === "puesta" ? S * p.ev / 100 : 0);
+const mjExp = (p) => (p.y === "puesta" ? (p.rs || 5) * p.ev / 100 : 0);
 function mjCdf(z) { const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2), pr = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - pr : pr; }
 function renderMisJugadas() {
   if (!vdData || $("tab-mj").hidden) return;
-  const S = Math.max(1, +$("mj-stake").value || 5), all = vdData.picks, lastD = all.reduce((m, p) => (p.d > m ? p.d : m), "");
+  const S = (vdData && vdData.real_stake) || 5, all = vdData.picks, lastD = all.reduce((m, p) => (p.d > m ? p.d : m), "");
   const rng = $("mj-range").value, cut = rng === "all" ? "" : (() => { const d = new Date(lastD + "T12:00:00"); d.setDate(d.getDate() - (+rng - 1)); return d.toISOString().slice(0, 10); })();
   const inR = (p) => !cut || p.d >= cut, isMine = (p) => p.y === "puesta" || p.y === "mal jugada";
-  const mine = all.filter((p) => isMine(p) && inR(p)).sort((a, b) => a.ts - b.ts), done = mine.filter((p) => vdMine(p, S) != null);
-  const real = done.reduce((s, p) => s + vdMine(p, S), 0), w = done.filter((p) => vdMine(p, S) > 0).length, l = done.filter((p) => vdMine(p, S) < 0).length;
-  const ex = done.reduce((s, p) => s + mjExp(p, S), 0), open = mine.length - done.length;
-  let sd2 = 0; done.filter((p) => p.y === "puesta").forEach((p) => { const o = p.po || p.o, pr = Math.min(.98, Math.max(.02, (1 + p.ev / 100) / p.o)); sd2 += (S * o) ** 2 * pr * (1 - pr); });
+  const mine = all.filter((p) => isMine(p) && inR(p)).sort((a, b) => a.ts - b.ts), done = mine.filter((p) => vdMine(p, null) != null);
+  const real = done.reduce((s, p) => s + vdMine(p, null), 0), w = done.filter((p) => vdMine(p, null) > 0).length, l = done.filter((p) => vdMine(p, null) < 0).length;
+  const ex = done.reduce((s, p) => s + mjExp(p), 0), open = mine.length - done.length;
+  let sd2 = 0; done.filter((p) => p.y === "puesta").forEach((p) => { const o = p.po || p.o, pr = Math.min(.98, Math.max(.02, (1 + p.ev / 100) / p.o)); sd2 += ((p.rs || 5) * o) ** 2 * pr * (1 - pr); });
   const sd = Math.sqrt(sd2), z = sd > 0 ? (real - ex) / sd : 0;
-  let run = 0, pk = 0, dd = 0, ls = 0, mls = 0; done.forEach((p) => { const u = vdMine(p, S); run += u; pk = Math.max(pk, run); dd = Math.max(dd, pk - run); if (u < 0) { ls++; mls = Math.max(mls, ls); } else if (u > 0) ls = 0; });
-  const fm = vdFm;
+  let run = 0, pk = 0, dd = 0, ls = 0, mls = 0; done.forEach((p) => { const u = vdMine(p, null); run += u; pk = Math.max(pk, run); dd = Math.max(dd, pk - run); if (u < 0) { ls++; mls = Math.max(mls, ls); } else if (u > 0) ls = 0; });
+  const fm = vdFm; $("mj-stake-now").textContent = "$" + S;
   $("mj-kpis").innerHTML = [
     kpi("Jugadas", String(mine.length), `${w} ganadas · ${l} perdidas${open ? ` · ${open} abiertas` : ""}`),
-    kpi("Resultado real", fm(real), `a $${S} por jugada · acierto ${done.length ? Math.round(100 * w / done.length) : 0} %`, real >= 0 ? "pos" : "neg"),
+    kpi("Resultado real", fm(real), `con el monto real de cada jugada · acierto ${done.length ? Math.round(100 * w / done.length) : 0} %`, real >= 0 ? "pos" : "neg"),
     kpi("Esperado sin suerte", fm(ex, true), "ventaja que medía el sistema al detectar cada una"),
     kpi("Caída máxima", fm(-dd), `peor racha ${mls} perdidas seguidas`, "neg"),
   ].join("");
@@ -1992,7 +1995,7 @@ function renderMisJugadas() {
         exp: ch.addLineSeries({color: c("--amber"), lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false}), first: true};
     }
     let a = 0, e = 0, last = 0; const R = [], E = [];
-    done.forEach((p) => { const tm = Math.max(last + 1, p.ts - 4 * 3600); last = tm; a += vdMine(p, S); e += mjExp(p, S); R.push({time: tm, value: Math.round(a * 100) / 100}); E.push({time: tm, value: Math.round(e * 100) / 100}); });
+    done.forEach((p) => { const tm = Math.max(last + 1, p.ts - 4 * 3600); last = tm; a += vdMine(p, null); e += mjExp(p); R.push({time: tm, value: Math.round(a * 100) / 100}); E.push({time: tm, value: Math.round(e * 100) / 100}); });
     mjChart.real.setData(R); mjChart.exp.setData(E); mjChart.ch.timeScale().fitContent();
   }
   // por día
@@ -2001,22 +2004,24 @@ function renderMisJugadas() {
   const sk = {}; skipped.forEach((p) => { (sk[p.d] = sk[p.d] || []).push(p); });
   const dk = [...new Set([...Object.keys(days), ...Object.keys(sk)])].sort().reverse();
   $("mj-days").innerHTML = `<tr><th>Día</th><th class="num">Jugadas</th><th class="num">G-P</th><th class="num">Resultado</th><th class="num">Esperado</th><th class="num">No jugadas ⭐</th><th class="num">Lo que dieron</th></tr>` + dk.map((d) => {
-    const L = (days[d] || []).filter((p) => vdMine(p, S) != null), r = L.reduce((s, p) => s + vdMine(p, S), 0), g = L.filter((p) => vdMine(p, S) > 0).length, pe = L.length - g;
+    const L = (days[d] || []).filter((p) => vdMine(p, null) != null), r = L.reduce((s, p) => s + vdMine(p, null), 0), g = L.filter((p) => vdMine(p, null) > 0).length, pe = L.length - g;
     const K = sk[d] || [], kr = K.reduce((s, p) => s + (p.s === "g" ? S * (p.o - 1) : -S), 0);
-    return `<tr><td><b>${vdDn(d)}</b></td><td class="num">${(days[d] || []).length}</td><td class="num">${g}-${pe}</td><td class="num ${r >= 0 ? "pos" : "neg"}"><b>${L.length ? fm(r) : "-"}</b></td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p, S), 0), true)}</td><td class="num">${K.length}</td><td class="num ${kr >= 0 ? "pos" : "neg"}">${K.length ? fm(kr) : "-"}</td></tr>`; }).join("");
+    return `<tr><td><b>${vdDn(d)}</b></td><td class="num">${(days[d] || []).length}</td><td class="num">${g}-${pe}</td><td class="num ${r >= 0 ? "pos" : "neg"}"><b>${L.length ? fm(r) : "-"}</b></td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p), 0), true)}</td><td class="num">${K.length}</td><td class="num ${kr >= 0 ? "pos" : "neg"}">${K.length ? fm(kr) : "-"}</td></tr>`; }).join("");
   // desgloses
   const grp = (title, keyFn, order) => { const g = {}; done.forEach((p) => { (g[keyFn(p)] = g[keyFn(p)] || []).push(p); });
     const names = Object.keys(g).sort((a, b) => order ? order.indexOf(a) - order.indexOf(b) : g[b].length - g[a].length);
-    return `<div class="vd-card"><h2>${title}</h2><div class="scroll"><table><tr><th></th><th class="num">Jugadas</th><th class="num">G-P</th><th class="num">Resultado</th><th class="num">Esperado</th></tr>` + names.map((n) => { const L = g[n], r = L.reduce((s, p) => s + vdMine(p, S), 0), gg = L.filter((p) => vdMine(p, S) > 0).length;
-      return `<tr><td>${esc(n)}</td><td class="num">${L.length}</td><td class="num">${gg}-${L.length - gg}</td><td class="num ${r >= 0 ? "pos" : "neg"}">${fm(r)}</td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p, S), 0), true)}</td></tr>`; }).join("") + `</table></div></div>`; };
+    return `<div class="vd-card"><h2>${title}</h2><div class="scroll"><table><tr><th></th><th class="num">Jugadas</th><th class="num">G-P</th><th class="num">Resultado</th><th class="num">Esperado</th></tr>` + names.map((n) => { const L = g[n], r = L.reduce((s, p) => s + vdMine(p, null), 0), gg = L.filter((p) => vdMine(p, null) > 0).length;
+      return `<tr><td>${esc(n)}</td><td class="num">${L.length}</td><td class="num">${gg}-${L.length - gg}</td><td class="num ${r >= 0 ? "pos" : "neg"}">${fm(r)}</td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p), 0), true)}</td></tr>`; }).join("") + `</table></div></div>`; };
   const oddsB = (p) => { const o = p.po || p.o; return o < 2 ? "cuota menor a 2" : o < 3 ? "cuota 2 a 3" : "cuota 3 o más"; };
-  $("mj-groups").innerHTML = grp("Por deporte", (p) => (p.sp.startsWith("esports") ? "esports" : p.sp)) + grp("Por cuota", oddsB, ["cuota menor a 2", "cuota 2 a 3", "cuota 3 o más"]) +
+  const entry = (p) => { if (!p.ct || !p.st) return "sin dato de hora"; const m = (p.ct - p.st) / 60; return m < 0 ? "antes del inicio" : m < 30 ? "ya empezado (0–30 min)" : "ya empezado (30+ min)"; };
+  $("mj-groups").innerHTML = grp("Por momento de entrada", entry, ["antes del inicio", "ya empezado (0–30 min)", "ya empezado (30+ min)", "sin dato de hora"]) +
+    grp("Filtro top 🏆", (p) => (p.tp ? "🏆 pasa el filtro top" : "resto de tus jugadas"), ["🏆 pasa el filtro top", "resto de tus jugadas"]) + grp("Por deporte", (p) => (p.sp.startsWith("esports") ? "esports" : p.sp)) + grp("Por cuota", oddsB, ["cuota menor a 2", "cuota 2 a 3", "cuota 3 o más"]) +
     grp("Por casa", (p) => p.h || "1xBet") + grp("Por mercado", (p) => vdFam(p.mk));
-  $("mj-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Jugada</th><th class="num">Cuota</th><th>Resultado</th><th class="num">Ganancia</th></tr>` + mine.slice().reverse().slice(0, 25).map((p) => { const u = vdMine(p, S);
+  $("mj-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Jugada</th><th class="num">Cuota</th><th>Resultado</th><th class="num">Ganancia</th></tr>` + mine.slice().reverse().slice(0, 25).map((p) => { const u = vdMine(p, null);
     return `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(p.sp)}</div></td><td class="small">${p.y === "mal jugada" ? "⚠️ " + esc(p.wp || "") : esc(p.l)}${p.sy && p.y === "puesta" ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td><td class="num">${(p.po || p.o).toFixed(2)}</td>
       <td>${u == null ? (p.lv ? `<span class="tag live">🔴 LIVE</span> <b>${esc(p.lv)}</b>` : `<span class="tag open">abierta</span>`) : u > 0 ? `<span class="pos">✅ ganada</span>` : u < 0 ? `<span class="neg">❌ perdida</span>` : "↩️ anulada"}${p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : ""}</td><td class="num ${u == null ? "muted" : u >= 0 ? "pos" : "neg"}">${u == null ? "-" : fm(u)}</td></tr>`; }).join("");
 }
-document.addEventListener("input", (e) => { if (e.target && (e.target.id === "mj-stake" || e.target.id === "mj-range")) renderMisJugadas(); });
+document.addEventListener("input", (e) => { if (e.target && e.target.id === "mj-range") renderMisJugadas(); });
 
 function renderValorDash(x) {
   if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }

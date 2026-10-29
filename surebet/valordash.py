@@ -21,7 +21,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from .livescore import FRESH_S, final_score, game_id
-from .manualvalor import NO_ALERT_SPORTS
+from .manualvalor import NO_ALERT_SPORTS, get_real_stake, is_top
 from .safety import OBSERVE_SPORTS
 
 STAKE = 30.0
@@ -75,7 +75,7 @@ def summary(conn) -> dict | None:
         return None
     try:                                   # columnas que falten en bases viejas salen como NULL
         have = {r[1] for r in conn.execute("PRAGMA table_info(manual_value)")}
-        cols = ["status", "placed_odds", "min_odds", "house", "id", "wrong_pick", "wrong_stake", "wrong_result"]
+        cols = ["status", "placed_odds", "min_odds", "house", "id", "wrong_pick", "wrong_stake", "wrong_result", "real_stake", "clicked_ts"]
         sel = ", ".join(c if c in have else f"NULL AS {c}" for c in cols)
         mv = {r[0]: r[1:] for r in conn.execute(f"SELECT key, {sel} FROM manual_value")} if have else {}
     except sqlite3.OperationalError:
@@ -114,7 +114,7 @@ def summary(conn) -> dict | None:
         odds = float(leg.get("odds") or 0)
         pnl = None if status == "open" else {"won": STAKE * (odds - 1), "lost": -STAKE, "void": 0.0}[status]
         exp = 0.0 if c is None else STAKE * (c if abs(c) <= RARE_CLV else med) / 100
-        y, po, mn, hs, mid, wp, ws, wr = mv.get(key, (None,) * 8)
+        y, po, mn, hs, mid, wp, ws, wr, rs, ct = mv.get(key, (None,) * 10)
         flip = leg["flip"] if "flip" in leg else book_flipped(title, leg.get("url") or "")
         if flip and " vs " in (title or ""):
             a, b = title.split(" vs ", 1)
@@ -127,6 +127,12 @@ def summary(conn) -> dict | None:
                       "fs": round(fs) if fs else None, "ls": round(ls) if ls else None,
                       "mid": mid, "lt": lot.get(key, 0), "n": ordinal.get(key, 1), "tr": "amplio" if track == "amplio" else "oro",
                       "sy": symbol(mk, leg.get("covers"), flip)})
+        if y in ("puesta", "mal jugada"):
+            picks[-1]["rs"] = rs or ws or 5.0                  # el monto real de ESA jugada (el de ese día)
+            if ct:
+                picks[-1]["ct"] = round(ct)                    # cuándo la marcaste (para medir las entradas tardías)
+        if is_top(mname or mk, odds, start, ts):
+            picks[-1]["tp"] = 1                                # pasa el filtro top (ver manualvalor.is_top)
         if y == "mal jugada":                 # jugaste otra apuesta: qué, con cuánto y cómo salió (lo marcas tú)
             picks[-1].update({"wp": wp, "ws": ws, "wr": wr or "pendiente"})
         if mid is None:
@@ -152,5 +158,5 @@ def summary(conn) -> dict | None:
     except (sqlite3.OperationalError, ValueError):
         hours = None
     return {"stake": STAKE, "picks": picks, "last_ts": picks[-1]["ts"], "house": active or "1xBet", "domains": domains,
-            "hours": hours or [12, 20],
+            "hours": hours or [12, 20], "real_stake": get_real_stake(conn),
             "work": {"observe": list(OBSERVE_SPORTS), "no_alert": list(NO_ALERT_SPORTS)}}

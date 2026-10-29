@@ -154,10 +154,30 @@ def _ensure_row(conn: sqlite3.Connection, key: str) -> int | None:
 WRONG_RESULTS = ("pendiente", "ganada", "perdida", "anulada")
 
 
+TOP_MARKETS = ("Ganador", "1X2")      # ganador del partido (W1/W2/X), no primer tiempo ni más/menos
+TOP_ODDS = (2.0, 3.0)
+TOP_LEAD_S = 30 * 60
+TOP_TEXT = "🏆 FILTRO TOP: ganador, cuota 2–3 y 30+ min de anticipación (CLV +5,8 % en 97 señales, igual en las dos mitades; se mide 2 semanas)"
+
+
+def is_top(market: str | None, odds: float, start_ts: float | None, signal_ts: float) -> bool:
+    """El filtro que mejor CLV dio con datos de 19 días: ganador del partido + cuota 2–3 + la señal sale 30 min o más antes del inicio."""
+    return (market or "") in TOP_MARKETS and TOP_ODDS[0] <= odds < TOP_ODDS[1] and bool(start_ts) and start_ts - signal_ts >= TOP_LEAD_S
+
+
+def get_real_stake(conn: sqlite3.Connection) -> float:
+    """Tu monto real por jugada (hoy $5). Cada jugada que marcas guarda el monto de ese momento, así que subirlo no cambia el historial."""
+    try:
+        r = conn.execute("SELECT v FROM manual_value_meta WHERE k='real_stake'").fetchone()
+        return float(r[0]) if r and r[0] else 5.0
+    except (sqlite3.OperationalError, ValueError):
+        return 5.0
+
+
 def ensure_wrong_cols(conn: sqlite3.Connection) -> None:
     """Columnas de «jugué otra apuesta»: qué jugaste en realidad, con cuánto y cómo salió (lo pones tú)."""
     have = {r[1] for r in conn.execute("PRAGMA table_info(manual_value)")}
-    for col, kind in (("wrong_pick", "TEXT"), ("wrong_stake", "REAL"), ("wrong_result", "TEXT")):
+    for col, kind in (("wrong_pick", "TEXT"), ("wrong_stake", "REAL"), ("wrong_result", "TEXT"), ("real_stake", "REAL")):
         if col not in have:
             conn.execute(f"ALTER TABLE manual_value ADD COLUMN {col} {kind}")
     conn.commit()
@@ -182,7 +202,8 @@ def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: fl
         if odds is None or not (1.0 < float(odds) < 1000):
             return {"ok": False, "error": "La cuota debe ser un número mayor que 1."}
         conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=?, wrong_pick=NULL, "
-                     "wrong_stake=NULL, wrong_result=NULL WHERE id=?", (round(float(odds), 3), time.time(), h, mid))
+                     "wrong_stake=NULL, wrong_result=NULL, real_stake=? WHERE id=?",
+                     (round(float(odds), 3), time.time(), h, get_real_stake(conn), mid))
         conn.commit()
         return {"ok": True, "id": mid, "status": "puesta", "placed_odds": round(float(odds), 3), "house": h, "prev": row[0]}
     if action == "no":
@@ -204,7 +225,7 @@ def mark_signal(conn: sqlite3.Connection, mid: int | None, action: str, odds: fl
         if res not in WRONG_RESULTS:
             return {"ok": False, "error": "Resultado no válido."}
         conn.execute("UPDATE manual_value SET status='mal jugada', placed_odds=?, clicked_ts=?, house=?, wrong_pick=?, wrong_stake=?, "
-                     "wrong_result=? WHERE id=?", (round(o, 3), time.time(), h, pick, round(s, 2), res, mid))
+                     "wrong_result=?, real_stake=? WHERE id=?", (round(o, 3), time.time(), h, pick, round(s, 2), res, round(s, 2), mid))
         conn.commit()
         return {"ok": True, "id": mid, "status": "mal jugada", "placed_odds": round(o, 3), "house": h, "prev": row[0],
                 "wp": pick, "ws": round(s, 2), "wr": res}
@@ -333,7 +354,8 @@ class ManualValor:
                 "AND created_ts BETWEEN ? AND ?", (ts - BATCH_S, ts + BATCH_S)).fetchone()[0]
             tags = ([f"⚠️ LOTE: {lote} señales nacieron juntas (suele pasar cuando 1xBet vuelve de un corte). "
                      "Mira la cuota en la casa ANTES de apostar."] if lote >= BATCH_MIN else []) + \
-                   ([f"2️⃣ 2.º pick de este partido (tope {MAX_PER_GAME}: no se avisan más)"] if prev == 1 else []) +                    ([TRIAL_SPORTS[sport]] if sport in TRIAL_SPORTS else [])
+                   ([f"2️⃣ 2.º pick de este partido (tope {MAX_PER_GAME}: no se avisan más)"] if prev == 1 else []) +                    ([TRIAL_SPORTS[sport]] if sport in TRIAL_SPORTS else []) + \
+                   ([TOP_TEXT] if is_top(mname or market, odds, start, ts) else [])
             cur = self.conn.execute(
                 "INSERT OR IGNORE INTO manual_value (key, created_ts, start_ts, title, sport, market, label, source, odds, "
                 "min_odds, fair_odds, ev_pct, stake, url, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -389,8 +411,8 @@ class ManualValor:
                 odds = float(parts[3])
             except (IndexError, ValueError):
                 return "Botón desconocido."
-            self.conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=? WHERE id=?",
-                              (odds, time.time(), self.house(), mid))
+            self.conn.execute("UPDATE manual_value SET status='puesta', placed_odds=?, clicked_ts=?, house=?, real_stake=? WHERE id=?",
+                              (odds, time.time(), self.house(), get_real_stake(self.conn), mid))
             self.conn.commit()
             again = " (corregida)" if status == "puesta" else ""
             return f"✅ Anotada{again} en {self.house()}: {label} a {_fmt_odds(odds)} · ${stake:g} — {title}. {self.today_line()}"
@@ -425,6 +447,21 @@ class ManualValor:
         if status == "puesta":
             return f"🌐 ✅ Anotada{fixed} desde el panel en {house}: {label} a {_fmt_odds(placed)} · ${stake:g} — {title}. {self.today_line()}"
         return f"🌐 ❌ Anotado{fixed} desde el panel: {label} no la tomaste / no estaba en {house} — {title}."
+
+    def set_real_stake(self, args: list[str]) -> str:
+        """/monto [N]: tu monto real por jugada. Lo que marques desde ahora guarda ese monto; lo ya marcado no cambia."""
+        cur = get_real_stake(self.conn)
+        if not args:
+            return f"💵 Tu monto real por jugada: ${cur:g}. Cambiarlo: /monto 10 (vale para lo que marques desde ahora; el historial queda como está)."
+        try:
+            v = float(args[0].replace(",", ".").lstrip("$"))
+        except ValueError:
+            return "Uso: /monto 10"
+        if not (0 < v < 100000):
+            return "El monto debe ser mayor que 0."
+        self.conn.execute("INSERT OR REPLACE INTO manual_value_meta VALUES ('real_stake', ?)", (str(v),))
+        self.conn.commit()
+        return f"💵 Monto real por jugada: ${cur:g} → ${v:g}. Desde ahora lo que marques se guarda con ${v:g}; lo anterior queda con su monto."
 
     def set_key(self, args: list[str]) -> str:
         return set_panel_key(self.conn, " ".join(args))
