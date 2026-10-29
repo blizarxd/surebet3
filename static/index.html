@@ -233,6 +233,7 @@
   <button data-tab="sx">🤖 Valor automático (sombra)</button>
   <button data-tab="az">🟦 Azuro</button>
   <button data-tab="rp">📒 Real vs papel</button>
+  <button data-tab="mj">🎯 Mis jugadas</button>
   <button data-tab="vd">📊 Dashboard valor manual</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
@@ -454,6 +455,20 @@
     <div class="x">toca para cerrar</div>
   </div>
 </div>
+<main id="tab-mj" hidden>
+  <section class="card"><div class="small muted">Lo que tú marcaste con <b>✅ La puse</b> (y lo que anotaste como «jugué otra apuesta»), con tu monto real y el resultado de cada partido. Sin tocar nada del papel.</div>
+    <div class="vd-filters" style="padding:10px 0 0">
+      <label>Monto por jugada <input id="mj-stake" type="number" min="1" step="1" value="5" style="width:90px"></label>
+      <label>Periodo<select id="mj-range"><option value="all">Todo</option><option value="7">Últimos 7 días</option><option value="1">Solo el último día</option></select></label>
+    </div></section>
+  <section class="kpis" id="mj-kpis"></section>
+  <section class="card"><h2>Tu progreso <span class="count">(línea = lo que llevas · naranja punteada = lo que se esperaba sin suerte)</span></h2>
+    <div id="mj-luck" class="small" style="margin-bottom:6px"></div>
+    <div id="mj-chart" style="position:relative;height:300px"></div></section>
+  <section class="card"><h2>Por día <span class="count">(y lo que dejaste sin jugar de tu zona ⭐)</span></h2><div class="scroll"><table id="mj-days"></table></div></section>
+  <section class="vd-grid2" id="mj-groups"></section>
+  <section class="card"><h2>Tus últimas jugadas</h2><div class="scroll"><table id="mj-list"></table></div></section>
+</main>
 <main id="tab-vd" hidden>
   <section class="card"><div class="small muted"><span class="vd-live"></span><b>En vivo:</b> se actualiza sola cada 15 s y cada vez que se cierra un partido.
     Es el <b>valor oro de 1xBet (semi-manual)</b> en papel, hora de Venezuela (UTC−4). Lo ganado es contra el resultado real; el "esperado sin suerte" (línea
@@ -987,7 +1002,8 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "sx", "az", "rp", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "az", "rp", "mj", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  if (b.dataset.tab === "mj" && typeof renderMisJugadas === "function") setTimeout(renderMisJugadas, 60);
   if (b.dataset.tab === "vd" && typeof vdCountUp === "function") setTimeout(vdCountUp, 80);
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
   activeTab = b.dataset.tab; renderTab(activeTab);
@@ -1811,7 +1827,7 @@ function vdWrongForm(p) {
     <div class="vd-chipsel">${chip("per", "P", "Partido")}${chip("per", "1T", "1.er tiempo")}</div>
     <div class="vd-mkman"><input id="vd-w-line" type="number" step="0.5" min="0.5" inputmode="decimal" placeholder="línea (Más/Menos), ej. 2.5" value="${m[2] || ""}"></div>
     <div class="vd-mkman"><input id="vd-w-odds" type="number" step="0.01" min="1.01" inputmode="decimal" placeholder="cuota, ej. 1.98" value="${p.y === "mal jugada" && p.po ? p.po.toFixed(2) : ""}">
-      <input id="vd-w-stake" type="number" step="1" min="1" inputmode="decimal" placeholder="monto" value="${p.ws || vdF.stake}"></div>
+      <input id="vd-w-stake" type="number" step="1" min="1" inputmode="decimal" placeholder="monto" value="${p.ws || (+(($("mj-stake") || {}).value) || 5)}"></div>
     <div class="small muted">¿Cómo salió? (este resultado lo marcas tú)</div>
     <div class="vd-chipsel">${chip("wr", "pendiente", "⏳ Pendiente")}${chip("wr", "ganada", "✅ Ganada")}${chip("wr", "perdida", "❌ Perdida")}${chip("wr", "anulada", "↩️ Anulada")}</div>
     <button type="button" data-wrong="1" class="vd-wsave">Guardar la apuesta que jugué</button></details>`;
@@ -1853,7 +1869,7 @@ function vdTvEnsure() {
   if (window.LightweightCharts || vdTvLoad) return;
   vdTvLoad = 1;
   const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js";
-  s.onload = () => { if (vdData) { vdSig = ""; vdDraw(); } }; s.onerror = () => { vdTvLoad = 2; };
+  s.onload = () => { if (vdData) { vdSig = ""; vdDraw(); } if (typeof renderMisJugadas === "function") renderMisJugadas(); }; s.onerror = () => { vdTvLoad = 2; };
   document.head.appendChild(s);
 }
 function vdTvDraw(P, k) {
@@ -1941,9 +1957,71 @@ function vdListDraw() {
   $("vd-pager").innerHTML = rows.length ? b(1, "«", vdPage === 1) + b(vdPage - 1, "‹ Anterior", vdPage === 1) + `<span class="muted">Página ${vdPage} de ${pages}</span>` + b(vdPage + 1, "Siguiente ›", vdPage === pages) + b(pages, "»", vdPage === pages) : "";
 }
 
+// ===== 🎯 Mis jugadas: lo que marcaste, con tu monto real, el esperado y cuánto fue suerte =====
+let mjChart = null;
+const mjExp = (p, S) => (p.y === "puesta" ? S * p.ev / 100 : 0);
+function mjCdf(z) { const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2), pr = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - pr : pr; }
+function renderMisJugadas() {
+  if (!vdData || $("tab-mj").hidden) return;
+  const S = Math.max(1, +$("mj-stake").value || 5), all = vdData.picks, lastD = all.reduce((m, p) => (p.d > m ? p.d : m), "");
+  const rng = $("mj-range").value, cut = rng === "all" ? "" : (() => { const d = new Date(lastD + "T12:00:00"); d.setDate(d.getDate() - (+rng - 1)); return d.toISOString().slice(0, 10); })();
+  const inR = (p) => !cut || p.d >= cut, isMine = (p) => p.y === "puesta" || p.y === "mal jugada";
+  const mine = all.filter((p) => isMine(p) && inR(p)).sort((a, b) => a.ts - b.ts), done = mine.filter((p) => vdMine(p, S) != null);
+  const real = done.reduce((s, p) => s + vdMine(p, S), 0), w = done.filter((p) => vdMine(p, S) > 0).length, l = done.filter((p) => vdMine(p, S) < 0).length;
+  const ex = done.reduce((s, p) => s + mjExp(p, S), 0), open = mine.length - done.length;
+  let sd2 = 0; done.filter((p) => p.y === "puesta").forEach((p) => { const o = p.po || p.o, pr = Math.min(.98, Math.max(.02, (1 + p.ev / 100) / p.o)); sd2 += (S * o) ** 2 * pr * (1 - pr); });
+  const sd = Math.sqrt(sd2), z = sd > 0 ? (real - ex) / sd : 0;
+  let run = 0, pk = 0, dd = 0, ls = 0, mls = 0; done.forEach((p) => { const u = vdMine(p, S); run += u; pk = Math.max(pk, run); dd = Math.max(dd, pk - run); if (u < 0) { ls++; mls = Math.max(mls, ls); } else if (u > 0) ls = 0; });
+  const fm = vdFm;
+  $("mj-kpis").innerHTML = [
+    kpi("Jugadas", String(mine.length), `${w} ganadas · ${l} perdidas${open ? ` · ${open} abiertas` : ""}`),
+    kpi("Resultado real", fm(real), `a $${S} por jugada · acierto ${done.length ? Math.round(100 * w / done.length) : 0} %`, real >= 0 ? "pos" : "neg"),
+    kpi("Esperado sin suerte", fm(ex, true), "ventaja que medía el sistema al detectar cada una"),
+    kpi("Caída máxima", fm(-dd), `peor racha ${mls} perdidas seguidas`, "neg"),
+  ].join("");
+  const zt = Math.abs(z) < 0.5 ? "dentro de lo esperado" : z > 0 ? (z > 1.5 ? "mucha suerte" : "algo de suerte") : (z < -1.5 ? "mala racha fuerte" : "algo de mala suerte");
+  $("mj-luck").innerHTML = done.length ? `Llevas <b class="${real >= 0 ? "pos" : "neg"}">${fm(real)}</b> contra <b>${fm(ex, true)}</b> esperados: <b>${z >= 0 ? "+" : ""}${z.toFixed(1)}</b> desviaciones → <b>${zt}</b>.${z > 0.3 ? ` Con tu misma ventaja, un ${Math.max(1, Math.round(100 * (1 - mjCdf(z))))} % de los casos llega a este resultado o mejor solo por suerte.` : ""}` : `<span class="muted">Aún no hay jugadas cerradas.</span>`;
+  // curva
+  if (!window.LightweightCharts) vdTvEnsure();          // la librería de la gráfica se carga al abrir esta pestaña y vuelve a pintar sola
+  if (window.LightweightCharts && done.length) {
+    const css = getComputedStyle(document.documentElement), c = (n) => css.getPropertyValue(n).trim(), box = $("mj-chart");
+    if (!mjChart) {
+      const LC = LightweightCharts, ch = LC.createChart(box, {autoSize: true, layout: {background: {type: "solid", color: "transparent"}, textColor: c("--muted"), fontSize: 12},
+        grid: {vertLines: {color: "rgba(128,128,128,.12)"}, horzLines: {color: "rgba(128,128,128,.18)"}}, rightPriceScale: {borderColor: c("--line")}, timeScale: {borderColor: c("--line"), timeVisible: true, secondsVisible: false}, localization: {priceFormatter: (v) => vdFm(v)}});
+      mjChart = {ch, real: ch.addBaselineSeries({baseValue: {type: "price", price: 0}, lineWidth: 2, topLineColor: c("--green"), bottomLineColor: c("--red"), topFillColor1: "rgba(62,207,142,.25)", topFillColor2: "rgba(62,207,142,.02)", bottomFillColor1: "rgba(240,97,109,.02)", bottomFillColor2: "rgba(240,97,109,.25)", priceLineVisible: false}),
+        exp: ch.addLineSeries({color: c("--amber"), lineWidth: 2, lineStyle: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false}), first: true};
+    }
+    let a = 0, e = 0, last = 0; const R = [], E = [];
+    done.forEach((p) => { const tm = Math.max(last + 1, p.ts - 4 * 3600); last = tm; a += vdMine(p, S); e += mjExp(p, S); R.push({time: tm, value: Math.round(a * 100) / 100}); E.push({time: tm, value: Math.round(e * 100) / 100}); });
+    mjChart.real.setData(R); mjChart.exp.setData(E); mjChart.ch.timeScale().fitContent();
+  }
+  // por día
+  const days = {}; mine.forEach((p) => { (days[p.d] = days[p.d] || []).push(p); });
+  const skipped = all.filter((p) => inR(p) && vdOurs(p) && !isMine(p) && p.y !== "no estaba" && (p.s === "g" || p.s === "p"));
+  const sk = {}; skipped.forEach((p) => { (sk[p.d] = sk[p.d] || []).push(p); });
+  const dk = [...new Set([...Object.keys(days), ...Object.keys(sk)])].sort().reverse();
+  $("mj-days").innerHTML = `<tr><th>Día</th><th class="num">Jugadas</th><th class="num">G-P</th><th class="num">Resultado</th><th class="num">Esperado</th><th class="num">No jugadas ⭐</th><th class="num">Lo que dieron</th></tr>` + dk.map((d) => {
+    const L = (days[d] || []).filter((p) => vdMine(p, S) != null), r = L.reduce((s, p) => s + vdMine(p, S), 0), g = L.filter((p) => vdMine(p, S) > 0).length, pe = L.length - g;
+    const K = sk[d] || [], kr = K.reduce((s, p) => s + (p.s === "g" ? S * (p.o - 1) : -S), 0);
+    return `<tr><td><b>${vdDn(d)}</b></td><td class="num">${(days[d] || []).length}</td><td class="num">${g}-${pe}</td><td class="num ${r >= 0 ? "pos" : "neg"}"><b>${L.length ? fm(r) : "-"}</b></td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p, S), 0), true)}</td><td class="num">${K.length}</td><td class="num ${kr >= 0 ? "pos" : "neg"}">${K.length ? fm(kr) : "-"}</td></tr>`; }).join("");
+  // desgloses
+  const grp = (title, keyFn, order) => { const g = {}; done.forEach((p) => { (g[keyFn(p)] = g[keyFn(p)] || []).push(p); });
+    const names = Object.keys(g).sort((a, b) => order ? order.indexOf(a) - order.indexOf(b) : g[b].length - g[a].length);
+    return `<div class="vd-card"><h2>${title}</h2><div class="scroll"><table><tr><th></th><th class="num">Jugadas</th><th class="num">G-P</th><th class="num">Resultado</th><th class="num">Esperado</th></tr>` + names.map((n) => { const L = g[n], r = L.reduce((s, p) => s + vdMine(p, S), 0), gg = L.filter((p) => vdMine(p, S) > 0).length;
+      return `<tr><td>${esc(n)}</td><td class="num">${L.length}</td><td class="num">${gg}-${L.length - gg}</td><td class="num ${r >= 0 ? "pos" : "neg"}">${fm(r)}</td><td class="num">${fm(L.reduce((s, p) => s + mjExp(p, S), 0), true)}</td></tr>`; }).join("") + `</table></div></div>`; };
+  const oddsB = (p) => { const o = p.po || p.o; return o < 2 ? "cuota menor a 2" : o < 3 ? "cuota 2 a 3" : "cuota 3 o más"; };
+  $("mj-groups").innerHTML = grp("Por deporte", (p) => (p.sp.startsWith("esports") ? "esports" : p.sp)) + grp("Por cuota", oddsB, ["cuota menor a 2", "cuota 2 a 3", "cuota 3 o más"]) +
+    grp("Por casa", (p) => p.h || "1xBet") + grp("Por mercado", (p) => vdFam(p.mk));
+  $("mj-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Jugada</th><th class="num">Cuota</th><th>Resultado</th><th class="num">Ganancia</th></tr>` + mine.slice().reverse().slice(0, 25).map((p) => { const u = vdMine(p, S);
+    return `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(p.sp)}</div></td><td class="small">${p.y === "mal jugada" ? "⚠️ " + esc(p.wp || "") : esc(p.l)}${p.sy && p.y === "puesta" ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td><td class="num">${(p.po || p.o).toFixed(2)}</td>
+      <td>${u == null ? (p.lv ? `<span class="tag live">🔴 LIVE</span> <b>${esc(p.lv)}</b>` : `<span class="tag open">abierta</span>`) : u > 0 ? `<span class="pos">✅ ganada</span>` : u < 0 ? `<span class="neg">❌ perdida</span>` : "↩️ anulada"}${p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : ""}</td><td class="num ${u == null ? "muted" : u >= 0 ? "pos" : "neg"}">${u == null ? "-" : fm(u)}</td></tr>`; }).join("");
+}
+document.addEventListener("input", (e) => { if (e.target && (e.target.id === "mj-stake" || e.target.id === "mj-range")) renderMisJugadas(); });
+
 function renderValorDash(x) {
   if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }
   vdData = x; vdResults(x.picks);
+  if (!$("tab-mj").hidden) renderMisJugadas();
   $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
   { const h = vdHouseGet(), ok = x.domains && x.domains[h]; $("vd-house-sel").value = h;
     $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
@@ -2267,8 +2345,9 @@ function renderTab(tab) {
   } else if (tab === "rp") {
     renderRealPaper(state.realpaper);
     renderManual(state.manual);
-  } else if (tab === "vd") {
-    renderValorDash(state.valordash);
+  } else if (tab === "vd" || tab === "mj") {
+    if (tab === "mj") { vdData = state.valordash; vdResults(state.valordash.picks); renderMisJugadas(); }   // «Mis jugadas» usa los mismos datos del dashboard
+    else renderValorDash(state.valordash);
   } else if (tab === "az") {
     renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
   } else if (tab === "lp") {
