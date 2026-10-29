@@ -234,6 +234,7 @@
   <button data-tab="az">🟦 Azuro</button>
   <button data-tab="rp">📒 Real vs papel</button>
   <button data-tab="mj">🎯 Mis jugadas</button>
+  <button data-tab="ft">🧪 Filtros</button>
   <button data-tab="vd">📊 Dashboard valor manual</button>
   <button data-tab="lp">💰 Recompensas Polymarket</button>
   <button data-tab="co">🇨🇴 Surebets Polymarket Colombia</button>
@@ -455,6 +456,18 @@
     <div class="x">toca para cerrar</div>
   </div>
 </div>
+<main id="tab-ft" hidden>
+  <section class="card"><div class="small muted">Los mismos picks de oro del dashboard, vistos con <b>tres filtros</b> y la referencia de todo el oro. Mide cada uno con su historial completo para saber cuál rinde mejor de verdad. La medida que más pesa es el <b>CLV</b> (cuánto mejor fue tu cuota que el cierre); el resultado en dinero tiene mucha suerte.</div>
+    <div class="vd-filters" style="padding:10px 0 0">
+      <label>Monto base <select id="ft-stake"><option value="30" selected>$30</option><option value="10">$10</option><option value="5">$5</option><option value="50">$50</option><option value="100">$100</option></select></label>
+      <label>Periodo<select id="ft-range"><option value="all">Todo</option><option value="14">Últimos 14 días</option><option value="7">Últimos 7 días</option></select></label>
+    </div></section>
+  <section class="card"><h2>Resumen <span class="count">(sin básquet ni CS2/Dota2, igual que el análisis; el CLV es la medida fiable)</span></h2><div class="scroll"><table id="ft-sum"></table></div></section>
+  <section class="card"><h2>Ganancia acumulada de cada filtro</h2><div id="ft-leg" class="small" style="margin-bottom:6px"></div><div id="ft-chart" style="position:relative;height:320px"></div></section>
+  <section class="card"><h2>Historial señal por señal <span class="count" id="ft-hn"></span></h2>
+    <div class="vd-chips" id="ft-sel" style="margin:4px 0 8px"></div>
+    <div class="scroll"><table id="ft-list"></table></div><div class="vd-pager" id="ft-more"></div></section>
+</main>
 <main id="tab-mj" hidden>
   <section class="card"><div class="small muted">Lo que tú marcaste con <b>✅ La puse</b> (y lo que anotaste como «jugué otra apuesta»), con tu monto real y el resultado de cada partido. Sin tocar nada del papel.</div>
     <div class="vd-filters" style="padding:10px 0 0">
@@ -1003,7 +1016,7 @@ function renderAuto(au) {
 document.querySelector(".tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]"); if (!b) return;
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
-  ["main", "valor", "red", "auto", "sx", "az", "rp", "mj", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
+  ["main", "valor", "red", "auto", "sx", "az", "rp", "mj", "ft", "vd", "lp", "co"].forEach((t) => { $("tab-" + t).hidden = b.dataset.tab !== t; });
   if (b.dataset.tab === "mj" && typeof renderMisJugadas === "function") setTimeout(renderMisJugadas, 60);
   if (b.dataset.tab === "vd" && typeof vdCountUp === "function") setTimeout(vdCountUp, 80);
   try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
@@ -1872,7 +1885,7 @@ function vdTvEnsure() {
   if (window.LightweightCharts || vdTvLoad) return;
   vdTvLoad = 1;
   const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js";
-  s.onload = () => { if (vdData) { vdSig = ""; vdDraw(); } if (typeof renderMisJugadas === "function") renderMisJugadas(); }; s.onerror = () => { vdTvLoad = 2; };
+  s.onload = () => { if (vdData) { vdSig = ""; vdDraw(); } if (typeof renderMisJugadas === "function") { renderMisJugadas(); renderFiltros(); } }; s.onerror = () => { vdTvLoad = 2; };
   document.head.appendChild(s);
 }
 function vdTvDraw(P, k) {
@@ -2023,10 +2036,78 @@ function renderMisJugadas() {
 }
 document.addEventListener("input", (e) => { if (e.target && e.target.id === "mj-range") renderMisJugadas(); });
 
+// ===== 🧪 Filtros: tu zona ⭐ contra el 🏆 top (pocas señales) y el 📈 volumen (muchas), con historial de cada uno =====
+const FT = [
+  {id: "zona", name: "⭐ Tu zona", color: "#3ecf8e", desc: "tu horario y los deportes que se operan", f: (p) => vdOurs(p)},
+  {id: "top", name: "🏆 Top", color: "#e8b54a", desc: "pocas · ganador del partido, cuota 2–3, 30+ min de anticipación", f: (p) => !!p.tp},
+  {id: "vol", name: "📈 Volumen", color: "#5aa9ff", desc: "muchas · cualquier mercado, 30+ min de anticipación, señal suelta (no lote)", f: (p) => !!p.st && p.st - p.ts >= 1800 && !p.lt},
+  {id: "all", name: "Todo el oro", color: "#9c9483", desc: "referencia: todas las señales de la base", f: () => true},
+];
+let ftChart = null, ftSel = "top", ftShow = 40;
+const ftBase = (p) => !((vdData.work && vdData.work.observe) || ["esports:cs2", "esports:dota2"]).includes(p.sp) && p.sp !== "basketball";
+function ftStats(L, k, days) {
+  const cl = L.filter((p) => p.s === "g" || p.s === "p"), pn = (p) => (p.p == null ? 0 : p.p * k), clv = cl.map((p) => p.c).filter((c) => c != null && Math.abs(c) < 40).sort((a, b) => a - b);
+  let run = 0, pk = 0, dd = 0, ls = 0, mls = 0; cl.forEach((p) => { run += pn(p); pk = Math.max(pk, run); dd = Math.max(dd, pk - run); if (p.s === "p") { ls++; mls = Math.max(mls, ls); } else ls = 0; });
+  const w = cl.filter((p) => p.s === "g").length, res = cl.reduce((s, p) => s + pn(p), 0), staked = cl.length * 30 * k;
+  return {n: L.length, perDay: L.length / Math.max(1, days), closed: cl.length, w, l: cl.length - w, res, exp: cl.reduce((s, p) => s + p.e * k, 0), roi: staked ? 100 * res / staked : 0,
+    clvMed: clv.length ? clv[Math.floor(clv.length / 2)] : null, clvMean: clv.length ? clv.reduce((a, b) => a + b, 0) / clv.length : null, clvPos: clv.length ? 100 * clv.filter((c) => c > 0).length / clv.length : null, dd, mls, open: L.length - cl.length};
+}
+function renderFiltros() {
+  if (!vdData || $("tab-ft").hidden) return;
+  const k = +$("ft-stake").value / 30, rng = $("ft-range").value, lastD = vdData.picks.reduce((m, p) => (p.d > m ? p.d : m), "");
+  const cut = rng === "all" ? "" : (() => { const d = new Date(lastD + "T12:00:00"); d.setDate(d.getDate() - (+rng - 1)); return d.toISOString().slice(0, 10); })();
+  const base = vdData.picks.filter((p) => ftBase(p) && (!cut || p.d >= cut)).sort((a, b) => a.ts - b.ts), days = new Set(base.map((p) => p.d)).size;
+  const sets = FT.map((f) => ({...f, L: base.filter(f.f)})), st = sets.map((s) => ({...s, st: ftStats(s.L, k, days)})), fm = vdFm;
+  const cell = (v, f) => (v == null ? "-" : f(v)), best = (key, hi = true) => { const vs = st.filter((s) => s.id !== "all" && s.st[key] != null).map((s) => s.st[key]); return vs.length ? (hi ? Math.max(...vs) : Math.min(...vs)) : null; };
+  const rows = [
+    ["Señales (por día)", (s) => `${s.n} <span class="muted">(${s.perDay.toFixed(1)}/día)</span>`, null],
+    ["Cerradas · G-P", (s) => `${s.closed} · ${s.w}-${s.l}${s.open ? ` <span class="muted">(+${s.open} abiertas)</span>` : ""}`, null],
+    ["Acierto", (s) => cell(s.closed ? 100 * s.w / s.closed : null, (v) => v.toFixed(0) + " %"), null],
+    ["CLV mediana", (s) => cell(s.clvMed, (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + " %"), "clvMed"],
+    ["CLV medio", (s) => cell(s.clvMean, (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + " %"), "clvMean"],
+    ["Con CLV positivo", (s) => cell(s.clvPos, (v) => v.toFixed(0) + " %"), "clvPos"],
+    [`Resultado a $${$("ft-stake").value}`, (s) => `<b class="${s.res >= 0 ? "pos" : "neg"}">${fm(s.res)}</b>`, null],
+    ["Esperado sin suerte", (s) => fm(s.exp, true), null],
+    ["ROI sobre lo jugado", (s) => `${s.roi >= 0 ? "+" : ""}${s.roi.toFixed(1)} %`, null],
+    ["Caída máxima · peor racha", (s) => `<span class="neg">${fm(-s.dd)}</span> · ${s.mls} perdidas`, null],
+  ];
+  $("ft-sum").innerHTML = `<tr><th></th>${st.map((s) => `<th class="num" style="color:${s.color}">${s.name}<div class="muted" style="font-weight:400;white-space:normal;max-width:190px">${s.desc}</div></th>`).join("")}</tr>` +
+    rows.map(([lab, fn, key]) => { const b = key ? best(key) : null; return `<tr><td>${lab}</td>${st.map((s) => { const v = key ? s.st[key] : null; return `<td class="num">${(key && b != null && v === b && s.id !== "all") ? "<b>" + fn(s.st) + " ★</b>" : fn(s.st)}</td>`; }).join("")}</tr>`; }).join("");
+  // curvas
+  if (!window.LightweightCharts) vdTvEnsure();
+  if (window.LightweightCharts) {
+    const css = getComputedStyle(document.documentElement), c = (n) => css.getPropertyValue(n).trim();
+    if (!ftChart) { const ch = LightweightCharts.createChart($("ft-chart"), {autoSize: true, layout: {background: {type: "solid", color: "transparent"}, textColor: c("--muted"), fontSize: 12},
+      grid: {vertLines: {color: "rgba(128,128,128,.12)"}, horzLines: {color: "rgba(128,128,128,.18)"}}, rightPriceScale: {borderColor: c("--line")}, timeScale: {borderColor: c("--line"), timeVisible: true, secondsVisible: false}, localization: {priceFormatter: (v) => vdFm(v)}});
+      ftChart = {ch, series: FT.map((f) => ch.addLineSeries({color: f.color, lineWidth: f.id === "all" ? 1 : 2, lineStyle: f.id === "all" ? 2 : 0, priceLineVisible: false}))}; }
+    sets.forEach((s, i) => { let a = 0, last = 0; const D = []; s.L.filter((p) => p.s === "g" || p.s === "p").forEach((p) => { a += p.p * k; const tm = Math.max(last + 1, p.ts - 4 * 3600); last = tm; D.push({time: tm, value: Math.round(a * 100) / 100}); }); ftChart.series[i].setData(D); });
+    ftChart.ch.timeScale().fitContent();
+  }
+  $("ft-leg").innerHTML = st.map((s) => `<span style="margin-right:14px"><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color};margin-right:4px"></i>${s.name} <b class="${s.st.res >= 0 ? "pos" : "neg"}">${fm(s.st.res)}</b></span>`).join("");
+  // historial
+  $("ft-sel").innerHTML = st.map((s) => `<button type="button" data-ft="${s.id}" class="${s.id === ftSel ? "on" : ""}" style="${s.id === ftSel ? "border-color:" + s.color + ";color:" + s.color : ""}">${s.name} · ${s.st.n}</button>`).join("");
+  const cur = st.find((s) => s.id === ftSel) || st[0], hist = cur.L.slice().reverse();
+  let acc = 0; const accAt = {}; cur.L.forEach((p) => { if (p.p != null) acc += p.p * k; accAt[p.ts + "|" + p.t + "|" + p.l] = acc; });
+  const tags = (p) => FT.filter((f) => f.id !== "all" && f.f(p)).map((f) => f.name.split(" ")[0]).join("");
+  $("ft-hn").textContent = `(${cur.st.n} señales de ${cur.name.replace(/^\S+\s/, "")})`;
+  $("ft-list").innerHTML = `<tr><th>Señal</th><th>Partido</th><th>Apuesta</th><th class="num">Cuota</th><th class="num">EV</th><th class="num">CLV</th><th>Resultado</th><th class="num">Ganancia</th><th class="num">Acumulado</th><th>Filtros</th></tr>` +
+    hist.slice(0, ftShow).map((p) => `<tr><td class="small nowrap">${vdDn(p.d).slice(4)} ${vdHm(p.m)}</td><td class="small">${esc(p.t)}<div class="muted">${esc(vdFam(p.mk))} · ${esc(p.sp)}</div></td><td class="small">${esc(p.l)}${p.sy ? `<div class="muted">${esc(p.sy)}</div>` : ""}</td>
+      <td class="num"><b>${p.o.toFixed(2)}</b></td><td class="num">${p.ev.toFixed(1)}%</td><td class="num ${p.c == null ? "muted" : p.c >= 0 ? "pos" : "neg"}">${p.c == null ? "-" : (p.c >= 0 ? "+" : "") + p.c.toFixed(1) + "%"}</td>
+      <td>${p.lv ? `<span class="tag live">🔴 LIVE</span> <b>${esc(p.lv)}</b>` : p.s === "g" ? `<span class="pos">✅ ganada</span>` : p.s === "p" ? `<span class="neg">❌ perdida</span>` : p.s === "a" ? "↩️ anulada" : `<span class="tag open">abierta</span>`}${p.fin ? `<div class="small muted">quedó ${esc(p.fin)}</div>` : ""}</td>
+      <td class="num ${p.p == null ? "muted" : p.p > 0 ? "pos" : p.p < 0 ? "neg" : ""}">${p.p == null ? "-" : fm(p.p * k)}</td><td class="num">${fm(accAt[p.ts + "|" + p.t + "|" + p.l] ?? 0)}</td><td class="small">${tags(p)}</td></tr>`).join("");
+  $("ft-more").innerHTML = hist.length > ftShow ? `<button type="button" data-more="40">Ver 40 más</button><button type="button" data-more="9999">Ver todas (${hist.length})</button>` : "";
+}
+document.addEventListener("input", (e) => { if (e.target && (e.target.id === "ft-stake" || e.target.id === "ft-range")) renderFiltros(); });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("#ft-sel button[data-ft]"), m = e.target.closest("#ft-more button[data-more]");
+  if (b) { ftSel = b.dataset.ft; ftShow = 40; renderFiltros(); } else if (m) { ftShow += +m.dataset.more; renderFiltros(); }
+});
+
 function renderValorDash(x) {
   if (!x) { $("vd-kpis").innerHTML = kpi("Dashboard valor", "-", "todavía sin apuestas"); return; }
   vdData = x; vdResults(x.picks);
   if (!$("tab-mj").hidden) renderMisJugadas();
+  if (!$("tab-ft").hidden) renderFiltros();
   $("vd-upd").textContent = " Última apuesta anotada: " + when(x.last_ts) + ".";
   { const h = vdHouseGet(), ok = x.domains && x.domains[h]; $("vd-house-sel").value = h;
     $("vd-house").textContent = " 🏦 Links de esta web: " + h + (ok || h === "1xBet" ? "" : " ⚠ sin dominio (en Telegram: /dominio " + h.toLowerCase() + " <dominio>)") + " · Telegram usa la casa de /casa: " + (x.house || "1xBet") + "."; }
@@ -2350,8 +2431,9 @@ function renderTab(tab) {
   } else if (tab === "rp") {
     renderRealPaper(state.realpaper);
     renderManual(state.manual);
-  } else if (tab === "vd" || tab === "mj") {
-    if (tab === "mj") { vdData = state.valordash; vdResults(state.valordash.picks); renderMisJugadas(); }   // «Mis jugadas» usa los mismos datos del dashboard
+  } else if (tab === "vd" || tab === "mj" || tab === "ft") {
+    if (tab === "ft") { vdData = state.valordash; renderFiltros(); }
+    else if (tab === "mj") { vdData = state.valordash; vdResults(state.valordash.picks); renderMisJugadas(); }   // «Mis jugadas» usa los mismos datos del dashboard
     else renderValorDash(state.valordash);
   } else if (tab === "az") {
     renderAzuro(state.azuro, state.sxshadow, state.executor, state.auto && state.auto.breakdown);
